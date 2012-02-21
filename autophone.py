@@ -32,19 +32,6 @@ from manifestparser import TestManifest
 from devicemanager import NetworkTools
 from devicemanagerSUT import DeviceManagerSUT
 
-# there are a number of test classes.
-# there are a number of phones.
-# jobs are data representing input to tests (along with phone info)
-# each phone can run 1 test at a time
-#   each phone has its own test process
-#
-# main loop should instantiate test objects with job info, pass to phone
-# objects. phone objects should queue test objects.
-
-
-# Objects that conform to test object interface
-# TODO: refactor this one: import runstartuptest
-#from s1s2test import S1S2Test
 
 class CmdTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer): 
 
@@ -85,9 +72,12 @@ class CmdTCPHandler(SocketServer.BaseRequestHandler):
 
 class PhoneWorker(object):
 
-    def __init__(self, tests, phone_cfg, status_queue):
+    def __init__(self, worker_num, tests, phone_cfg, callback_ipaddr,
+                 status_queue):
+        self.worker_num = worker_num
         self.tests = tests
         self.phone_cfg = phone_cfg
+        self.callback_ipaddr = callback_ipaddr
         self.status_queue = status_queue
         self.job_queue = multiprocessing.Queue()
         self.stopped = False
@@ -95,7 +85,10 @@ class PhoneWorker(object):
         self.p = None
     
     def add_job(self, job):
-        self.job_queue.put_nowait(job)
+        self.job_queue.put_nowait(('job', job))
+
+    def reboot(self):
+        self.job_queue.put_nowait(('reboot', None))
 
     def start(self):
         if self.p:
@@ -117,33 +110,49 @@ class PhoneWorker(object):
         return stopped
 
     def status_update(self, msg):
-        logging.info('updating status')
         self.status_queue.put(msg)
-        logging.info('status updated')
 
     def loop(self):
         for t in self.tests:
             t.status_cb = self.status_update
         while True:
             try:
-                job = self.job_queue.get(True)
+                request = self.job_queue.get(True)
             except KeyboardInterrupt:
                 return
             if self.should_stop():
                 return
-            if not job:
-                continue
-            for t in self.tests:
-                t.runjob(job)
-                if self.should_stop():
-                    return
+            if request[0] == 'job':
+                job = request[1]
+                if not job:
+                    continue
+                for t in self.tests:
+                    t.runjob(job)
+                    if self.should_stop():
+                        return
+            elif request[0] == 'reboot':
+                self.status_update(phonetest.PhoneTestMessage(
+                        self.phone_cfg['phoneid'], True, 'rebooting'))
+                dm = DeviceManagerSUT(self.phone_cfg['ip'],
+                                      self.phone_cfg['sutcmdport'])
+                dm.debug = 0
+                dm.reboot(self.callback_ipaddr, 30000 + self.worker_num)
+                self.status_update(phonetest.PhoneTestMessage(
+                        self.phone_cfg['phoneid'], True, 'phone reset'))
 
 
 class AutoPhone(object):
 
-    def __init__(self, is_restarting, test_path, cachefile, port):
+    def __init__(self, is_restarting, test_path, cachefile, ipaddr, port):
         self._test_path = test_path
         self._cache = cachefile
+        if ipaddr:
+            self.ipaddr = ipaddr
+        else:
+            nt = NetworkTools()
+            self.ipaddr = nt.getLanIp()
+            logging.info('IP address for phone callbacks not provided; using '
+                         '%s.' % self.ipaddr)
         self.port = port
         self._stop = False
         self.phone_workers = {}  # indexed by mac address
@@ -257,7 +266,8 @@ class AutoPhone(object):
         tests = [x[0](phone_cfg=phone_cfg, config_file=x[1]) for
                  x in self._tests]
 
-        worker = PhoneWorker(tests, phone_cfg, self.worker_msg_queue)
+        worker = PhoneWorker(len(self.phone_workers.keys()), tests, phone_cfg,
+                             self.ipaddr, self.worker_msg_queue)
         self.phone_workers[phone_cfg['phoneid']] = worker
         worker.start()
         logging.info('Registered phone %s.' % phone_cfg['phoneid'])
@@ -325,12 +335,14 @@ class AutoPhone(object):
             if t['name'].endswith('.py'):
                 t['name'] = t['name'][:-3]
             # add all classes in module that are derived from PhoneTest to
-            # the job list
-            jobs = [(x[1], os.path.normpath(os.path.join(t['here'], t.get('config', '')))) for x in
-                    inspect.getmembers(__import__(t['name']), inspect.isclass)
-                    if x[0] != 'PhoneTest' and 
-                    issubclass(x[1], phonetest.PhoneTest)]
-            self._tests.extend(jobs)
+            # the test list
+            tests = [(x[1], os.path.normpath(os.path.join(t['here'],
+                                                          t.get('config', ''))))
+                     for x in inspect.getmembers(__import__(t['name']),
+                                                 inspect.isclass)
+                     if x[0] != 'PhoneTest' and issubclass(x[1],
+                                                           phonetest.PhoneTest)]
+            self._tests.extend(tests)
 
     def trigger_jobs(self, data):
         vlist = data.split(',')
@@ -344,23 +356,9 @@ class AutoPhone(object):
         self.start_tests(job)
 
     def reset_phones(self):
-        # FIXME: This should be done in phone-controller processes, not
-        # serially here.
         logging.info('Restting phones...')
-        nt = NetworkTools()
-        myip = nt.getLanIp()
         for phoneid, phone in self.phone_workers.iteritems():
-            logging.info('Rebooting %s' % phoneid)
-            try:
-                dm = DeviceManagerSUT(phone.phone_cfg['ip'],
-                                      phone.phone_cfg['sutcmdport'])
-                dm.debug = 0
-                #dm.reboot(myip)
-                dm.reboot('192.168.1.110')
-            except:
-                logging.error('COULD NOT REBOOT PHONE: %s' % phoneid)
-                logging.error('exception: %s %s' % sys.exc_info()[:2])
-        logging.info('Phones reset.')
+            phone.reboot()
 
     def on_build(self, msg):
         # Use the msg to get the build and install it then kick off our tests
@@ -386,7 +384,8 @@ class AutoPhone(object):
         self.server_thread.join()
 
 
-def main(is_restarting, test_path, cachefile, port, logfile, loglevel_name):
+def main(is_restarting, test_path, cachefile, ipaddr, port, logfile,
+         loglevel_name):
     loglevel = e = None
     try:
         loglevel = getattr(logging, loglevel_name)
@@ -402,7 +401,7 @@ def main(is_restarting, test_path, cachefile, port, logfile, loglevel_name):
                         format='%(asctime)s|%(levelname)s|%(message)s')
 
     print 'Starting server on port %d.' % port
-    autophone = AutoPhone(is_restarting, test_path, cachefile, port)
+    autophone = AutoPhone(is_restarting, test_path, cachefile, ipaddr, port)
     autophone.run()
     return 0
 
@@ -415,6 +414,10 @@ if __name__ == '__main__':
                       default=False,
                       help='If specified, we restart using the information '
                       'in cache')
+    parser.add_option('--ipaddr', action='store', type='string', dest='ipaddr',
+                      default=None, help='IP address of interface to use for '
+                      'phone callbacks, e.g. after rebooting. If not given, '
+                      'it will be guessed.')
     parser.add_option('--port', action='store', type='int', dest='port',
                       default=28001,
                       help='Port to listen for incoming connections, defaults '
@@ -437,7 +440,7 @@ if __name__ == '__main__':
     (options, args) = parser.parse_args()
 
     exit_code = main(options.is_restarting, options.test_path, 
-                     options.cachefile, options.port, options.logfile,
-                     options.loglevel) 
+                     options.cachefile, options.ipaddr, options.port,
+                     options.logfile, options.loglevel) 
 
     sys.exit(exit_code)
