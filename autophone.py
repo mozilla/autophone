@@ -73,12 +73,16 @@ class CmdTCPHandler(SocketServer.BaseRequestHandler):
 class PhoneWorker(object):
 
     def __init__(self, worker_num, tests, phone_cfg, callback_ipaddr,
-                 status_queue):
+                 status_queue, main_logfile, loglevel):
         self.worker_num = worker_num
         self.tests = tests
         self.phone_cfg = phone_cfg
         self.callback_ipaddr = callback_ipaddr
         self.status_queue = status_queue
+        logfile_prefix, logfile_ext = os.path.splitext(main_logfile)
+        self.logfile = '%s-%s%s' % (logfile_prefix, phone_cfg['phoneid'],
+                                    logfile_ext)
+        self.loglevel = loglevel
         self.job_queue = multiprocessing.Queue()
         self.stopped = False
         self.lock = multiprocessing.Lock()
@@ -113,6 +117,12 @@ class PhoneWorker(object):
         self.status_queue.put(msg)
 
     def loop(self):
+        for h in logging.getLogger().handlers:
+            logging.getLogger().removeHandler(h)
+        logging.basicConfig(filename=self.logfile,
+                            filemode='a',
+                            level=self.loglevel,
+                            format='%(asctime)s|%(levelname)s|%(message)s')
         for t in self.tests:
             t.status_cb = self.status_update
         while True:
@@ -126,10 +136,12 @@ class PhoneWorker(object):
                 job = request[1]
                 if not job:
                     continue
+                logging.info('Got job; running tests.')
                 for t in self.tests:
                     t.runjob(job)
                     if self.should_stop():
                         return
+                logging.info('Job completed.')
             elif request[0] == 'reboot':
                 self.status_update(phonetest.PhoneTestMessage(
                         self.phone_cfg['phoneid'], True, 'rebooting'))
@@ -143,7 +155,8 @@ class PhoneWorker(object):
 
 class AutoPhone(object):
 
-    def __init__(self, is_restarting, test_path, cachefile, ipaddr, port):
+    def __init__(self, is_restarting, reboot_phones, test_path, cachefile,
+                 ipaddr, port, logfile, loglevel):
         self._test_path = test_path
         self._cache = cachefile
         if ipaddr:
@@ -154,6 +167,8 @@ class AutoPhone(object):
             logging.info('IP address for phone callbacks not provided; using '
                          '%s.' % self.ipaddr)
         self.port = port
+        self.logfile = logfile
+        self.loglevel = loglevel
         self._stop = False
         self.phone_workers = {}  # indexed by mac address
         self.worker_statuses = {}
@@ -179,7 +194,8 @@ class AutoPhone(object):
 
         if is_restarting:
             self.read_cache()
-            self.reset_phones()
+            if reboot_phones:
+                self.reset_phones()
 
         self.server = None
         self.server_thread = None
@@ -257,6 +273,10 @@ class AutoPhone(object):
             self.trigger_jobs(params)
         elif cmd == 'register':
             self.register_cmd(params)
+        elif cmd == 'status':
+            response = json.dumps(self.worker_statuses,
+                                  cls=phonetest.PhoneTestMessage.JsonEncoder) \
+                                  + '\n'
         else:
             response = 'Unknown command "%s"\n' % cmd
         self.cmd_lock.release()
@@ -267,7 +287,8 @@ class AutoPhone(object):
                  x in self._tests]
 
         worker = PhoneWorker(len(self.phone_workers.keys()), tests, phone_cfg,
-                             self.ipaddr, self.worker_msg_queue)
+                             self.ipaddr, self.worker_msg_queue, self.logfile,
+                             self.loglevel)
         self.phone_workers[phone_cfg['phoneid']] = worker
         worker.start()
         logging.info('Registered phone %s.' % phone_cfg['phoneid'])
@@ -384,8 +405,8 @@ class AutoPhone(object):
         self.server_thread.join()
 
 
-def main(is_restarting, test_path, cachefile, ipaddr, port, logfile,
-         loglevel_name):
+def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
+         logfile, loglevel_name):
     loglevel = e = None
     try:
         loglevel = getattr(logging, loglevel_name)
@@ -395,13 +416,15 @@ def main(is_restarting, test_path, cachefile, ipaddr, port, logfile,
         if e or logging.getLevelName(loglevel) != loglevel_name:
             print 'Invalid log level %s' % loglevel_name
             return errno.EINVAL
+
     logging.basicConfig(filename=logfile,
-                        filemode='w',
+                        filemode='a',
                         level=loglevel,
                         format='%(asctime)s|%(levelname)s|%(message)s')
 
     print 'Starting server on port %d.' % port
-    autophone = AutoPhone(is_restarting, test_path, cachefile, ipaddr, port)
+    autophone = AutoPhone(is_restarting, reboot_phones, test_path, cachefile,
+                          ipaddr, port, logfile, loglevel)
     autophone.run()
     return 0
 
@@ -414,6 +437,9 @@ if __name__ == '__main__':
                       default=False,
                       help='If specified, we restart using the information '
                       'in cache')
+    parser.add_option('--no-reboot', action='store_false', dest='reboot_phones',
+                      default=True, help='With --restart, indicates that '
+                      'phones should not be rebooted when autophone starts')
     parser.add_option('--ipaddr', action='store', type='string', dest='ipaddr',
                       default=None, help='IP address of interface to use for '
                       'phone callbacks, e.g. after rebooting. If not given, '
@@ -428,8 +454,9 @@ if __name__ == '__main__':
                       'in local dir')
     parser.add_option('--logfile', action='store', type='string',
                       dest='logfile', default='autophone.log',
-                      help='Log file to store logging from entire system, '
-                      'default: autophone.log')
+                      help='Log file to store logging from entire system. '
+                      'Individual phone worker logs will use '
+                      '<logfile>-<phoneid>[.<ext>]. Default: autophone.log')
     parser.add_option('--loglevel', action='store', type='string',
                       dest='loglevel', default='DEBUG',
                       help='Log level - ERROR, WARNING, DEBUG, or INFO, '
@@ -439,8 +466,8 @@ if __name__ == '__main__':
                       help='path to test manifest')
     (options, args) = parser.parse_args()
 
-    exit_code = main(options.is_restarting, options.test_path, 
-                     options.cachefile, options.ipaddr, options.port,
-                     options.logfile, options.loglevel) 
+    exit_code = main(options.is_restarting, options.reboot_phones,
+                     options.test_path, options.cachefile, options.ipaddr,
+                     options.port, options.logfile, options.loglevel) 
 
     sys.exit(exit_code)

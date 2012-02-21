@@ -3,9 +3,19 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
+import json
 import logging
 
+
 class PhoneTestMessage(object):
+
+    class JsonEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, PhoneTestMessage):
+                return { 'phoneid': obj.phoneid, 'online': obj.online,
+                         'msg': obj.msg, 'timestamp': obj.timestamp }
+            return json.JSONEncoder.default(self, obj)
+
 
     def __init__(self, phoneid, online, msg):
         self.phoneid = phoneid
@@ -44,7 +54,6 @@ class PhoneTest(object):
         self.phone_cfg = phone_cfg
         self.status = None
         self.logger = logging.getLogger('phonetest')
-        self.set_status(msg='Initialized')
 
     def runjob(self, job):
         raise NotImplementedError

@@ -17,6 +17,8 @@ import devicemanagerSUT
 # a very hacky way, python: http://bugs.python.org/issue1731717
 subprocess._cleanup = lambda: None
 
+adb_path_warning_issued = False
+
 """
 install_build_sut - installs build on phone via sutagent
 Params:
@@ -140,7 +142,10 @@ def run_adb(adbcmd, cmd, serial=None):
     if 'ANDROID_SDK' in os.environ:
         adb = os.path.join(os.environ['ANDROID_SDK'], 'platform-tools', 'adb')
     else:
-        logging.warn('Cannot find ANDROID_SDK in environment variables, assuming adb is on your path')
+        global adb_path_warning_issued
+        if not adb_path_warning_issued:
+            logging.warn('Cannot find ANDROID_SDK in environment variables, assuming adb is on your path')
+            adb_path_warning_issued = True
         adb = 'adb'
 
 
