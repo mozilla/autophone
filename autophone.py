@@ -1,0 +1,443 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this file,
+# You can obtain one at http://mozilla.org/MPL/2.0/.
+
+import ConfigParser
+import Queue
+import SocketServer
+import errno
+import inspect
+import logging
+import multiprocessing
+import os
+import pickle
+import socket
+import sys
+import threading
+import time
+import traceback
+import urlparse
+import uuid
+
+try:
+    import json
+except ImportError:
+    import simplejson
+
+import phonetest
+
+from manifestparser import TestManifest
+
+#from pulsebuildmonitor import start_pulse_monitor
+from devicemanager import NetworkTools
+from devicemanagerSUT import DeviceManagerSUT
+
+# there are a number of test classes.
+# there are a number of phones.
+# jobs are data representing input to tests (along with phone info)
+# each phone can run 1 test at a time
+#   each phone has its own test process
+#
+# main loop should instantiate test objects with job info, pass to phone
+# objects. phone objects should queue test objects.
+
+
+# Objects that conform to test object interface
+# TODO: refactor this one: import runstartuptest
+#from s1s2test import S1S2Test
+
+class CmdTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer): 
+
+    allow_reuse_address = True
+    daemon_threads = True
+    cmd_cb = None
+
+
+class CmdTCPHandler(SocketServer.BaseRequestHandler):
+
+    def handle(self):
+        buffer = ''
+        self.request.send('>')
+        while True:
+            try:
+                data = self.request.recv(1024)
+            except socket.error, e:
+                if e.errno == errno.ECONNRESET:
+                    break
+            if not data:
+                break
+            buffer += data
+            while buffer:
+                line, nl, rest = buffer.partition('\n')
+                if not nl:
+                    break
+                buffer = rest
+                line = line.strip()
+                if not line:
+                    continue
+                if line == 'quit' or line == 'exit':
+                    self.request.close()
+                    break
+                response = self.server.cmd_cb(line)
+                self.request.send(response)
+                self.request.send('>')
+
+
+class PhoneWorker(object):
+
+    def __init__(self, tests, phone_cfg, status_queue):
+        self.tests = tests
+        self.phone_cfg = phone_cfg
+        self.status_queue = status_queue
+        self.job_queue = multiprocessing.Queue()
+        self.stopped = False
+        self.lock = multiprocessing.Lock()
+        self.p = None
+    
+    def add_job(self, job):
+        self.job_queue.put_nowait(job)
+
+    def start(self):
+        if self.p:
+            return
+        self.p = multiprocessing.Process(target=self.loop)
+        self.p.start()
+
+    def stop(self):
+        self.lock.acquire()
+        self.stopped = True
+        self.lock.release()
+        self.job_queue.put_nowait(None)
+        self.p.join()
+
+    def should_stop(self):
+        self.lock.acquire()
+        stopped = self.stopped
+        self.lock.release()
+        return stopped
+
+    def status_update(self, msg):
+        logging.info('updating status')
+        self.status_queue.put(msg)
+        logging.info('status updated')
+
+    def loop(self):
+        for t in self.tests:
+            t.status_cb = self.status_update
+        while True:
+            try:
+                job = self.job_queue.get(True)
+            except KeyboardInterrupt:
+                return
+            if self.should_stop():
+                return
+            if not job:
+                continue
+            for t in self.tests:
+                t.runjob(job)
+                if self.should_stop():
+                    return
+
+
+class AutoPhone(object):
+
+    def __init__(self, is_restarting, test_path, cachefile, port):
+        self._test_path = test_path
+        self._cache = cachefile
+        self.port = port
+        self._stop = False
+        self.phone_workers = {}  # indexed by mac address
+        self.worker_statuses = {}
+        self.worker_lock = threading.Lock()
+        self.cmd_lock = threading.Lock()
+        self._tests = []
+        logging.info('Starting autophone')
+        
+        # queue for listening to status updates from tests
+        self.worker_msg_queue = multiprocessing.Queue()
+
+        self.read_tests()
+
+        if not os.path.exists(self._cache):
+            # If we don't have a cache you aren't restarting
+            is_restarting = False
+            open(self._cache, 'wb')
+        elif not is_restarting:
+            # If we have a cache and we are NOT restarting, then assume that
+            # cache is invalid. Blow it away and recreate it
+            os.remove(self._cache)
+            open(self._cache, 'wb')
+
+        if is_restarting:
+            self.read_cache()
+            self.reset_phones()
+
+        self.server = None
+        self.server_thread = None
+
+        # Start our pulse listener for the birch builds
+        #self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
+        #                                        tree=['birch'],
+        #                                        platform=['linux-android'],
+        #                                        mobile=False,
+        #                                        buildtype='opt'
+        #                                       )
+
+    def run(self):
+        self.server = CmdTCPServer(('0.0.0.0', self.port), CmdTCPHandler)
+        self.server.cmd_cb = self.route_cmd
+        self.server_thread = threading.Thread(target=self.server.serve_forever)
+        self.server_thread.start()
+        self.worker_msg_loop()
+
+    def worker_msg_loop(self):
+        try:
+            while not self._stop:
+                try:
+                    msg = self.worker_msg_queue.get(timeout=5)
+                except Queue.Empty:
+                    continue
+                self.worker_statuses[msg.phoneid] = msg
+                logging.info(msg)
+        except KeyboardInterrupt:
+            self.stop()
+
+    # This runs the tests and resets the self._lasttest variable.
+    # It also can install a new build, to install, set build_url to the URL of the
+    # build to download and install
+    def disperse_jobs(self):
+        try:
+            logging.debug('Asking for jobs')
+            while not self._jobqueue.empty():
+                job = self._jobqueue.get()
+                logging.debug('Got job: %s' % job)
+                for k,v in self._phonemap.iteritems():
+                    # TODO: Refactor so that the job can specify the test so that
+                    # then multiple types of test objects can be ran on one set of
+                    # phones.
+                    logging.debug('Adding job to phone: %s' % v['name'])
+                    ### FIXME: Need to serialize tests on each phone...
+                    for t in v['testobjs']:
+                        t.add_job(job)
+                self._jobqueue.task_done()
+        except:
+            logging.error('Exception adding jobs: %s %s' % sys.exc_info()[:2])
+
+    # Start the phones for testing
+    def start_tests(self, job):
+        self.worker_lock.acquire()
+        for p in self.phone_workers.values():
+            logging.info('Starting job on phone: %s' % p.phone_cfg['phoneid'])
+            p.add_job(job)
+        self.worker_lock.release()
+
+    def route_cmd(self, data):
+        self.cmd_lock.acquire()
+        data = data.strip()
+        cmd, space, params = data.partition(' ')
+        cmd = cmd.lower()
+        response = 'ok'
+
+        # TODO: Implement the get status command to get status for a particular
+        # phone
+        if cmd == 'stop':
+            self.stop()
+        elif cmd == 'log':
+            logging.info(params)
+        elif cmd == 'triggerjobs':
+            self.trigger_jobs(params)
+        elif cmd == 'register':
+            self.register_cmd(params)
+        else:
+            response = 'Unknown command "%s"\n' % cmd
+        self.cmd_lock.release()
+        return response
+
+    def register_phone(self, phone_cfg):
+        tests = [x[0](phone_cfg=phone_cfg, config_file=x[1]) for
+                 x in self._tests]
+
+        worker = PhoneWorker(tests, phone_cfg, self.worker_msg_queue)
+        self.phone_workers[phone_cfg['phoneid']] = worker
+        worker.start()
+        logging.info('Registered phone %s.' % phone_cfg['phoneid'])
+
+    def register_cmd(self, data):
+        # Un-url encode it
+        data = urlparse.parse_qs(data.lower())
+
+        try:
+            # Map MAC Address to ip and user name for phone
+            # The configparser does odd things with the :'s so remove them.
+            macaddr = data['name'][0].replace(':', '_')
+            phoneid = '%s_%s' % (macaddr, data['hardware'][0])
+
+            if phoneid not in self.phone_workers:
+                phone_cfg = dict(
+                    phoneid=phoneid,
+                    serial=data['pool'][0].upper(),
+                    ip=data['ipaddr'][0],
+                    sutcmdport=data['cmdport'][0],
+                    machinetype=data['hardware'][0],
+                    osver=data['os'][0])
+                self.register_phone(phone_cfg)
+                self.update_phone_cache()
+            else:
+                logging.debug('Registering known phone: %s' %
+                              self.phone_workers[phoneid].phone_cfg['phoneid'])
+        except:
+            print 'ERROR: could not write cache file, exiting'
+            traceback.print_exception(*sys.exc_info())
+            self.stop()
+
+    def read_cache(self):
+        self.phone_workers.clear()
+        f = file(self._cache, 'r')
+        try:
+            cache = json.loads(f.read())
+        except ValueError:
+            cache = {}
+        f.close()
+
+        for phone_cfg in cache.get('phones', []):
+            self.register_phone(phone_cfg)
+
+    def update_phone_cache(self):
+        f = file(self._cache, 'r')
+        try:
+            cache = json.loads(f.read())
+        except ValueError:
+            cache = {}
+
+        cache['phones'] = [x.phone_cfg for x in self.phone_workers.values()]
+        f = file(self._cache, 'w')
+        f.write(json.dumps(cache))
+        f.close()
+
+    def read_tests(self):
+        self._tests = []
+        manifest = TestManifest()
+        manifest.read(self._test_path)
+        tests_info = manifest.get()
+        for t in tests_info:
+            if not t['here'] in sys.path:
+                sys.path.append(t['here'])
+            if t['name'].endswith('.py'):
+                t['name'] = t['name'][:-3]
+            # add all classes in module that are derived from PhoneTest to
+            # the job list
+            jobs = [(x[1], os.path.normpath(os.path.join(t['here'], t.get('config', '')))) for x in
+                    inspect.getmembers(__import__(t['name']), inspect.isclass)
+                    if x[0] != 'PhoneTest' and 
+                    issubclass(x[1], phonetest.PhoneTest)]
+            self._tests.extend(jobs)
+
+    def trigger_jobs(self, data):
+        vlist = data.split(',')
+        job = {}
+        for v in vlist:
+            k = v.split('=')
+            # Insert the key value pairs into the dict
+            job[k[0]] = k[1]
+            # Insert the full job dict into the queue for processing
+        logging.info('Adding job: %s' % job)
+        self.start_tests(job)
+
+    def reset_phones(self):
+        # FIXME: This should be done in phone-controller processes, not
+        # serially here.
+        logging.info('Restting phones...')
+        nt = NetworkTools()
+        myip = nt.getLanIp()
+        for phoneid, phone in self.phone_workers.iteritems():
+            logging.info('Rebooting %s' % phoneid)
+            try:
+                dm = DeviceManagerSUT(phone.phone_cfg['ip'],
+                                      phone.phone_cfg['sutcmdport'])
+                dm.debug = 0
+                #dm.reboot(myip)
+                dm.reboot('192.168.1.110')
+            except:
+                logging.error('COULD NOT REBOOT PHONE: %s' % phoneid)
+                logging.error('exception: %s %s' % sys.exc_info()[:2])
+        logging.info('Phones reset.')
+
+    def on_build(self, msg):
+        # Use the msg to get the build and install it then kick off our tests
+        logging.debug('---------- BUILD FOUND ----------')
+        logging.debug('%s' % msg)
+        logging.debug('---------------------------------')
+
+        # We will get a msg on busted builds with no URLs, so just ignore
+        # those, and only run the ones with real URLs
+        # We create jobs for all the phones and push them into the queue
+        if 'buildurl' in msg:
+            for k,v in self._phonemap.iteritems():
+                job = {'phone':k, 'buildurl':msg['buildurl'],
+                       'builddate':msg['builddate'],
+                       'revision':msg['commit']}
+                self._jobqueue.put_nowait(job)
+
+    def stop(self):
+        self._stop = True
+        self.server.shutdown()
+        for p in self.phone_workers.values():
+            p.stop()
+        self.server_thread.join()
+
+
+def main(is_restarting, test_path, cachefile, port, logfile, loglevel_name):
+    loglevel = e = None
+    try:
+        loglevel = getattr(logging, loglevel_name)
+    except AttributeError, e:
+        pass
+    finally:
+        if e or logging.getLevelName(loglevel) != loglevel_name:
+            print 'Invalid log level %s' % loglevel_name
+            return errno.EINVAL
+    logging.basicConfig(filename=logfile,
+                        filemode='w',
+                        level=loglevel,
+                        format='%(asctime)s|%(levelname)s|%(message)s')
+
+    print 'Starting server on port %d.' % port
+    autophone = AutoPhone(is_restarting, test_path, cachefile, port)
+    autophone.run()
+    return 0
+
+
+if __name__ == '__main__':
+    from optparse import OptionParser
+
+    parser = OptionParser()
+    parser.add_option('--restarting', action='store_true', dest='is_restarting',
+                      default=False,
+                      help='If specified, we restart using the information '
+                      'in cache')
+    parser.add_option('--port', action='store', type='int', dest='port',
+                      default=28001,
+                      help='Port to listen for incoming connections, defaults '
+                      'to 28001')
+    parser.add_option('--cache', action='store', type='string', dest='cachefile',
+                      default='autophone_cache.json',
+                      help='Cache file to use, defaults to autophone_cache.json '
+                      'in local dir')
+    parser.add_option('--logfile', action='store', type='string',
+                      dest='logfile', default='autophone.log',
+                      help='Log file to store logging from entire system, '
+                      'default: autophone.log')
+    parser.add_option('--loglevel', action='store', type='string',
+                      dest='loglevel', default='DEBUG',
+                      help='Log level - ERROR, WARNING, DEBUG, or INFO, '
+                      'defaults to DEBUG')
+    parser.add_option('-t', '--test-path', action='store', type='string',
+                      dest='test_path', default='tests/manifest.ini',
+                      help='path to test manifest')
+    (options, args) = parser.parse_args()
+
+    exit_code = main(options.is_restarting, options.test_path, 
+                     options.cachefile, options.port, options.logfile,
+                     options.loglevel) 
+
+    sys.exit(exit_code)
