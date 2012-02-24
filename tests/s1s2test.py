@@ -73,11 +73,11 @@ class S1S2Test(PhoneTest):
                     # Get results
                     throbberstart, throbberstop, drawtime = self.analyze_logcat()
 
-                    # Ensure we succeeded
-                    if (throbberstart != 0 and
-                        throbberstop != 0 and
-                        drawtime != 0 and
-                        starttime != 0):
+                    # Ensure we succeeded - no 0's reported
+                    if (throbberstart and
+                        throbberstop and
+                        drawtime and
+                        starttime):
                         success = True
                     else:
                         attempt = attempt + 1
