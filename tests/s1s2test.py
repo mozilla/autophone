@@ -17,7 +17,7 @@ class S1S2Test(PhoneTest):
 
     def __init__(self, phone_cfg, config_file=None, status_cb=None):
         PhoneTest.__init__(self, phone_cfg, config_file, status_cb)
-        
+
     def runjob(self, job):
         if 'buildurl' not in job or 'androidprocname' not in job or \
                 'revision' not in job or 'blddate' not in job or \
@@ -45,29 +45,42 @@ class S1S2Test(PhoneTest):
                              (self.phone_cfg['phoneid'], testname,
                               self._iterations))
             for i in range(self._iterations):
-                # Set status
-                self.set_status(msg='Run %s for url %s' % (i,url))
+                success = False
+                attempt = 0
+                while not success and attempt < 3:
+                    # Set status
+                    self.set_status(msg='Run %s,attempt %s for url %s' %
+                            (i, attempt, url))
 
-                # Clear logcat
-                androidutils.run_adb('logcat', ['-c'], self.phone_cfg['serial'])
+                    # Clear logcat
+                    androidutils.run_adb('logcat', ['-c'], self.phone_cfg['serial'])
 
-                # Get start time
-                try:
-                    starttime = self.dm.getInfo('uptimemillis')['uptimemillis'][0]
-                except IndexError:
-                    starttime = 0
+                    # Get start time
+                    try:
+                        starttime = self.dm.getInfo('uptimemillis')['uptimemillis'][0]
+                    except IndexError:
+                        starttime = 0
 
-                # Run test
-                androidutils.run_adb('shell',
+                    # Run test
+                    androidutils.run_adb('shell',
                                      ['sh', '/mnt/sdcard/s1test/runbrowser.sh', intent,
                                       url], self.phone_cfg['serial'])
 
-                # Let browser stabilize - this was 5s but that wasn't long
-                # enough for the device to stabilize on slow devices
-                sleep(10)
+                    # Let browser stabilize - this was 5s but that wasn't long
+                    # enough for the device to stabilize on slow devices
+                    sleep(10)
 
-                # Get results
-                throbberstart, throbberstop, drawtime = self.analyze_logcat()
+                    # Get results
+                    throbberstart, throbberstop, drawtime = self.analyze_logcat()
+
+                    # Ensure we succeeded - no 0's reported
+                    if (throbberstart and
+                        throbberstop and
+                        drawtime and
+                        starttime):
+                        success = True
+                    else:
+                        attempt = attempt + 1
 
                 # Publish results
                 self.publish_results(starttime=int(starttime),
