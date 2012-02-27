@@ -70,8 +70,18 @@ class S1S2Test(PhoneTest):
                     # enough for the device to stabilize on slow devices
                     sleep(10)
 
-                    # Get results
+                    # Get results - do this now so we don't have as much to
+                    # parse in logcat.
                     throbberstart, throbberstop, drawtime = self.analyze_logcat()
+
+                    # Get rid of the browser and session store files
+                    androidutils.kill_proc_sut(self.phone_cfg['ip'],
+                                               self.phone_cfg['sutcmdport'],
+                                               job['androidprocname'])
+
+                    androidutils.remove_sessionstore_files_adb(
+                        self.phone_cfg['serial'],
+                        procname=job['androidprocname'])
 
                     # Ensure we succeeded - no 0's reported
                     if (throbberstart and
@@ -89,12 +99,6 @@ class S1S2Test(PhoneTest):
                                      drawing=drawtime,
                                      job=job,
                                      testname=testname)
-                androidutils.kill_proc_sut(self.phone_cfg['ip'],
-                                           self.phone_cfg['sutcmdport'],
-                                           job['androidprocname'])
-                androidutils.remove_sessionstore_files_adb(
-                    self.phone_cfg['serial'],
-                    procname=job['androidprocname'])
 
     def prepare_phone(self, job):
         androidutils.run_adb('shell', ['mkdir', '/mnt/sdcard/s1test'],
