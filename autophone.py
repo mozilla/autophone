@@ -32,7 +32,7 @@ import phonetest
 
 from manifestparser import TestManifest
 
-#from pulsebuildmonitor import start_pulse_monitor
+from pulsebuildmonitor import start_pulse_monitor
 from devicemanager import NetworkTools
 from devicemanagerSUT import DeviceManagerSUT
 
@@ -214,12 +214,12 @@ class AutoPhone(object):
         self.server = None
         self.server_thread = None
 
-        #self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
-        #                                        tree=['mozilla-central'],
-        #                                        platform=['android'],
-        #                                        mobile=False,
-        #                                        buildtype='opt',
-        #                                        logger=logging.getLogger())
+        self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
+                                                tree=['mozilla-central'],
+                                                platform=['android'],
+                                                mobile=False,
+                                                buildtype='opt',
+                                                logger=logging.getLogger())
 
     def run(self):
         self.server = CmdTCPServer(('0.0.0.0', self.port), CmdTCPHandler)
