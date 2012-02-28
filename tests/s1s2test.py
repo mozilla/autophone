@@ -69,8 +69,16 @@ class S1S2Test(PhoneTest):
                     # enough for the device to stabilize on slow devices
                     sleep(10)
 
-                    # Get results
+                    # Get results - do this now so we don't have as much to
+                    # parse in logcat.
                     throbberstart, throbberstop, drawtime = self.analyze_logcat()
+
+                    # Get rid of the browser and session store files
+                    androidutils.kill_proc_sut(self.phone_cfg['ip'],
+                                               self.phone_cfg['sutcmdport'],
+                                               job['androidprocname'])
+
+                    self.remove_sessionstore_files()
 
                     # Ensure we succeeded - no 0's reported
                     if (throbberstart and
@@ -88,10 +96,6 @@ class S1S2Test(PhoneTest):
                                      drawing=drawtime,
                                      job=job,
                                      testname=testname)
-                androidutils.kill_proc_sut(self.phone_cfg['ip'],
-                                           self.phone_cfg['sutcmdport'],
-                                           job['androidprocname'])
-                self.remove_sessionstore_files()
 
     def prepare_phone(self, job):
         prefs = { 'browser.firstrun.show.localepicker': False,
