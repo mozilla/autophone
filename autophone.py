@@ -149,6 +149,9 @@ class PhoneWorker(object):
                     continue
                 logging.info('Got job; running tests.')
                 for t in self.tests:
+                    # TODO: Attempt to see if pausing between jobs helps with
+                    # our reconnection issues
+                    time.sleep(30)
                     t.runjob(job)
                     if self.should_stop():
                         return
