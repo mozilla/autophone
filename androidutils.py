@@ -17,7 +17,31 @@ import devicemanagerSUT
 # a very hacky way, python: http://bugs.python.org/issue1731717
 subprocess._cleanup = lambda: None
 
-adb_path_warning_issued = False
+build_cache_dir = 'builds'
+
+def get_build(buildurl, phoneid):
+    try:
+        shutil.rmtree(phoneid)
+    except OSError, e:
+	if e.errno != errno.ENOENT:
+            raise
+    os.mkdir(phoneid)
+
+    apkpath = os.path.abspath(os.path.join(phoneid, 'bld.apk'))
+    cached_filename = os.path.join(build_cache_dir, os.path.basename(buildurl))
+
+    if os.path.exists(cached_filename):
+        shutil.copyfile(cached_filename, apkpath)
+    else:
+        try:
+            logging.debug('Grabbing build: %s' % buildurl)
+            urllib.urlretrieve(buildurl, apkpath)
+        except:
+            logging.error('Could not download build: %s %s' %
+                          sys.exc_info()[:2])
+            return None
+    return apkpath
+        
 
 """
 install_build_sut - installs build on phone via sutagent
@@ -35,42 +59,38 @@ def install_build_sut(phoneid=None, url=None, procname='org.mozilla.fennec',
         print 'You must specify a phoneid, url, and sutip address'
         return False
 
+
+    apkpath = get_build(url, phoneid)
+    if not apkpath:
+        return False
+
     ret = True
-    # First, you download
-    os.mkdir(phoneid)
-    apkpath = os.path.abspath(os.path.join(phoneid, 'bld.apk'))
-    try:
-        logging.debug('Installing build on phone: %s from url %s' % (phoneid, url))
-        urllib.urlretrieve(url, apkpath)
-    except:
-        logging.error('Could not download build due to: %s %s' % sys.exc_info()[:2])
-        ret = False
 
     nt = NetworkTools()
     myip = nt.getLanIp()
 
-    if ret:
-        try:
-            dm = devicemanagerSUT.DeviceManagerSUT(sutip, sutport)
-            devroot = dm.getDeviceRoot()
-            # If we get a real deviceroot, then we can connect to the phone
-            if devroot:
-                devpath = devroot + '/fennecbld.apk'
-                dm.pushFile(apkpath, devpath)
-                dm.updateApp(devpath, processName=procname, ipAddr=myip,
-                        port=callbackport)
-                logging.debug('Completed update for phoneID: %s' % phoneid)
-            else:
-                logging.warn('Could not get devroot for phone: %s' % phoneid)
-        except:
-            logging.error('Could not install latest nightly on %s' % phoneid)
-            ret = False
+    try:
+        dm = devicemanagerSUT.DeviceManagerSUT(sutip, sutport)
+        devroot = dm.getDeviceRoot()
+        # If we get a real deviceroot, then we can connect to the phone
+        if devroot:
+            devpath = devroot + '/fennecbld.apk'
+            dm.pushFile(apkpath, devpath)
+            dm.updateApp(devpath, processName=procname, ipAddr=myip,
+                    port=callbackport)
+            logging.debug('Completed update for phoneID: %s' % phoneid)
+        else:
+            logging.warn('Could not get devroot for phone: %s' % phoneid)
+    except:
+        logging.error('Could not install latest nightly on %s' % phoneid)
+        ret = False
 
     # If the file exists, clean it up
     if os.path.exists(apkpath):
         os.remove(apkpath)
         os.rmdir(phoneid)
     return ret
+
 
 """
 install build adb - downloads and installs build on phone via adb
@@ -87,22 +107,12 @@ def install_build_adb(phoneid=None, url=None, procname='org.mozilla.fennec',
         return False
     #import pdb
     #pdb.set_trace()
+
+    apkpath = get_build(url, phoneid)
+    if not apkpath:
+        return False
+
     ret = True
-
-    try:
-        shutil.rmtree(phoneid)
-    except OSError, e:
-	if e.errno != errno.ENOENT:
-            raise
-    os.mkdir(phoneid)
-    apkpath = os.path.abspath(os.path.join(phoneid, 'bld.apk'))
-    try:
-        logging.debug('Installing build on phone: %s from url %s' % (phoneid, url))
-        urllib.urlretrieve(url, apkpath)
-    except:
-        logging.error('Could not download build due to: %s %s' % sys.exc_info()[:2])
-        ret = False
-
     o = run_adb('uninstall', [procname], serial)
     if o.lower().find('success') == -1:
         logging.warn('Unable to uninstall application on phoneID: %s' %
@@ -125,6 +135,24 @@ def install_build_adb(phoneid=None, url=None, procname='org.mozilla.fennec',
 
     return ret
 
+
+def find_adb():
+    if 'ANDROID_SDK' in os.environ:
+        return os.path.join(os.environ['ANDROID_SDK'], 'platform-tools', 'adb')
+    return 'adb'
+
+
+def check_for_adb():
+    adb = find_adb()
+    try:
+        p = subprocess.Popen([adb], stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
+    except OSError, e:
+        return e.errno
+    p.communicate()  # wait for it to terminate
+    return 0
+
+
 """
 run_adb - runs an adb command
 Assumes that the android sdk location is specified by ANDROID_SDK environment
@@ -139,28 +167,23 @@ RETURNS:
 * The stdout of the adb command
 """
 def run_adb(adbcmd, cmd, serial=None):
-    if 'ANDROID_SDK' in os.environ:
-        adb = os.path.join(os.environ['ANDROID_SDK'], 'platform-tools', 'adb')
-    else:
-        global adb_path_warning_issued
-        if not adb_path_warning_issued:
-            logging.warn('Cannot find ANDROID_SDK in environment variables, assuming adb is on your path')
-            adb_path_warning_issued = True
-        adb = 'adb'
-
+    adb = find_adb()
 
     if serial:
-        logging.debug('adb cmd: %s' % subprocess.list2cmdline([adb, '-s', serial, adbcmd] + cmd))
+        logging.debug('adb cmd: %s' %
+                      subprocess.list2cmdline([adb, '-s', serial, adbcmd]
+                                              + cmd))
         p = subprocess.Popen([adb, '-s', serial, adbcmd] + cmd,
                              stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE)
     else:
-        logging.debug('run adb cmd: %s' % subprocess.list2cmdline([adb,
-            adbcmd] + cmd))
+        logging.debug('run adb cmd: %s' %
+                      subprocess.list2cmdline([adb, adbcmd] + cmd))
         p = subprocess.Popen([adb, adbcmd] + cmd,
                              stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE)
     return p.communicate()[0]
+
 
 """
 Use sutagent to kill an application
@@ -176,6 +199,7 @@ def kill_proc_sut(ip=None, port='20701', procname='org.mozilla.fennec'):
 
     dm = devicemanagerSUT.DeviceManagerSUT(ip, port)
     dm.killProcess(procname)
+
 
 def get_fennec_profile_path_adb(serial=None, procname=None):
     if not serial:
@@ -209,15 +233,15 @@ def get_fennec_profile_path_adb(serial=None, procname=None):
         os.remove('profiles.ini')
     return path
 
-def remove_sessionstore_files_adb(serial=None,
-                                  procname = None):
+
+def remove_sessionstore_files_adb(serial=None, procname=None):
     if not serial or not procname:
         print 'You must specify a serial number for adb and the app name'
         return None
 
     # Get the profile
     fennec_profile = get_fennec_profile_path_adb(serial=serial,
-            procname=procname)
+                                                 procname=procname)
 
     if fennec_profile:
         sessionstorepth = fennec_profile + '/sessionstore.js'
@@ -227,4 +251,3 @@ def remove_sessionstore_files_adb(serial=None,
     else:
         # The first run doesn't have a profile so that's ok
         logging.warn('No profile exists')
-

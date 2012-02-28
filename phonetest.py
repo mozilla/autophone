@@ -6,6 +6,9 @@ import datetime
 import json
 import logging
 
+import androidutils
+from mozprofile import FirefoxProfile
+from devicemanagerSUT import DeviceManagerSUT
 
 class PhoneTestMessage(object):
 
@@ -54,6 +57,20 @@ class PhoneTest(object):
         self.phone_cfg = phone_cfg
         self.status = None
         self.logger = logging.getLogger('phonetest')
+        self._base_device_path = ''
+
+    @property
+    def base_device_path(self):
+        if self._base_device_path:
+            return self._base_device_path
+        dm = DeviceManagerSUT(self.phone_cfg['ip'],
+                              self.phone_cfg['sutcmdport'])
+        self._base_device_path = dm.getDeviceRoot() + '/autophone'
+        return self._base_device_path
+    
+    @property
+    def profile_path(self):
+        return self.base_device_path + '/profile'
 
     def runjob(self, job):
         raise NotImplementedError
@@ -70,4 +87,27 @@ class PhoneTest(object):
         if self.status_cb:
             self.status_cb(self.status)
 
-
+    def install_profile(self, profile=None):
+        if not profile:
+            profile = FirefoxProfile()
+        androidutils.run_adb('shell', ['rm', '-rf', self.profile_path],
+                             self.phone_cfg['serial'])
+        androidutils.run_adb('shell', ['mkdir', self.profile_path],
+                             self.phone_cfg['serial'])
+        androidutils.run_adb('push', [profile.profile, self.profile_path])
+    
+    def run_fennec_with_profile(self, intent, url):
+        androidutils.run_adb('push', ['runbrowserprofile.sh',
+                                      self.base_device_path],
+                             self.phone_cfg['serial'])
+        androidutils.run_adb('shell',
+                             ['sh',
+                              self.base_device_path + '/runbrowserprofile.sh',
+                              intent, self.profile_path, url],
+                             self.phone_cfg['serial'])
+ 
+    def remove_sessionstore_files(self):
+        androidutils.run_adb('shell', ['rm',
+                                       self.profile_path + '/sessionstore.js',
+                                       self.profile_path + '/sessionstore.bak'],
+                             self.phone_cfg['serial'])

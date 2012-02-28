@@ -12,6 +12,7 @@ import urllib2
 from time import sleep
 from phonetest import PhoneTest
 from devicemanagerSUT import DeviceManagerSUT
+from mozprofile import FirefoxProfile
 
 class S1S2Test(PhoneTest):
 
@@ -58,9 +59,7 @@ class S1S2Test(PhoneTest):
                     starttime = 0
 
                 # Run test
-                androidutils.run_adb('shell',
-                                     ['sh', '/mnt/sdcard/s1test/runbrowser.sh', intent,
-                                      url], self.phone_cfg['serial'])
+                self.run_fennec_with_profile(intent, url)
 
                 # Let browser stabilize - this was 5s but that wasn't long
                 # enough for the device to stabilize on slow devices
@@ -79,14 +78,19 @@ class S1S2Test(PhoneTest):
                 androidutils.kill_proc_sut(self.phone_cfg['ip'],
                                            self.phone_cfg['sutcmdport'],
                                            job['androidprocname'])
-                androidutils.remove_sessionstore_files_adb(
-                    self.phone_cfg['serial'],
-                    procname=job['androidprocname'])
+                self.remove_sessionstore_files()
 
     def prepare_phone(self, job):
+        prefs = { 'browser.firstrun.show.localepicker': False,
+                  'browser.sessionstore.resume_from_crash': False,
+                  'browser.firstrun.show.uidiscovery': False,
+                  'shell.checkDefaultClient': False,
+                  'browser.warnOnQuit': False,
+                  'browser.EULA.override': True,
+                  'toolkit.telemetry.prompted': 2 }
+        profile = FirefoxProfile(preferences=prefs)
+        self.install_profile(profile)
         androidutils.run_adb('shell', ['mkdir', '/mnt/sdcard/s1test'],
-                             self.phone_cfg['serial'])
-        androidutils.run_adb('push', ['runbrowser.sh', '/mnt/sdcard/s1test/'],
                              self.phone_cfg['serial'])
 
         testroot = '/mnt/sdcard/s1test'
@@ -160,6 +164,11 @@ class S1S2Test(PhoneTest):
         result = json.dumps({'data': resultdata})
         req = urllib2.Request(self._resulturl, result,
                               {'Content-Type': 'application/json'})
-        f = urllib2.urlopen(req)
-        response = f.read()
-        f.close()
+        try:
+            f = urllib2.urlopen(req)
+        except urllib2.URLError, e:
+            self.logger.error('Could not send results to server: %s' %
+                              e.reason.strerror)
+        else:
+            f.read()
+            f.close()

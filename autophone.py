@@ -11,19 +11,23 @@ import logging
 import multiprocessing
 import os
 import pickle
+import shutil
 import socket
 import sys
 import threading
 import time
 import traceback
+import urllib
 import urlparse
 import uuid
+import zipfile
 
 try:
     import json
 except ImportError:
     import simplejson
 
+import androidutils
 import phonetest
 
 from manifestparser import TestManifest
@@ -71,6 +75,13 @@ class CmdTCPHandler(SocketServer.BaseRequestHandler):
 
 
 class PhoneWorker(object):
+
+    """Runs tests on a single phone in a separate process.
+    FIXME: Would be nice to have test results uploaded outside of the
+    test objects, and to have them queued (and cached) if the results
+    server is unavailable for some reason.  Might be best to communicate
+    this back to the main AutoPhone process.
+    """
 
     def __init__(self, worker_num, tests, phone_cfg, callback_ipaddr,
                  status_queue, main_logfile, loglevel):
@@ -200,13 +211,12 @@ class AutoPhone(object):
         self.server = None
         self.server_thread = None
 
-        # Start our pulse listener for the birch builds
         #self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
-        #                                        tree=['birch'],
-        #                                        platform=['linux-android'],
+        #                                        tree=['mozilla-central'],
+        #                                        platform=['android'],
         #                                        mobile=False,
-        #                                        buildtype='opt'
-        #                                       )
+        #                                        buildtype='opt',
+        #                                        logger=logging.getLogger())
 
     def run(self):
         self.server = CmdTCPServer(('0.0.0.0', self.port), CmdTCPHandler)
@@ -373,6 +383,8 @@ class AutoPhone(object):
             # Insert the key value pairs into the dict
             job[k[0]] = k[1]
             # Insert the full job dict into the queue for processing
+        logging.info('Getting build...')
+        self.get_build(job['buildurl'])
         logging.info('Adding job: %s' % job)
         self.start_tests(job)
 
@@ -380,6 +392,14 @@ class AutoPhone(object):
         logging.info('Restting phones...')
         for phoneid, phone in self.phone_workers.iteritems():
             phone.reboot()
+
+    def get_build(self, buildurl):
+        if not os.path.exists(androidutils.build_cache_dir):
+            os.mkdir(androidutils.build_cache_dir)
+        path = os.path.join(androidutils.build_cache_dir,
+                            os.path.basename(buildurl))
+        urllib.urlretrieve(buildurl, path)
+        return path
 
     def on_build(self, msg):
         # Use the msg to get the build and install it then kick off our tests
@@ -391,11 +411,34 @@ class AutoPhone(object):
         # those, and only run the ones with real URLs
         # We create jobs for all the phones and push them into the queue
         if 'buildurl' in msg:
-            for k,v in self._phonemap.iteritems():
-                job = {'phone':k, 'buildurl':msg['buildurl'],
-                       'builddate':msg['builddate'],
-                       'revision':msg['commit']}
-                self._jobqueue.put_nowait(job)
+            self.start_tests(self.build_job(msg))
+
+    def build_job(self, msg):
+        apkpath = self.get_build(msg['buildurl'])
+        apkfile = zipfile.ZipFile(apkpath)
+        apkfile.extract('application.ini', 'extdir')
+        cfg = ConfigParser.RawConfigParser()
+        cfg.read('extdir/application.ini')
+        rev = cfg.get('App', 'SourceStamp')
+        ver = cfg.get('App', 'Version')
+        repo = cfg.get('App', 'SourceRepository')
+        procname = ''
+        if repo == 'http://hg.mozilla.org/mozilla-central':
+            procname = 'org.mozilla.fennec'
+        elif repo == 'http://hg.mozilla.org/releases/mozilla-aurora':
+            procname = 'org.mozilla.fennec_aurora'
+        elif repo == 'http://hg.mozilla.org/releases/mozilla-beta':
+            procname = 'org.mozilla.firefox'
+
+        job = { 'buildurl': msg['buildurl'],
+                'blddate': msg['builddate'],
+                'revision': rev,
+                'androidprocname': procname,
+                'version': ver,
+                'bldtype': 'opt' }
+        if os.path.exists('extdir'):
+            shutil.rmtree('extdir')    
+        return job
 
     def stop(self):
         self._stop = True
@@ -407,6 +450,14 @@ class AutoPhone(object):
 
 def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
          logfile, loglevel_name):
+
+    adb_check = androidutils.check_for_adb()
+    if adb_check != 0:
+        print 'Could not execute adb: %s.' % os.strerror(adb_check)
+        print 'Ensure that the "ANDROID_SDK" environment variable is correctly '
+        print 'set, or that adb is in your path.'
+
+        sys.exit(adb_check)
     loglevel = e = None
     try:
         loglevel = getattr(logging, loglevel_name)
@@ -426,6 +477,7 @@ def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
     autophone = AutoPhone(is_restarting, reboot_phones, test_path, cachefile,
                           ipaddr, port, logfile, loglevel)
     autophone.run()
+    print 'AutoPhone terminated.'
     return 0
 
 
