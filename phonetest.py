@@ -72,7 +72,7 @@ class PhoneTest(object):
 
     @property
     def profile_path(self):
-        return self.base_device_path + '/profile/'
+        return self.base_device_path + '/profile'
 
     def runjob(self, job):
         raise NotImplementedError
