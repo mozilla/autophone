@@ -66,11 +66,13 @@ class PhoneTest(object):
         dm = DeviceManagerSUT(self.phone_cfg['ip'],
                               self.phone_cfg['sutcmdport'])
         self._base_device_path = dm.getDeviceRoot() + '/autophone'
+        if not dm.dirExists(self._base_device_path):
+            dm.mkDirs(self._base_device_path)
         return self._base_device_path
-    
+
     @property
     def profile_path(self):
-        return self.base_device_path + '/profile'
+        return self.base_device_path + '/profile/'
 
     def runjob(self, job):
         raise NotImplementedError
@@ -94,18 +96,19 @@ class PhoneTest(object):
                              self.phone_cfg['serial'])
         androidutils.run_adb('shell', ['mkdir', self.profile_path],
                              self.phone_cfg['serial'])
-        androidutils.run_adb('push', [profile.profile, self.profile_path])
-    
+        androidutils.run_adb('push', [profile.profile, self.profile_path],
+                             self.phone_cfg['serial'])
+
     def run_fennec_with_profile(self, intent, url):
         androidutils.run_adb('push', ['runbrowserprofile.sh',
-                                      self.base_device_path],
+                                      self.base_device_path + '/runbrowserprofile.sh'],
                              self.phone_cfg['serial'])
         androidutils.run_adb('shell',
                              ['sh',
                               self.base_device_path + '/runbrowserprofile.sh',
                               intent, self.profile_path, url],
                              self.phone_cfg['serial'])
- 
+
     def remove_sessionstore_files(self):
         androidutils.run_adb('shell', ['rm',
                                        self.profile_path + '/sessionstore.js',
