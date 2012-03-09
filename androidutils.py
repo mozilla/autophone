@@ -185,6 +185,10 @@ def run_adb(adbcmd, cmd, serial=None):
     return p.communicate()[0]
 
 
+def reboot_adb(serial):
+    run_adb('shell', ['su', '-c', 'reboot'], serial=serial)
+
+
 """
 Use sutagent to kill an application
 Params:

@@ -5,6 +5,7 @@
 import ConfigParser
 import Queue
 import SocketServer
+import datetime
 import errno
 import inspect
 import logging
@@ -33,7 +34,7 @@ import phonetest
 from manifestparser import TestManifest
 
 from pulsebuildmonitor import start_pulse_monitor
-from devicemanager import NetworkTools
+from devicemanager import DMError, NetworkTools
 from devicemanagerSUT import DeviceManagerSUT
 
 
@@ -83,6 +84,9 @@ class PhoneWorker(object):
     this back to the main AutoPhone process.
     """
 
+    max_reboot_wait_seconds = 60
+    max_reboot_attempts = 3
+
     def __init__(self, worker_num, tests, phone_cfg, callback_ipaddr,
                  status_queue, main_logfile, loglevel):
         self.worker_num = worker_num
@@ -98,6 +102,8 @@ class PhoneWorker(object):
         self.stopped = False
         self.lock = multiprocessing.Lock()
         self.p = None
+        self.disabled = False
+        self.skipped_job_queue = []
     
     def add_job(self, job):
         self.job_queue.put_nowait(('job', job))
@@ -127,6 +133,28 @@ class PhoneWorker(object):
     def status_update(self, msg):
         self.status_queue.put(msg)
 
+    def recover_phone(self):
+        while not self.disabled:
+            reboots = 0
+            if reboots < self.max_reboot_attempts:
+                logging.info('Rebooting phone...')
+                reboots += 1
+                androidutils.reboot_adb(self.phone_cfg['serial'])
+                max_time = datetime.datetime.now() + \
+                    datetime.timedelta(seconds=self.max_reboot_wait_seconds)
+                while datetime.datetime.now() <= max_time:
+                    dm = DeviceManagerSUT(self.phone_cfg['ip'],
+                                          self.phone_cfg['sutcmdport'])
+                    if dm._sock:
+                        return
+                    time.sleep(5)
+                logging.info('Phone did not come back up within %d seconds.' %
+                             self.max_reboot_wait_seconds)
+            else:
+                logging.info('Phone has been rebooted %d times; giving up.' %
+                             reboots)
+                self.disabled = True
+
     def loop(self):
         for h in logging.getLogger().handlers:
             logging.getLogger().removeHandler(h)
@@ -134,8 +162,10 @@ class PhoneWorker(object):
                             filemode='a',
                             level=self.loglevel,
                             format='%(asctime)s|%(levelname)s|%(message)s')
+
         for t in self.tests:
             t.status_cb = self.status_update
+
         while True:
             try:
                 request = self.job_queue.get(True)
@@ -147,15 +177,29 @@ class PhoneWorker(object):
                 job = request[1]
                 if not job:
                     continue
+                if self.disabled:
+                    logging.info('Phone is disabled; queuing job for later.')
+                    self.skipped_job_queue.append(job)
+                    continue
                 logging.info('Got job; running tests.')
                 for t in self.tests:
                     # TODO: Attempt to see if pausing between jobs helps with
                     # our reconnection issues
                     time.sleep(30)
-                    t.runjob(job)
+                    while not self.disabled:
+                        try:
+                            t.runjob(job)
+                        except DMError:
+                            logging.info('DeviceManager exception running test %s.' % t.__class__.__name__)
+                            logging.info(traceback.format_exc())
+                            self.recover_phone()
+                        else:
+                            break                            
                     if self.should_stop():
                         return
-                logging.info('Job completed.')
+
+                if not self.disabled:
+                    logging.info('Job completed.')
             elif request[0] == 'reboot':
                 self.status_update(phonetest.PhoneTestMessage(
                         self.phone_cfg['phoneid'], True, 'rebooting'))
