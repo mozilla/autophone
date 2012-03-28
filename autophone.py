@@ -187,10 +187,13 @@ class PhoneWorker(object):
                     # our reconnection issues
                     time.sleep(30)
                     while not self.disabled:
+                        # blech I don't like bare try/except clauses, but we
+                        # want to track down if/why phone processes are
+                        # suddenly exiting.
                         try:
                             t.runjob(job)
-                        except DMError:
-                            logging.info('DeviceManager exception running test %s.' % t.__class__.__name__)
+                        except:
+                            logging.info('Exception running test %s.' % t.__class__.__name__)
                             logging.info(traceback.format_exc())
                             self.recover_phone()
                         else:
@@ -233,7 +236,7 @@ class AutoPhone(object):
         self.worker_lock = threading.Lock()
         self.cmd_lock = threading.Lock()
         self._tests = []
-        logging.info('Starting autophone')
+        logging.info('Starting autophone.')
         
         # queue for listening to status updates from tests
         self.worker_msg_queue = multiprocessing.Queue()
@@ -520,11 +523,12 @@ def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
                         level=loglevel,
                         format='%(asctime)s|%(levelname)s|%(message)s')
 
-    print 'Starting server on port %d.' % port
+    print '%s Starting server on port %d.' % \
+        (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), port)
     autophone = AutoPhone(is_restarting, reboot_phones, test_path, cachefile,
                           ipaddr, port, logfile, loglevel)
     autophone.run()
-    print 'AutoPhone terminated.'
+    print '%s AutoPhone terminated.' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return 0
 
 
