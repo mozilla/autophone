@@ -262,10 +262,10 @@ class AutoPhone(object):
         self.server_thread = None
 
         self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
-                                                tree=['mozilla-central'],
-                                                platform=['android'],
+                                                trees=['mozilla-central'],
+                                                platforms=['android'],
                                                 mobile=False,
-                                                buildtype='opt',
+                                                buildtypes=['opt'],
                                                 logger=logging.getLogger())
 
     def run(self):
