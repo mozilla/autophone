@@ -84,14 +84,11 @@ def build_commands(time_range):
         else:
             m += 1
 
-    print ftpdirs
-
     for d in ftpdirs:
         print 'Checking %s for builds...' % d
         f = urllib2.urlopen(d)
         for line in f:
             srcdir = line.split(' ')[-1].strip()
-            print srcdir
             dirnamematch = None
             for r in dirnames:
                 dirnamematch = r.match(srcdir)
@@ -100,8 +97,6 @@ def build_commands(time_range):
             if dirnamematch:
                 build_time = datetime.datetime.strptime(dirnamematch.group(1),
                                                         '%Y-%m-%d-%H-%M-%S')
-                print 'build_time: %s' % build_time
-                print 'build_range: %s - %s' % tuple(time_range)
                 if build_time < time_range[0] or build_time > time_range[1]:
                     continue
 
@@ -149,12 +144,12 @@ def main(args, options):
     commands = build_commands(time_range)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((options.ip, options.port))
-    print s.recv(1024)
+    print s.recv(1024).strip()
     for c in commands:
         s.sendall(c + '\n')
-        print s.recv(1024)
+        print s.recv(1024).strip()
     s.sendall('exit\n')
-    print s.recv(1024)
+    print s.recv(1024).strip()
     return 0
             
 if __name__ == '__main__':
