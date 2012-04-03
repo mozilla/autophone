@@ -264,7 +264,6 @@ class AutoPhone(object):
         self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
                                                 trees=['mozilla-central'],
                                                 platforms=['android'],
-                                                mobile=False,
                                                 buildtypes=['opt'],
                                                 logger=logging.getLogger())
 
