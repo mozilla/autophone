@@ -49,7 +49,7 @@ class CmdTCPHandler(SocketServer.BaseRequestHandler):
 
     def handle(self):
         buffer = ''
-        self.request.send('>')
+        self.request.send('Hello? Yes this is Autophone.\n')
         while True:
             try:
                 data = self.request.recv(1024)
@@ -71,8 +71,7 @@ class CmdTCPHandler(SocketServer.BaseRequestHandler):
                     self.request.close()
                     break
                 response = self.server.cmd_cb(line)
-                self.request.send(response)
-                self.request.send('>')
+                self.request.send(response + '\n')
 
 
 class PhoneWorker(object):
