@@ -12,6 +12,11 @@ from devicemanagerSUT import DeviceManagerSUT
 
 class PhoneTestMessage(object):
 
+    IDLE = 'IDLE'
+    WORKING = 'WORKING'
+    REBOOTING = 'REBOOTING'
+    DISCONNECTED = 'DISCONNECTED'
+
     class JsonEncoder(json.JSONEncoder):
         def default(self, obj):
             if isinstance(obj, PhoneTestMessage):
@@ -20,19 +25,24 @@ class PhoneTestMessage(object):
             return json.JSONEncoder.default(self, obj)
 
 
-    def __init__(self, phoneid, online, msg):
+    def __init__(self, phoneid, status, msg=None):
         self.phoneid = phoneid
-        self.online = online
+        self.status = status
         self.msg = msg
-        self.timestamp = datetime.datetime.now().isoformat()
+        self.timestamp = datetime.datetime.now().replace(microsecond=0)
 
     def __str__(self):
-        if self.online:
-            online_status = 'ONLINE'
-        else:
-            online_status = 'OFFLINE'
-        return '<%s> %s (%s): %s' % (self.timestamp, self.phoneid,
-                                     online_status, self.msg)
+        s = '<%s> %s (%s)' % (self.timestamp.isoformat(), self.phoneid,
+                              self.status)
+        if self.msg:
+            s += ': %s' % self.msg
+        return s
+
+    def short_desc(self):
+        s = self.status
+        if self.msg:
+            s += ': %s' % self.msg
+        return s
 
 
 class PhoneTest(object):
@@ -83,9 +93,8 @@ class PhoneTest(object):
     online = boolean True of False
     msg = the message of status
     """
-    def set_status(self, online=True, msg=None):
-        self.status = PhoneTestMessage(self.phone_cfg['phoneid'], online,
-                                       msg)
+    def set_status(self, status=PhoneTestMessage.WORKING, msg=None):
+        self.status = PhoneTestMessage(self.phone_cfg['phoneid'], status, msg)
         if self.status_cb:
             self.status_cb(self.status)
 

@@ -38,42 +38,6 @@ from devicemanager import DMError, NetworkTools
 from devicemanagerSUT import DeviceManagerSUT
 
 
-class CmdTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer): 
-
-    allow_reuse_address = True
-    daemon_threads = True
-    cmd_cb = None
-
-
-class CmdTCPHandler(SocketServer.BaseRequestHandler):
-
-    def handle(self):
-        buffer = ''
-        self.request.send('Hello? Yes this is Autophone.\n')
-        while True:
-            try:
-                data = self.request.recv(1024)
-            except socket.error, e:
-                if e.errno == errno.ECONNRESET:
-                    break
-            if not data:
-                break
-            buffer += data
-            while buffer:
-                line, nl, rest = buffer.partition('\n')
-                if not nl:
-                    break
-                buffer = rest
-                line = line.strip()
-                if not line:
-                    continue
-                if line == 'quit' or line == 'exit':
-                    self.request.close()
-                    break
-                response = self.server.cmd_cb(line)
-                self.request.send(response + '\n')
-
-
 class PhoneWorker(object):
 
     """Runs tests on a single phone in a separate process.
@@ -87,12 +51,12 @@ class PhoneWorker(object):
     max_reboot_attempts = 3
 
     def __init__(self, worker_num, tests, phone_cfg, callback_ipaddr,
-                 status_queue, main_logfile, loglevel):
+                 autophone_queue, main_logfile, loglevel):
         self.worker_num = worker_num
         self.tests = tests
         self.phone_cfg = phone_cfg
         self.callback_ipaddr = callback_ipaddr
-        self.status_queue = status_queue
+        self.autophone_queue = autophone_queue
         logfile_prefix, logfile_ext = os.path.splitext(main_logfile)
         self.logfile = '%s-%s%s' % (logfile_prefix, phone_cfg['phoneid'],
                                     logfile_ext)
@@ -103,7 +67,17 @@ class PhoneWorker(object):
         self.p = None
         self.disabled = False
         self.skipped_job_queue = []
-    
+        self.last_status_msg = None
+        self.first_status_of_type = None
+        self.last_status_of_previous_type = None
+
+    def process_msg(self, msg):
+        if not self.last_status_msg or msg.status != self.last_status_msg.status:
+            self.last_status_of_previous_type = self.last_status_msg
+            self.first_status_of_type = msg
+        self.last_status_msg = msg
+        logging.info(msg)
+
     def add_job(self, job):
         self.job_queue.put_nowait(('job', job))
 
@@ -130,7 +104,10 @@ class PhoneWorker(object):
         return stopped
 
     def status_update(self, msg):
-        self.status_queue.put(msg)
+        try:
+            self.autophone_queue.put_nowait(msg)
+        except Queue.Full:
+            logging.warn('Autophone queue is full!')
 
     def recover_phone(self):
         while not self.disabled:
@@ -165,13 +142,31 @@ class PhoneWorker(object):
         for t in self.tests:
             t.status_cb = self.status_update
 
+        self.status_update(phonetest.PhoneTestMessage(
+                self.phone_cfg['phoneid'],
+                phonetest.PhoneTestMessage.IDLE))
+
         while True:
+            request = None
             try:
-                request = self.job_queue.get(True)
+                request = self.job_queue.get(timeout=60)
+            except Queue.Empty:
+                # verify that the phone is still responding
+                response = androidutils.run_adb('shell', ['ps'],
+                                                self.phone_cfg['serial'])
+                if response:
+                    status = phonetest.PhoneTestMessage.IDLE
+                else:
+                    # FIXME: recover phone here?
+                    status = phonetest.PhoneTestMessage.DISCONNECTED
+                self.status_update(phonetest.PhoneTestMessage(
+                        self.phone_cfg['phoneid'], status))
             except KeyboardInterrupt:
                 return
             if self.should_stop():
                 return
+            if not request:
+                continue
             if request[0] == 'job':
                 job = request[1]
                 if not job:
@@ -200,20 +195,59 @@ class PhoneWorker(object):
                     if self.should_stop():
                         return
 
-                if not self.disabled:
+                if self.disabled:
+                    self.status_update(phonetest.PhoneTestMessage(
+                            self.phone_cfg['phoneid'],
+                            status = phonetest.PhoneTestMessage.DISCONNECTED))
+                else:
                     logging.info('Job completed.')
             elif request[0] == 'reboot':
                 self.status_update(phonetest.PhoneTestMessage(
-                        self.phone_cfg['phoneid'], True, 'rebooting'))
+                        self.phone_cfg['phoneid'],
+                        phonetest.PhoneTestMessage.REBOOTING))
                 dm = DeviceManagerSUT(self.phone_cfg['ip'],
                                       self.phone_cfg['sutcmdport'])
                 dm.debug = 0
                 dm.reboot(self.callback_ipaddr, 30000 + self.worker_num)
                 self.status_update(phonetest.PhoneTestMessage(
-                        self.phone_cfg['phoneid'], True, 'phone reset'))
+                        self.phone_cfg['phoneid'],
+                        phonetest.PhoneTestMessage.IDLE, 'phone reset'))
 
 
 class AutoPhone(object):
+
+    class CmdTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer): 
+
+        allow_reuse_address = True
+        daemon_threads = True
+        cmd_cb = None
+
+    class CmdTCPHandler(SocketServer.BaseRequestHandler):
+        def handle(self):
+            buffer = ''
+            self.request.send('Hello? Yes this is Autophone.\n')
+            while True:
+                try:
+                    data = self.request.recv(1024)
+                except socket.error, e:
+                    if e.errno == errno.ECONNRESET:
+                        break
+                if not data:
+                    break
+                buffer += data
+                while buffer:
+                    line, nl, rest = buffer.partition('\n')
+                    if not nl:
+                        break
+                    buffer = rest
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line == 'quit' or line == 'exit':
+                        self.request.close()
+                        break
+                    response = self.server.cmd_cb(line)
+                    self.request.send(response + '\n')
 
     def __init__(self, is_restarting, reboot_phones, test_path, cachefile,
                  ipaddr, port, logfile, loglevel):
@@ -231,7 +265,6 @@ class AutoPhone(object):
         self.loglevel = loglevel
         self._stop = False
         self.phone_workers = {}  # indexed by mac address
-        self.worker_statuses = {}
         self.worker_lock = threading.Lock()
         self.cmd_lock = threading.Lock()
         self._tests = []
@@ -267,21 +300,28 @@ class AutoPhone(object):
                                                 logger=logging.getLogger())
 
     def run(self):
-        self.server = CmdTCPServer(('0.0.0.0', self.port), CmdTCPHandler)
+        self.server = self.CmdTCPServer(('0.0.0.0', self.port),
+                                        self.CmdTCPHandler)
         self.server.cmd_cb = self.route_cmd
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.start()
         self.worker_msg_loop()
 
     def worker_msg_loop(self):
+        # FIXME: look up worker by msg.phoneid and have worker process
+        # message. worker, as part of the main process, can log status
+        # and store it for later querying.
+        # also, store first instance of current status (e.g. idle for 30
+        # minutes, last update 1 minute ago). store test name and start time
+        # if status is WORKING. All this will help us determine if and where
+        # a phone/worker process is stuck.
         try:
             while not self._stop:
                 try:
                     msg = self.worker_msg_queue.get(timeout=5)
                 except Queue.Empty:
                     continue
-                self.worker_statuses[msg.phoneid] = msg
-                logging.info(msg)
+                self.phone_workers[msg.phoneid].process_msg(msg)
         except KeyboardInterrupt:
             self.stop()
 
@@ -321,8 +361,6 @@ class AutoPhone(object):
         cmd = cmd.lower()
         response = 'ok'
 
-        # TODO: Implement the get status command to get status for a particular
-        # phone
         if cmd == 'stop':
             self.stop()
         elif cmd == 'log':
@@ -332,9 +370,18 @@ class AutoPhone(object):
         elif cmd == 'register':
             self.register_cmd(params)
         elif cmd == 'status':
-            response = json.dumps(self.worker_statuses,
-                                  cls=phonetest.PhoneTestMessage.JsonEncoder) \
-                                  + '\n'
+            response = ''
+            now = datetime.datetime.now().replace(microsecond=0)
+            for i, w in self.phone_workers.iteritems():
+                response += 'phone %s:\n' % i
+                if not w.last_status_msg:
+                    response += '  no updates\n'
+                else:
+                    response += '  last update %s ago:\n    %s\n' % (now - w.last_status_msg.timestamp, w.last_status_msg.short_desc())
+                    response += '  %s for %s\n' % (w.last_status_msg.status, now - w.first_status_of_type.timestamp)
+                    if w.last_status_of_previous_type:
+                        response += '  previous state %s ago:\n    %s\n' % (now - w.last_status_of_previous_type.timestamp, w.last_status_of_previous_type.short_desc())
+            response += 'ok'
         else:
             response = 'Unknown command "%s"\n' % cmd
         self.cmd_lock.release()
