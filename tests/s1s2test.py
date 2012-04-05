@@ -26,12 +26,6 @@ class S1S2Test(PhoneTest):
             self.logger.error('Invalid job configuration: %s' % job)
             raise NameError('ERROR: Invalid job configuration: %s' % job)
 
-        if not androidutils.install_build_adb(phoneid=self.phone_cfg['phoneid'],
-                                              url=job['buildurl'],
-                                              procname=job['androidprocname'],
-                                              serial=self.phone_cfg['serial']):
-            return
-
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
         self.prepare_phone(job)
@@ -41,17 +35,17 @@ class S1S2Test(PhoneTest):
 
         intent = job['androidprocname'] + '/.App'
 
-        for testname,url in self._urls.iteritems():
-            self.logger.info('%s: Running test %s for %s iterations' %
-                             (self.phone_cfg['phoneid'], testname,
-                              self._iterations))
+        for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
+            self.logger.info('%s: Running test %s (%d/%d) for %s iterations' %
+                             (self.phone_cfg['phoneid'], testname, testnum,
+                              len(self._urls.keys()), self._iterations))
             for i in range(self._iterations):
                 success = False
                 attempt = 0
                 while not success and attempt < 3:
                     # Set status
-                    self.set_status(msg='Run %s,attempt %s for url %s' %
-                            (i, attempt, url))
+                    self.set_status(msg='Test %d/%d, run %s, attempt %s for url %s' %
+                            (testnum, len(self._urls.keys()), i, attempt, url))
 
                     # Clear logcat
                     androidutils.run_adb('logcat', ['-c'], self.phone_cfg['serial'])

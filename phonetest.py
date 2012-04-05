@@ -13,6 +13,7 @@ from devicemanagerSUT import DeviceManagerSUT
 class PhoneTestMessage(object):
 
     IDLE = 'IDLE'
+    INSTALLING = 'INSTALLING BUILD'
     WORKING = 'WORKING'
     REBOOTING = 'REBOOTING'
     DISCONNECTED = 'DISCONNECTED'
@@ -25,9 +26,10 @@ class PhoneTestMessage(object):
             return json.JSONEncoder.default(self, obj)
 
 
-    def __init__(self, phoneid, status, msg=None):
+    def __init__(self, phoneid, status, current_build=None, msg=None):
         self.phoneid = phoneid
         self.status = status
+        self.current_build = current_build
         self.msg = msg
         self.timestamp = datetime.datetime.now().replace(microsecond=0)
 
@@ -94,7 +96,8 @@ class PhoneTest(object):
     msg = the message of status
     """
     def set_status(self, status=PhoneTestMessage.WORKING, msg=None):
-        self.status = PhoneTestMessage(self.phone_cfg['phoneid'], status, msg)
+        self.status = PhoneTestMessage(self.phone_cfg['phoneid'], status,
+                                       self.current_build, msg)
         if self.status_cb:
             self.status_cb(self.status)
 

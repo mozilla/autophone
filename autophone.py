@@ -67,6 +67,7 @@ class PhoneWorker(object):
         self.p = None
         self.disabled = False
         self.skipped_job_queue = []
+        self.current_build = None
         self.last_status_msg = None
         self.first_status_of_type = None
         self.last_status_of_previous_type = None
@@ -175,8 +176,22 @@ class PhoneWorker(object):
                     logging.info('Phone is disabled; queuing job for later.')
                     self.skipped_job_queue.append(job)
                     continue
-                logging.info('Got job; running tests.')
+                logging.info('Got job.')
+                self.status_update(phonetest.PhoneTestMessage(
+                        self.phone_cfg['phoneid'],
+                        phonetest.PhoneTestMessage.INSTALLING, job['blddate']))
+                logging.info('Installing build %s.' % datetime.datetime.fromtimestamp(float(job['blddate'])))
+                if not androidutils.install_build_adb(
+                    phoneid=self.phone_cfg['phoneid'],
+                    url=job['buildurl'],
+                    procname=job['androidprocname'],
+                    serial=self.phone_cfg['serial']):
+                    logging.error('Failed to install build!')
+                    continue
+
+                logging.info('Running tests...')
                 for t in self.tests:
+                    t.current_build = job['blddate']
                     # TODO: Attempt to see if pausing between jobs helps with
                     # our reconnection issues
                     time.sleep(30)
@@ -377,6 +392,10 @@ class AutoPhone(object):
                 if not w.last_status_msg:
                     response += '  no updates\n'
                 else:
+                    if w.last_status_msg.current_build:
+                        response += '  current build: %s\n' % datetime.datetime.fromtimestamp(float(w.last_status_msg.current_build))
+                    else:
+                        response += '  no build loaded\n'
                     response += '  last update %s ago:\n    %s\n' % (now - w.last_status_msg.timestamp, w.last_status_msg.short_desc())
                     response += '  %s for %s\n' % (w.last_status_msg.status, now - w.first_status_of_type.timestamp)
                     if w.last_status_of_previous_type:

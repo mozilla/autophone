@@ -28,7 +28,7 @@ def ftpdir(year, month):
     return 'ftp://ftp.mozilla.org/pub/mobile/nightly/%d/%02d/' % (year, month)
 
 
-def trigger_command(srcdir, fileurl, fname):
+def trigger_command(build_time, fileurl, fname):
     global jobnum
     # This writes to the ini file and opens the apk to get the 
     # revision out of it then cleans up the apk.
@@ -48,18 +48,7 @@ def trigger_command(srcdir, fileurl, fname):
     elif repo == "http://hg.mozilla.org/releases/mozilla-beta":
         procname = "org.mozilla.firefox"
     
-    # Get the date stamp by parsing the directory name
-    srcdirpieces = srcdir.split('-')
-    timestr = ("%s-%s-%s_%s:%s:%s" % (srcdirpieces[0],  # Year
-                                      srcdirpieces[1],  # Month
-                                      srcdirpieces[2],  # Day
-                                      srcdirpieces[3],  # Hour
-                                      srcdirpieces[4],  # Mins
-                                      0))               # Secs - default to 0
-    
-    t = time.strptime(timestr, "%Y-%m-%d_%H:%M:%S")
-    bldstamp = time.mktime(t)
-    bldstamp = math.trunc(bldstamp)
+    bldstamp = math.trunc(time.mktime(build_time.timetuple()))
     
     # Now we write to our config file
     cmd = 'triggerjobs buildurl=%s,blddate=%s,revision=%s,androidprocname=%s,version=%s,bldtype=opt' % (fileurl, bldstamp, rev, procname, ver)
@@ -111,7 +100,8 @@ def build_commands(time_range):
                         print 'Fetching %s...' % fileurl
                         fname, hdrs = urllib.urlretrieve(fileurl)
                         print 'Checking metadata...'
-                        commands.append(trigger_command(srcdir, fileurl, fname))
+                        commands.append(trigger_command(build_time, fileurl,
+                                                        fname))
                         break
 
     return commands    
@@ -151,6 +141,7 @@ def main(args, options):
     s.sendall('exit\n')
     print s.recv(1024).strip()
     return 0
+
             
 if __name__ == '__main__':
     import errno
