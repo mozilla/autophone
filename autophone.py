@@ -47,7 +47,7 @@ class PhoneWorker(object):
     this back to the main AutoPhone process.
     """
 
-    max_reboot_wait_seconds = 60
+    max_reboot_wait_seconds = 300
     max_reboot_attempts = 3
 
     def __init__(self, worker_num, tests, phone_cfg, callback_ipaddr,
