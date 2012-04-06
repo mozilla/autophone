@@ -34,8 +34,60 @@ import phonetest
 from manifestparser import TestManifest
 
 from pulsebuildmonitor import start_pulse_monitor
+
 from devicemanager import DMError, NetworkTools
 from devicemanagerSUT import DeviceManagerSUT
+from sendemail import SendEmail
+
+
+class Mailer(object):
+
+    def __init__(self, cfgfile):
+        self.cfgfile = cfgfile
+
+    def send(self, subject, body):
+        cfg = ConfigParser.ConfigParser()
+        cfg.read(self.cfgfile)
+        try:
+            from_address = cfg.get('report', 'from')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            logging.error('No "from" option defined in "report" section of file "%s".\n' % options.config_file)
+            return
+
+        try:
+            mail_dest = [x.strip() for x in cfg.get('email', 'dest').split(',')]
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            mail_dest = []
+
+        try:
+            mail_username = cfg.get('email', 'username')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            mail_username = None
+
+        try:
+            mail_password = cfg.get('email', 'password')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            mail_password = None
+
+        try:
+            mail_server = cfg.get('email', 'server')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            mail_server = 'mail.mozilla.com'
+
+        try:
+            mail_port = cfg.getint('email', 'port')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            mail_port = 465
+
+        try:
+            mail_ssl = cfg.getboolean('email', 'ssl')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            mail_ssl = True
+
+        SendEmail(From=from_address, To=mail_dest, Subject=subject,
+                  Username=mail_username, Password=mail_password,
+                  TextData=body, Server=mail_server, Port=mail_port,
+                  UseSsl=mail_ssl)
 
 
 class PhoneWorker(object):
@@ -51,7 +103,7 @@ class PhoneWorker(object):
     max_reboot_attempts = 3
 
     def __init__(self, worker_num, tests, phone_cfg, callback_ipaddr,
-                 autophone_queue, main_logfile, loglevel):
+                 autophone_queue, main_logfile, loglevel, mailer):
         self.worker_num = worker_num
         self.tests = tests
         self.phone_cfg = phone_cfg
@@ -61,6 +113,7 @@ class PhoneWorker(object):
         self.logfile = '%s-%s%s' % (logfile_prefix, phone_cfg['phoneid'],
                                     logfile_ext)
         self.loglevel = loglevel
+        self.mailer = mailer
         self.job_queue = multiprocessing.Queue()
         self.stopped = False
         self.lock = multiprocessing.Lock()
@@ -111,8 +164,8 @@ class PhoneWorker(object):
             logging.warn('Autophone queue is full!')
 
     def recover_phone(self):
+        reboots = 0
         while not self.disabled:
-            reboots = 0
             if reboots < self.max_reboot_attempts:
                 logging.info('Rebooting phone...')
                 reboots += 1
@@ -130,6 +183,8 @@ class PhoneWorker(object):
             else:
                 logging.info('Phone has been rebooted %d times; giving up.' %
                              reboots)
+                self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
+                                 'Hello, this is AutoPhone. Phone %s was rebooted %d times. We gave up on it. Sorry about that.' % (self.phone_cfg['phoneid'], reboots))
                 self.disabled = True
 
     def loop(self):
@@ -195,18 +250,23 @@ class PhoneWorker(object):
                     # TODO: Attempt to see if pausing between jobs helps with
                     # our reconnection issues
                     time.sleep(30)
-                    while not self.disabled:
+                    attempts = 0
+                    while not self.disabled and attempts < 2:
+                        attempts += 1
                         # blech I don't like bare try/except clauses, but we
                         # want to track down if/why phone processes are
                         # suddenly exiting.
                         try:
                             t.runjob(job)
                         except:
-                            logging.info('Exception running test %s.' % t.__class__.__name__)
+                            logging.info('Exception running test %s.' %
+                                         t.__class__.__name__)
                             logging.info(traceback.format_exc())
                             self.recover_phone()
                         else:
-                            break                            
+                            break
+                        if attempts == 2:
+                            logging.warn('Failed to run test twice; giving up on it.')
                     if self.should_stop():
                         return
 
@@ -265,7 +325,7 @@ class AutoPhone(object):
                     self.request.send(response + '\n')
 
     def __init__(self, is_restarting, reboot_phones, test_path, cachefile,
-                 ipaddr, port, logfile, loglevel):
+                 ipaddr, port, logfile, loglevel, emailcfg):
         self._test_path = test_path
         self._cache = cachefile
         if ipaddr:
@@ -278,6 +338,7 @@ class AutoPhone(object):
         self.port = port
         self.logfile = logfile
         self.loglevel = loglevel
+        self.mailer = Mailer(emailcfg)
         self._stop = False
         self.phone_workers = {}  # indexed by mac address
         self.worker_lock = threading.Lock()
@@ -412,7 +473,7 @@ class AutoPhone(object):
 
         worker = PhoneWorker(len(self.phone_workers.keys()), tests, phone_cfg,
                              self.ipaddr, self.worker_msg_queue, self.logfile,
-                             self.loglevel)
+                             self.loglevel, self.mailer)
         self.phone_workers[phone_cfg['phoneid']] = worker
         worker.start()
         logging.info('Registered phone %s.' % phone_cfg['phoneid'])
@@ -563,7 +624,7 @@ class AutoPhone(object):
 
 
 def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
-         logfile, loglevel_name):
+         logfile, loglevel_name, emailcfg):
 
     adb_check = androidutils.check_for_adb()
     if adb_check != 0:
@@ -590,7 +651,7 @@ def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
     print '%s Starting server on port %d.' % \
         (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), port)
     autophone = AutoPhone(is_restarting, reboot_phones, test_path, cachefile,
-                          ipaddr, port, logfile, loglevel)
+                          ipaddr, port, logfile, loglevel, emailcfg)
     autophone.run()
     print '%s AutoPhone terminated.' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return 0
@@ -631,10 +692,14 @@ if __name__ == '__main__':
     parser.add_option('-t', '--test-path', action='store', type='string',
                       dest='test_path', default='tests/manifest.ini',
                       help='path to test manifest')
+    parser.add_option('--emailcfg', action='store', type='string',
+                      dest='emailcfg', default='email.ini',
+                      help='config file for email settings; defaults to email.ini')
     (options, args) = parser.parse_args()
 
     exit_code = main(options.is_restarting, options.reboot_phones,
                      options.test_path, options.cachefile, options.ipaddr,
-                     options.port, options.logfile, options.loglevel) 
+                     options.port, options.logfile, options.loglevel,
+                     options.emailcfg) 
 
     sys.exit(exit_code)

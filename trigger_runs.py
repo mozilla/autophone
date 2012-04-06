@@ -132,14 +132,14 @@ def main(args, options):
         if time_range[0] > time_range[1]:
             time_range = (time_range[1], time_range[0])
     commands = build_commands(time_range)
+    commands.append('exit')
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((options.ip, options.port))
     print s.recv(1024).strip()
     for c in commands:
+        print c
         s.sendall(c + '\n')
         print s.recv(1024).strip()
-    s.sendall('exit\n')
-    print s.recv(1024).strip()
     return 0
 
             
