@@ -170,12 +170,14 @@ class PhoneWorker(object):
                 logging.info('Rebooting phone...')
                 reboots += 1
                 androidutils.reboot_adb(self.phone_cfg['serial'])
+                time.sleep(10)
                 max_time = datetime.datetime.now() + \
                     datetime.timedelta(seconds=self.max_reboot_wait_seconds)
                 while datetime.datetime.now() <= max_time:
                     dm = DeviceManagerSUT(self.phone_cfg['ip'],
                                           self.phone_cfg['sutcmdport'])
                     if dm._sock:
+                        logging.info('Phone is back up.')
                         return
                     time.sleep(5)
                 logging.info('Phone did not come back up within %d seconds.' %
@@ -186,6 +188,22 @@ class PhoneWorker(object):
                 self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
                                  'Hello, this is AutoPhone. Phone %s was rebooted %d times. We gave up on it. Sorry about that.' % (self.phone_cfg['phoneid'], reboots))
                 self.disabled = True
+
+    def retry_func(self, error_str, func, args, kwargs):
+        attempts = 0
+        while not self.disabled and attempts < 2:
+            attempts += 1
+            # blech I don't like bare try/except clauses, but we
+            # want to track down if/why phone processes are
+            # suddenly exiting.
+            try:
+                return func(*args, **kwargs)
+            except:
+                logging.info(error_str)
+                logging.info(traceback.format_exc())
+                self.recover_phone()
+            if attempts == 2:
+                logging.warn('Failed to run test twice; giving up on it.')
 
     def loop(self):
         for h in logging.getLogger().handlers:
@@ -236,37 +254,26 @@ class PhoneWorker(object):
                         self.phone_cfg['phoneid'],
                         phonetest.PhoneTestMessage.INSTALLING, job['blddate']))
                 logging.info('Installing build %s.' % datetime.datetime.fromtimestamp(float(job['blddate'])))
-                if not androidutils.install_build_adb(
-                    phoneid=self.phone_cfg['phoneid'],
-                    url=job['buildurl'],
-                    procname=job['androidprocname'],
-                    serial=self.phone_cfg['serial']):
+                
+                if not self.retry_func('Exception installing build',
+                                       androidutils.install_build_adb, [],
+                                       dict(phoneid=self.phone_cfg['phoneid'],
+                                            url=job['buildurl'],
+                                            procname=job['androidprocname'],
+                                            serial=self.phone_cfg['serial'])):
                     logging.error('Failed to install build!')
                     continue
 
                 logging.info('Running tests...')
                 for t in self.tests:
+                    if self.disabled:
+                        break
                     t.current_build = job['blddate']
                     # TODO: Attempt to see if pausing between jobs helps with
                     # our reconnection issues
                     time.sleep(30)
-                    attempts = 0
-                    while not self.disabled and attempts < 2:
-                        attempts += 1
-                        # blech I don't like bare try/except clauses, but we
-                        # want to track down if/why phone processes are
-                        # suddenly exiting.
-                        try:
-                            t.runjob(job)
-                        except:
-                            logging.info('Exception running test %s.' %
-                                         t.__class__.__name__)
-                            logging.info(traceback.format_exc())
-                            self.recover_phone()
-                        else:
-                            break
-                        if attempts == 2:
-                            logging.warn('Failed to run test twice; giving up on it.')
+                    self.retry_func('Exception running test %s.' %
+                                    t.__class__.__name__, t.runjob, [job], {})
                     if self.should_stop():
                         return
 

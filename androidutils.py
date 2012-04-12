@@ -13,6 +13,10 @@ import sys
 import ConfigParser
 import devicemanagerSUT
 
+class AdbError(Exception):
+    pass
+
+
 # This code is meant to be used from threads, so make subprocess threadsafe in
 # a very hacky way, python: http://bugs.python.org/issue1731717
 subprocess._cleanup = lambda: None
@@ -101,7 +105,7 @@ Params:
 * serial: adb serial number for phone
 """
 def install_build_adb(phoneid=None, url=None, procname='org.mozilla.fennec',
-        serial=None):
+                      serial=None):
     if not phoneid or not url or not serial:
         print 'You must specify a phoneid, url, and a serial number'
         return False
@@ -113,13 +117,13 @@ def install_build_adb(phoneid=None, url=None, procname='org.mozilla.fennec',
         return False
 
     ret = True
-    o = run_adb('uninstall', [procname], serial)
+    o = run_adb('uninstall', [procname], serial, timeout=30)
     if o.lower().find('success') == -1:
         logging.warn('Unable to uninstall application on phoneID: %s' %
                 phoneid)
         ret = False
 
-    o = run_adb('install', [apkpath], serial)
+    o = run_adb('install', [apkpath], serial, timeout=120)
     print o
     if o.lower().find('success') == -1:
         logging.error('Unable to install application on phoneID: %s' % phoneid)
@@ -162,11 +166,15 @@ Params:
 * adbcmd - the adb command to run install, logcat, shell etc
 * cmd - an ARRAY of command parameters, MUST BE AN ARRAY
 * serial - optional serial number if multiple adb devices are installed
+* check_for_error - if True and stderr from the subprocess starts with 'error',
+                    raise an AdbError exception
+* timeout - if > 0 and subprocess takes longer than this value, in seconds, to
+            complete, raise AdbError exception
 
 RETURNS:
 * The stdout of the adb command
 """
-def run_adb(adbcmd, cmd, serial=None):
+def run_adb(adbcmd, cmd, serial=None, check_for_error=False, timeout=0):
     adb = find_adb()
 
     if serial:
@@ -182,7 +190,25 @@ def run_adb(adbcmd, cmd, serial=None):
         p = subprocess.Popen([adb, adbcmd] + cmd,
                              stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE)
-    return p.communicate()[0]
+    if timeout > 0:
+        for i in range(0, timeout):
+            if p.poll() is not None:
+                break
+            sleep(1)
+        if p.poll() is None:
+            p.terminate()
+            for i in range(0, 5):
+                if p.poll() is not None:
+                    break
+            if p.poll() is None:
+                p.kill()
+            p.wait()
+            raise AdbError('timeout: process has been running for %d seconds' %
+                           timeout)
+    stdout, stderr = p.communicate()
+    if check_for_error and stderr.startswith('error'):
+        raise AdbError(stderr)
+    return stdout
 
 
 def reboot_adb(serial):

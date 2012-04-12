@@ -114,12 +114,12 @@ class PhoneTest(object):
     def run_fennec_with_profile(self, intent, url):
         androidutils.run_adb('push', ['runbrowserprofile.sh',
                                       self.base_device_path + '/runbrowserprofile.sh'],
-                             self.phone_cfg['serial'])
+                             self.phone_cfg['serial'], check_for_error=True)
         androidutils.run_adb('shell',
                              ['sh',
                               self.base_device_path + '/runbrowserprofile.sh',
                               intent, self.profile_path, url],
-                             self.phone_cfg['serial'])
+                             self.phone_cfg['serial'], check_for_error=True)
 
     def remove_sessionstore_files(self):
         androidutils.run_adb('shell', ['rm',
