@@ -185,10 +185,16 @@ class PhoneWorker(object):
             else:
                 logging.info('Phone has been rebooted %d times; giving up.' %
                              reboots)
-                self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
-                                 'Hello, this is AutoPhone. Phone %s was rebooted %d times. We gave up on it. Sorry about that.' % (self.phone_cfg['phoneid'], reboots))
-                self.disabled = True
+                self.disable_phone('Phone %s was rebooted %d times. We gave up on it. Sorry about that.' % (self.phone_cfg['phoneid'], reboots))
 
+    def disable_phone(self, msg_body):
+        self.disabled = True
+        self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
+                         'Hello, this is AutoPhone.\n\n%s' % msg_body)
+        self.status_update(phonetest.PhoneTestMessage(
+                self.phone_cfg['phoneid'],
+                phonetest.PhoneTestMessage.DISABLED))
+        
     def retry_func(self, error_str, func, args, kwargs):
         attempts = 0
         android_errors = []
@@ -212,8 +218,12 @@ class PhoneWorker(object):
                 logging.warn('Failed to run test twice; giving up on it.')
                 if len(android_errors) == 2:
                     logging.warn('Phone experienced two android errors in a row; giving up.')
-                    self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
-                                     'Hello, this is AutoPhone. Phone %s experienced two android errors in a row:\n%s\n\nWe gave up on it. Sorry about that.' % (self.phone_cfg['phoneid'], '\n'.join(['* %s' % x for x in android_errors])))
+                    self.disable_phone(
+'''Phone %s experienced two android errors in a row:
+%s
+
+We gave up on it. Sorry about that.''' %
+(self.phone_cfg['phoneid'], '\n'.join(['* %s' % x for x in android_errors])))
 
     def loop(self):
         for h in logging.getLogger().handlers:
@@ -466,7 +476,7 @@ class AutoPhone(object):
             response = ''
             now = datetime.datetime.now().replace(microsecond=0)
             for i, w in self.phone_workers.iteritems():
-                response += 'phone %s:\n' % i
+                response += 'phone %s (%s):\n' % (i, w.phone_cfg['ip'])
                 if not w.last_status_msg:
                     response += '  no updates\n'
                 else:

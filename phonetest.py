@@ -17,6 +17,7 @@ class PhoneTestMessage(object):
     WORKING = 'WORKING'
     REBOOTING = 'REBOOTING'
     DISCONNECTED = 'DISCONNECTED'
+    DISABLED = 'DISABLED'
 
     class JsonEncoder(json.JSONEncoder):
         def default(self, obj):
