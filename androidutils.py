@@ -13,7 +13,7 @@ import sys
 import ConfigParser
 import devicemanagerSUT
 
-class AdbError(Exception):
+class AndroidError(Exception):
     pass
 
 
@@ -167,9 +167,9 @@ Params:
 * cmd - an ARRAY of command parameters, MUST BE AN ARRAY
 * serial - optional serial number if multiple adb devices are installed
 * check_for_error - if True and stderr from the subprocess starts with 'error',
-                    raise an AdbError exception
+                    raise an AndroidError exception
 * timeout - if > 0 and subprocess takes longer than this value, in seconds, to
-            complete, raise AdbError exception
+            complete, raise AndroidError exception
 
 RETURNS:
 * The stdout of the adb command
@@ -203,11 +203,11 @@ def run_adb(adbcmd, cmd, serial=None, check_for_error=False, timeout=0):
             if p.poll() is None:
                 p.kill()
             p.wait()
-            raise AdbError('timeout: process has been running for %d seconds' %
+            raise AndroidError('timeout: process has been running for %d seconds' %
                            timeout)
     stdout, stderr = p.communicate()
     if check_for_error and stderr.startswith('error'):
-        raise AdbError(stderr)
+        raise AndroidError(stderr)
     return stdout
 
 

@@ -191,6 +191,7 @@ class PhoneWorker(object):
 
     def retry_func(self, error_str, func, args, kwargs):
         attempts = 0
+        android_errors = []
         while not self.disabled and attempts < 2:
             attempts += 1
             # blech I don't like bare try/except clauses, but we
@@ -198,12 +199,21 @@ class PhoneWorker(object):
             # suddenly exiting.
             try:
                 return func(*args, **kwargs)
-            except:
+            except Exception, e:
+                if isinstance(e, androidutils.AndroidError):
+                    android_errors.append(str(e))
                 logging.info(error_str)
                 logging.info(traceback.format_exc())
-                self.recover_phone()
+                if attempts < 2:
+                    self.recover_phone()
+            else:
+                return
             if attempts == 2:
                 logging.warn('Failed to run test twice; giving up on it.')
+                if len(android_errors) == 2:
+                    logging.warn('Phone experienced two android errors in a row; giving up.')
+                    self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
+                                     'Hello, this is AutoPhone. Phone %s experienced two android errors in a row:\n%s\n\nWe gave up on it. Sorry about that.' % (self.phone_cfg['phoneid'], '\n'.join(['* %s' % x for x in android_errors])))
 
     def loop(self):
         for h in logging.getLogger().handlers:
