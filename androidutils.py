@@ -203,11 +203,14 @@ def run_adb(adbcmd, cmd, serial=None, check_for_error=False, timeout=0):
             if p.poll() is None:
                 p.kill()
             p.wait()
+            logging.error('adb processed timed out')
             raise AndroidError('timeout: process has been running for %d seconds' %
                            timeout)
     stdout, stderr = p.communicate()
     if check_for_error and stderr.startswith('error'):
+        logging.error('adb error: %s' % stderr)
         raise AndroidError(stderr)
+    logging.debug('adb command finished')
     return stdout
 
 

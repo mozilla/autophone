@@ -48,7 +48,9 @@ class S1S2Test(PhoneTest):
                             (testnum, len(self._urls.keys()), i, attempt, url))
 
                     # Clear logcat
+                    self.logger.debug('clearing logcat')
                     androidutils.run_adb('logcat', ['-c'], self.phone_cfg['serial'])
+                    self.logger.debug('logcat cleared')
 
                     # Get start time
                     try:
@@ -57,6 +59,7 @@ class S1S2Test(PhoneTest):
                         starttime = 0
 
                     # Run test
+                    self.logger.debug('running fennec')
                     self.run_fennec_with_profile(intent, url)
 
                     # Let browser stabilize - this was 5s but that wasn't long
@@ -65,13 +68,16 @@ class S1S2Test(PhoneTest):
 
                     # Get results - do this now so we don't have as much to
                     # parse in logcat.
+                    self.logger.debug('analyzing logcat')
                     throbberstart, throbberstop, drawtime = self.analyze_logcat()
 
+                    self.logger.deubg('killing fennec')
                     # Get rid of the browser and session store files
                     androidutils.kill_proc_sut(self.phone_cfg['ip'],
                                                self.phone_cfg['sutcmdport'],
                                                job['androidprocname'])
 
+                    self.logger.debug('removing sessionstore files')
                     self.remove_sessionstore_files()
 
                     # Ensure we succeeded - no 0's reported
@@ -84,6 +90,7 @@ class S1S2Test(PhoneTest):
                         attempt = attempt + 1
 
                 # Publish results
+                self.logger.debug('publishing results')
                 self.publish_results(starttime=int(starttime),
                                      tstrt=throbberstart,
                                      tstop=throbberstop,
