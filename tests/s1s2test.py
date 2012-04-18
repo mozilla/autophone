@@ -71,7 +71,7 @@ class S1S2Test(PhoneTest):
                     self.logger.debug('analyzing logcat')
                     throbberstart, throbberstop, drawtime = self.analyze_logcat()
 
-                    self.logger.deubg('killing fennec')
+                    self.logger.debug('killing fennec')
                     # Get rid of the browser and session store files
                     androidutils.kill_proc_sut(self.phone_cfg['ip'],
                                                self.phone_cfg['sutcmdport'],
