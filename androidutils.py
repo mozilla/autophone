@@ -13,39 +13,15 @@ import sys
 import ConfigParser
 import devicemanagerSUT
 
+# this is probably not specific to adb stuff--it should represent a general
+# android failure
 class AndroidError(Exception):
     pass
 
 
 # This code is meant to be used from threads, so make subprocess threadsafe in
 # a very hacky way, python: http://bugs.python.org/issue1731717
-subprocess._cleanup = lambda: None
-
-build_cache_dir = 'builds'
-
-def get_build(buildurl, phoneid):
-    try:
-        shutil.rmtree(phoneid)
-    except OSError, e:
-	if e.errno != errno.ENOENT:
-            raise
-    os.mkdir(phoneid)
-
-    apkpath = os.path.abspath(os.path.join(phoneid, 'bld.apk'))
-    cached_filename = os.path.join(build_cache_dir, os.path.basename(buildurl))
-
-    if os.path.exists(cached_filename):
-        shutil.copyfile(cached_filename, apkpath)
-    else:
-        try:
-            logging.debug('Grabbing build: %s' % buildurl)
-            urllib.urlretrieve(buildurl, apkpath)
-        except:
-            logging.error('Could not download build: %s %s' %
-                          sys.exc_info()[:2])
-            return None
-    return apkpath
-        
+subprocess._cleanup = lambda: None        
 
 """
 install_build_sut - installs build on phone via sutagent
@@ -100,21 +76,17 @@ def install_build_sut(phoneid=None, url=None, procname='org.mozilla.fennec',
 install build adb - downloads and installs build on phone via adb
 Params:
 * phoneid: id of phone for reporting
-* url: url to download build from
+* apkpath: path to build
 * procname: process name to uninstall old build
 * serial: adb serial number for phone
 """
-def install_build_adb(phoneid=None, url=None, procname='org.mozilla.fennec',
-                      serial=None):
-    if not phoneid or not url or not serial:
+def install_build_adb(phoneid=None, apkpath=None, blddate=None,
+                      procname='org.mozilla.fennec', serial=None):
+    if not phoneid or not apkpath or not serial:
         print 'You must specify a phoneid, url, and a serial number'
         return False
     #import pdb
     #pdb.set_trace()
-
-    apkpath = get_build(url, phoneid)
-    if not apkpath:
-        return False
 
     ret = True
     o = run_adb('uninstall', [procname], serial, timeout=30)
@@ -132,10 +104,6 @@ def install_build_adb(phoneid=None, url=None, procname='org.mozilla.fennec',
         # It could be the case that the app wasn't installed so we might have
         # failed to uninstall which would be ok
         ret = True
-
-    if os.path.exists(apkpath):
-        os.remove(apkpath)
-        os.rmdir(phoneid)
 
     return ret
 

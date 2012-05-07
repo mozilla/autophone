@@ -9,9 +9,9 @@ import datetime
 import errno
 import inspect
 import logging
+import math
 import multiprocessing
 import os
-import pickle
 import shutil
 import socket
 import sys
@@ -20,7 +20,6 @@ import time
 import traceback
 import urllib
 import urlparse
-import uuid
 import zipfile
 
 try:
@@ -29,6 +28,7 @@ except ImportError:
     import simplejson
 
 import androidutils
+import builds
 import phonetest
 
 from manifestparser import TestManifest
@@ -93,6 +93,11 @@ class Mailer(object):
 class PhoneWorker(object):
 
     """Runs tests on a single phone in a separate process.
+
+    FIXME: This class represents both the interface to the subprocess and
+    the subprocess itself. It would be best to split those so we can easily
+    tell what can and cannot be accessed from the main process.
+
     FIXME: Would be nice to have test results uploaded outside of the
     test objects, and to have them queued (and cached) if the results
     server is unavailable for some reason.  Might be best to communicate
@@ -151,6 +156,22 @@ class PhoneWorker(object):
         self.job_queue.put_nowait(None)
         self.p.join()
 
+    def disable(self):
+        self.lock.acquire()
+        self.job_queue.put_nowait(('disable', None))
+        self.lock.release()
+
+    def reenable(self):
+        self.lock.acquire()
+        self.job_queue.put_nowait(('reenable', None))
+        self.lock.release()
+
+    def is_disabled(self):
+        self.lock.acquire()
+        disabled = self.disabled
+        self.lock.release()
+        return disabled
+
     def should_stop(self):
         self.lock.acquire()
         stopped = self.stopped
@@ -163,11 +184,36 @@ class PhoneWorker(object):
         except Queue.Full:
             logging.warn('Autophone queue is full!')
 
+    def check_sdcard(self, dm=None):
+        if not dm:
+            dm = DeviceManagerSUT(self.phone_cfg['ip'],
+                                  self.phone_cfg['sutcmdport'])
+        d = dm.getDeviceRoot() + '/autophonetest'
+        out = androidutils.run_adb('shell', ['mkdir', d], serial=self.phone_cfg['serial'], timeout=15)
+        if out:
+            logging.error('device root is not writable!')
+            logging.error(out)
+            logging.info('checking sdcard...')
+            out = androidutils.run_adb('shell', ['mkdir', '/mnt/sdcard/tests/autophonetest'], serial=self.phone_cfg['serial'], timeout=15)
+            if out:
+                logging.error(out)
+            else:
+                logging.error('weird, sd card is writable but device root isn\'t! I\'m confused and giving up anyway!')
+            self.clear_test_base_paths()
+            return False
+        androidutils.run_adb('shell', ['rmdir', d], serial=self.phone_cfg['serial'], timeout=15)
+        return True
+
+    def clear_test_base_paths(self):
+        for t in self.tests:
+            t._base_device_path = ''
+
     def recover_phone(self):
         reboots = 0
         while not self.disabled:
             if reboots < self.max_reboot_attempts:
                 logging.info('Rebooting phone...')
+                phone_is_up = False
                 reboots += 1
                 androidutils.reboot_adb(self.phone_cfg['serial'])
                 time.sleep(10)
@@ -178,10 +224,15 @@ class PhoneWorker(object):
                                           self.phone_cfg['sutcmdport'])
                     if dm._sock:
                         logging.info('Phone is back up.')
-                        return
+                        phone_is_up = True
+                        break
                     time.sleep(5)
-                logging.info('Phone did not come back up within %d seconds.' %
-                             self.max_reboot_wait_seconds)
+                if phone_is_up:
+                    if self.check_sdcard():
+                        return
+                else:
+                    logging.info('Phone did not come back up within %d seconds.' %
+                                 self.max_reboot_wait_seconds)
             else:
                 logging.info('Phone has been rebooted %d times; giving up.' %
                              reboots)
@@ -189,16 +240,22 @@ class PhoneWorker(object):
 
     def disable_phone(self, msg_body):
         self.disabled = True
-        self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
-                         'Hello, this is AutoPhone.\n\n%s' % msg_body)
+        if msg_body:
+            self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
+                             'Hello, this is AutoPhone.\n\n%s' % msg_body)
         self.status_update(phonetest.PhoneTestMessage(
                 self.phone_cfg['phoneid'],
                 phonetest.PhoneTestMessage.DISABLED))
         
     def retry_func(self, error_str, func, args, kwargs):
+        """Retries a function up to three times.
+        Note that each attempt may reboot the phone up to three times if it
+        comes up in a bad state. This loop is to catch errors caused by the
+        test or help functions like androidutils.install_adb_build().
+        """
         attempts = 0
         android_errors = []
-        while not self.disabled and attempts < 2:
+        while not self.disabled and attempts < 3:
             attempts += 1
             # blech I don't like bare try/except clauses, but we
             # want to track down if/why phone processes are
@@ -215,9 +272,9 @@ class PhoneWorker(object):
             else:
                 return
             if attempts == 2:
-                logging.warn('Failed to run test twice; giving up on it.')
+                logging.warn('Failed to run test three times; giving up on it.')
                 if len(android_errors) == 2:
-                    logging.warn('Phone experienced two android errors in a row; giving up.')
+                    logging.warn('Phone experienced three android errors in a row; giving up.')
                     self.disable_phone(
 '''Phone %s experienced two android errors in a row:
 %s
@@ -245,16 +302,17 @@ We gave up on it. Sorry about that.''' %
             try:
                 request = self.job_queue.get(timeout=60)
             except Queue.Empty:
-                # verify that the phone is still responding
-                response = androidutils.run_adb('shell', ['ps'],
-                                                self.phone_cfg['serial'])
-                if response:
-                    status = phonetest.PhoneTestMessage.IDLE
-                else:
-                    # FIXME: recover phone here?
-                    status = phonetest.PhoneTestMessage.DISCONNECTED
-                self.status_update(phonetest.PhoneTestMessage(
-                        self.phone_cfg['phoneid'], status))
+                if not self.disabled:
+                    # verify that the phone is still responding
+                    response = androidutils.run_adb('shell', ['ps'],
+                                                    self.phone_cfg['serial'])
+                    if response:
+                        status = phonetest.PhoneTestMessage.IDLE
+                    else:
+                        # FIXME: recover phone here?
+                        status = phonetest.PhoneTestMessage.DISCONNECTED
+                    self.status_update(phonetest.PhoneTestMessage(
+                            self.phone_cfg['phoneid'], status, self.current_build))
             except KeyboardInterrupt:
                 return
             if self.should_stop():
@@ -265,11 +323,13 @@ We gave up on it. Sorry about that.''' %
                 job = request[1]
                 if not job:
                     continue
+                logging.info('Got job.')
+                if not self.check_sdcard():
+                    self.recover_phone()
                 if self.disabled:
                     logging.info('Phone is disabled; queuing job for later.')
                     self.skipped_job_queue.append(job)
                     continue
-                logging.info('Got job.')
                 self.status_update(phonetest.PhoneTestMessage(
                         self.phone_cfg['phoneid'],
                         phonetest.PhoneTestMessage.INSTALLING, job['blddate']))
@@ -278,12 +338,14 @@ We gave up on it. Sorry about that.''' %
                 if not self.retry_func('Exception installing build',
                                        androidutils.install_build_adb, [],
                                        dict(phoneid=self.phone_cfg['phoneid'],
-                                            url=job['buildurl'],
+                                            apkpath=job['apkpath'],
+                                            blddate=job['blddate'],
                                             procname=job['androidprocname'],
                                             serial=self.phone_cfg['serial'])):
                     logging.error('Failed to install build!')
                     continue
 
+                self.current_build = job['blddate']
                 logging.info('Running tests...')
                 for t in self.tests:
                     if self.disabled:
@@ -314,6 +376,13 @@ We gave up on it. Sorry about that.''' %
                 self.status_update(phonetest.PhoneTestMessage(
                         self.phone_cfg['phoneid'],
                         phonetest.PhoneTestMessage.IDLE, 'phone reset'))
+            elif request[0] == 'disable':
+                self.disable_phone(None)
+            elif request[0] == 'reenable':
+                if self.disabled:
+                    self.disabled = False
+                for j in self.skipped_job_queue:
+                    self.job_queue.put(('job', j))
 
 
 class AutoPhone(object):
@@ -334,6 +403,7 @@ class AutoPhone(object):
                 except socket.error, e:
                     if e.errno == errno.ECONNRESET:
                         break
+                    raise e
                 if not data:
                     break
                 buffer += data
@@ -347,7 +417,7 @@ class AutoPhone(object):
                         continue
                     if line == 'quit' or line == 'exit':
                         self.request.close()
-                        break
+                        return
                     response = self.server.cmd_cb(line)
                     self.request.send(response + '\n')
 
@@ -366,6 +436,7 @@ class AutoPhone(object):
         self.logfile = logfile
         self.loglevel = loglevel
         self.mailer = Mailer(emailcfg)
+        self.build_cache = builds.BuildCache()
         self._stop = False
         self.phone_workers = {}  # indexed by mac address
         self.worker_lock = threading.Lock()
@@ -489,6 +560,18 @@ class AutoPhone(object):
                     if w.last_status_of_previous_type:
                         response += '  previous state %s ago:\n    %s\n' % (now - w.last_status_of_previous_type.timestamp, w.last_status_of_previous_type.short_desc())
             response += 'ok'
+        elif cmd == 'disable' or cmd == 'reenable':
+            serial = params.strip()
+            worker = None
+            for w in self.phone_workers.values():
+                if w.phone_cfg['serial'] == serial:
+                    worker = w
+                    break
+            if worker:
+                getattr(worker, cmd)()
+                response = 'ok'
+            else:
+                response = 'error: phone not found'
         else:
             response = 'Unknown command "%s"\n' % cmd
         self.cmd_lock.release()
@@ -578,30 +661,14 @@ class AutoPhone(object):
             self._tests.extend(tests)
 
     def trigger_jobs(self, data):
-        vlist = data.split(',')
-        job = {}
-        for v in vlist:
-            k = v.split('=')
-            # Insert the key value pairs into the dict
-            job[k[0]] = k[1]
-            # Insert the full job dict into the queue for processing
-        logging.info('Getting build...')
-        self.get_build(job['buildurl'])
-        logging.info('Adding job: %s' % job)
+        job = self.build_job(self.get_remote_build(data))
+        logging.info('Adding user-specified job: %s' % job)
         self.start_tests(job)
 
     def reset_phones(self):
         logging.info('Restting phones...')
         for phoneid, phone in self.phone_workers.iteritems():
             phone.reboot()
-
-    def get_build(self, buildurl):
-        if not os.path.exists(androidutils.build_cache_dir):
-            os.mkdir(androidutils.build_cache_dir)
-        path = os.path.join(androidutils.build_cache_dir,
-                            os.path.basename(buildurl))
-        urllib.urlretrieve(buildurl, path)
-        return path
 
     def on_build(self, msg):
         # Use the msg to get the build and install it then kick off our tests
@@ -613,10 +680,12 @@ class AutoPhone(object):
         # those, and only run the ones with real URLs
         # We create jobs for all the phones and push them into the queue
         if 'buildurl' in msg:
-            self.start_tests(self.build_job(msg))
+            self.start_tests(self.build_job(self.get_remote_build(msg['buildurl'])))
 
-    def build_job(self, msg):
-        apkpath = self.get_build(msg['buildurl'])
+    def get_remote_build(self, buildurl):
+        return self.build_cache.get(buildurl)
+
+    def build_job(self, apkpath):
         apkfile = zipfile.ZipFile(apkpath)
         apkfile.extract('application.ini', 'extdir')
         cfg = ConfigParser.RawConfigParser()
@@ -624,6 +693,8 @@ class AutoPhone(object):
         rev = cfg.get('App', 'SourceStamp')
         ver = cfg.get('App', 'Version')
         repo = cfg.get('App', 'SourceRepository')
+        blddate = datetime.datetime.strptime(cfg.get('App', 'BuildID'),
+                                             '%Y%m%d%H%M%S')
         procname = ''
         if repo == 'http://hg.mozilla.org/mozilla-central':
             procname = 'org.mozilla.fennec'
@@ -632,8 +703,8 @@ class AutoPhone(object):
         elif repo == 'http://hg.mozilla.org/releases/mozilla-beta':
             procname = 'org.mozilla.firefox'
 
-        job = { 'buildurl': msg['buildurl'],
-                'blddate': msg['builddate'],
+        job = { 'apkpath': apkpath,
+                'blddate': math.trunc(time.mktime(blddate.timetuple())),
                 'revision': rev,
                 'androidprocname': procname,
                 'version': ver,

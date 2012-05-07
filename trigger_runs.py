@@ -15,95 +15,19 @@ import urllib
 import urllib2
 from zipfile import ZipFile
 
-# dirname should be what the directory our change is in - it either ends with
-# "birch-android" for builds before 12/06 or "mozilla-central-android" for
-# builds after that.
-dirnames  = [#re.compile('.*birch-android$'),
-             #re.compile('.*mozilla-aurora-android$'),
-             re.compile('(.*)-mozilla-central-android$')]
+import builds
 
 jobnum = 0
 
-def ftpdir(year, month):
-    return 'ftp://ftp.mozilla.org/pub/mobile/nightly/%d/%02d/' % (year, month)
-
-
-def trigger_command(build_time, fileurl, fname):
-    global jobnum
-    # This writes to the ini file and opens the apk to get the 
-    # revision out of it then cleans up the apk.
-    # Get the revision
-    apkfile = ZipFile(fname)
-    apkfile.extract("application.ini", "extdir")
-    cfg = ConfigParser.RawConfigParser()
-    cfg.read("extdir/application.ini")
-    rev = cfg.get("App", "SourceStamp")
-    ver = cfg.get("App", "Version")
-    repo = cfg.get("App", "SourceRepository")
-    procname = ""
-    if repo == "http://hg.mozilla.org/mozilla-central":
-        procname = "org.mozilla.fennec"
-    elif repo == "http://hg.mozilla.org/releases/mozilla-aurora":
-        procname = "org.mozilla.fennec_aurora"
-    elif repo == "http://hg.mozilla.org/releases/mozilla-beta":
-        procname = "org.mozilla.firefox"
-    
-    bldstamp = math.trunc(time.mktime(build_time.timetuple()))
-    
-    # Now we write to our config file
-    cmd = 'triggerjobs buildurl=%s,blddate=%s,revision=%s,androidprocname=%s,version=%s,bldtype=opt' % (fileurl, bldstamp, rev, procname, ver)
-    if os.path.exists(fname):
-        os.remove(fname)
-    if os.path.exists("extdir"):
-        shutil.rmtree("extdir")
-    return cmd
-
-
 def build_commands(time_range):
+    build_cache = builds.BuildCache()
     commands = []
-    fennecregex = re.compile("fennec.*\.android-arm\.apk")
-    ftpdirs = []
-    y = time_range[0].year
-    m = time_range[0].month
-    while y < time_range[1].year or m <= time_range[1].month:
-        ftpdirs.append(ftpdir(y, m))
-        if m == 12:
-            y += 1
-            m = 1
-        else:
-            m += 1
-
-    for d in ftpdirs:
-        print 'Checking %s for builds...' % d
-        f = urllib2.urlopen(d)
-        for line in f:
-            srcdir = line.split(' ')[-1].strip()
-            dirnamematch = None
-            for r in dirnames:
-                dirnamematch = r.match(srcdir)
-                if dirnamematch:
-                    break
-            if dirnamematch:
-                build_time = datetime.datetime.strptime(dirnamematch.group(1),
-                                                        '%Y-%m-%d-%H-%M-%S')
-                if build_time < time_range[0] or build_time > time_range[1]:
-                    continue
-
-                # We have a matching directory.  Go get our apk.
-                newurl = d + srcdir
-                f2 = urllib.urlopen(newurl)
-                for l2 in f2:
-                    filename = l2.split(' ')[-1].strip()
-                    if fennecregex.match(filename):
-                        # Download the build and add URL to our list
-                        fileurl = newurl + "/" + filename
-                        print 'Fetching %s...' % fileurl
-                        fname, hdrs = urllib.urlretrieve(fileurl)
-                        print 'Checking metadata...'
-                        commands.append(trigger_command(build_time, fileurl,
-                                                        fname))
-                        break
-
+    for url in build_cache.find_builds(time_range):
+       # Download the build and add URL to our list
+        print 'Fetching %s...' % url
+        fname = build_cache.get(url=url)
+        print 'Checking metadata...'
+        commands.append('triggerjobs %s' % url)
     return commands    
 
 

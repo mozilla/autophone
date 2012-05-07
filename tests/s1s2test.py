@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import datetime
 import re
 import os
 import threading
@@ -20,7 +21,7 @@ class S1S2Test(PhoneTest):
         PhoneTest.__init__(self, phone_cfg, config_file, status_cb)
 
     def runjob(self, job):
-        if 'buildurl' not in job or 'androidprocname' not in job or \
+        if 'androidprocname' not in job or \
                 'revision' not in job or 'blddate' not in job or \
                 'bldtype' not in job or 'version' not in job:
             self.logger.error('Invalid job configuration: %s' % job)
@@ -69,7 +70,7 @@ class S1S2Test(PhoneTest):
                     # Get results - do this now so we don't have as much to
                     # parse in logcat.
                     self.logger.debug('analyzing logcat')
-                    throbberstart, throbberstop, drawtime = self.analyze_logcat()
+                    throbberstart, throbberstop, drawtime = self.analyze_logcat(job)
 
                     self.logger.debug('killing fennec')
                     # Get rid of the browser and session store files
@@ -136,7 +137,7 @@ class S1S2Test(PhoneTest):
         self._iterations = cfg.getint('settings', 'iterations')
         self._resulturl = cfg.get('settings', 'resulturl')
  
-    def analyze_logcat(self):
+    def analyze_logcat(self, job):
         buf = androidutils.run_adb('logcat', ['-d'], self.phone_cfg['serial'])
         buf = buf.split('\r\n')
         throbberstartRE = re.compile('.*Throbber start$')
@@ -148,9 +149,11 @@ class S1S2Test(PhoneTest):
 
         for line in buf:
             line = line.strip()
-            if throbberstartRE.match(line):
+            # we want the first throbberstart and throbberstart but the *last*
+            # enddrawing
+            if throbberstartRE.match(line) and not throbstart:
                 throbstart = line.split(' ')[-4]
-            elif throbberstopRE.match(line):
+            elif throbberstopRE.match(line) and not throbstop:
                 throbstop = line.split(' ')[-4]
             elif endDrawingRE.match(line):
                 enddraw = line.split(' ')[-3]
@@ -158,7 +161,7 @@ class S1S2Test(PhoneTest):
 
     def publish_results(self, starttime=0, tstrt=0, tstop=0, drawing=0, job=None, testname = ''):
         msg = 'Start Time: %s Throbber Start: %s Throbber Stop: %s EndDraw: %s' % (starttime, tstrt, tstop, drawing)
-        print 'RESULTS %s:%s' % (self.phone_cfg['phoneid'], msg)
+        print 'RESULTS %s %s:%s' % (self.phone_cfg['phoneid'], datetime.datetime.fromtimestamp(int(job['blddate'])), msg)
         self.logger.info('RESULTS: %s:%s' % (self.phone_cfg['phoneid'], msg))
         
         # Create JSON to send to webserver
