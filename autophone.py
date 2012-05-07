@@ -362,9 +362,13 @@ We gave up on it. Sorry about that.''' %
                 if self.disabled:
                     self.status_update(phonetest.PhoneTestMessage(
                             self.phone_cfg['phoneid'],
-                            status = phonetest.PhoneTestMessage.DISCONNECTED))
+                            phonetest.PhoneTestMessage.DISCONNECTED))
                 else:
                     logging.info('Job completed.')
+                    self.status_update(phonetest.PhoneTestMessage(
+                            self.phone_cfg['phoneid'],
+                            phonetest.PhoneTestMessage.IDLE,
+                            self.current_build))
             elif request[0] == 'reboot':
                 self.status_update(phonetest.PhoneTestMessage(
                         self.phone_cfg['phoneid'],

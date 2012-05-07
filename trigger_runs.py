@@ -19,17 +19,6 @@ import builds
 
 jobnum = 0
 
-def build_commands(time_range):
-    build_cache = builds.BuildCache()
-    commands = []
-    for url in build_cache.find_builds(time_range):
-       # Download the build and add URL to our list
-        print 'Fetching %s...' % url
-        fname = build_cache.get(url=url)
-        print 'Checking metadata...'
-        commands.append('triggerjobs %s' % url)
-    return commands    
-
 
 def from_iso_date_or_datetime(s):
     datefmt = '%Y-%m-%d'
@@ -55,15 +44,18 @@ def main(args, options):
             time_range.append(datetime.datetime.now())
         if time_range[0] > time_range[1]:
             time_range = (time_range[1], time_range[0])
-    commands = build_commands(time_range)
+    print 'Looking for builds...'
+    commands = ['triggerjobs %s' % url for url in
+                builds.BuildCache().find_builds(time_range)]
+    print 'Connecting to autophone server...'
     commands.append('exit')
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((options.ip, options.port))
-    print s.recv(1024).strip()
+    print '- %s' % s.recv(1024).strip()
     for c in commands:
-        print c
+        print '%s' % c
         s.sendall(c + '\n')
-        print s.recv(1024).strip()
+        print '- %s' % s.recv(1024).strip()
     return 0
 
             

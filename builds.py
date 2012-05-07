@@ -118,7 +118,7 @@ class BuildCache(object):
 
     def clean_cache(self, preserve=None):
         builds = [(x, os.stat(os.path.join(self.cache_dir, x, 'lastused')).st_mtime) for x in
-                  os.listdir(self.cache_dir) if preserve and x != preserve]
+                  os.listdir(self.cache_dir) if preserve and x != preserve and os.path.exists(os.path.join(self.cache_dir, x, 'lastused'))]
         builds.sort(key=lambda x: x[1])
         while len(builds) > self.MAX_NUM_BUILDS:
             shutil.rmtree(os.path.join(self.cache_dir, builds.pop(0)[0]))
