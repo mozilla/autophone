@@ -373,13 +373,10 @@ We gave up on it. Sorry about that.''' %
                 self.status_update(phonetest.PhoneTestMessage(
                         self.phone_cfg['phoneid'],
                         phonetest.PhoneTestMessage.REBOOTING))
-                dm = DeviceManagerSUT(self.phone_cfg['ip'],
-                                      self.phone_cfg['sutcmdport'])
-                dm.debug = 0
-                dm.reboot(self.callback_ipaddr, 30000 + self.worker_num)
+                self.recover_phone()
                 self.status_update(phonetest.PhoneTestMessage(
                         self.phone_cfg['phoneid'],
-                        phonetest.PhoneTestMessage.IDLE, 'phone reset'))
+                        phonetest.PhoneTestMessage.IDLE, msg='phone reset'))
             elif request[0] == 'disable':
                 self.disable_phone(None)
             elif request[0] == 'reenable':

@@ -82,9 +82,10 @@ class S1S2Test(PhoneTest):
                     self.remove_sessionstore_files()
 
                     # Ensure we succeeded - no 0's reported
+                    # - except drawtime, since enddrawing has been missing for
+                    #   some time.
                     if (throbberstart and
                         throbberstop and
-                        drawtime and
                         starttime):
                         success = True
                     else:
