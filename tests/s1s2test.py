@@ -139,7 +139,8 @@ class S1S2Test(PhoneTest):
         self._resulturl = cfg.get('settings', 'resulturl')
  
     def analyze_logcat(self, job):
-        buf = androidutils.run_adb('logcat', ['-d'], self.phone_cfg['serial'])
+        buf = androidutils.run_adb('logcat', ['-d'], self.phone_cfg['serial'],
+                                   timeout=60)
         buf = buf.split('\r\n')
         throbberstartRE = re.compile('.*Throbber start$')
         throbberstopRE = re.compile('.*Throbber stop$')

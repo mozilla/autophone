@@ -95,7 +95,7 @@ def install_build_adb(phoneid=None, apkpath=None, blddate=None,
                 phoneid)
         ret = False
 
-    o = run_adb('install', [apkpath], serial, timeout=120)
+    o = run_adb('install', ['-r', apkpath], serial, timeout=120)
     print o
     if o.lower().find('success') == -1:
         logging.error('Unable to install application on phoneID: %s' % phoneid)
@@ -179,6 +179,11 @@ def run_adb(adbcmd, cmd, serial=None, check_for_error=False, timeout=0):
         logging.error('adb error: %s' % stderr)
         raise AndroidError(stderr)
     logging.debug('adb command finished')
+    logging.debug('stdout:')
+    logging.debug(stdout)
+    if stderr:
+        logging.debug('stderr:')
+        logging.debug(stderr)
     return stdout
 
 

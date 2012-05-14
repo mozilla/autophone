@@ -15,10 +15,10 @@ import os
 import shutil
 import socket
 import sys
+import tempfile
 import threading
 import time
 import traceback
-import urllib
 import urlparse
 import zipfile
 
@@ -104,8 +104,9 @@ class PhoneWorker(object):
     this back to the main AutoPhone process.
     """
 
-    max_reboot_wait_seconds = 300
-    max_reboot_attempts = 3
+    MAX_REBOOT_WAIT_SECONDS = 300
+    MAX_REBOOT_ATTEMPTS = 3
+    PING_SECONDS = 60*15
 
     def __init__(self, worker_num, tests, phone_cfg, callback_ipaddr,
                  autophone_queue, main_logfile, loglevel, mailer):
@@ -211,14 +212,14 @@ class PhoneWorker(object):
     def recover_phone(self):
         reboots = 0
         while not self.disabled:
-            if reboots < self.max_reboot_attempts:
+            if reboots < self.MAX_REBOOT_ATTEMPTS:
                 logging.info('Rebooting phone...')
                 phone_is_up = False
                 reboots += 1
                 androidutils.reboot_adb(self.phone_cfg['serial'])
                 time.sleep(10)
                 max_time = datetime.datetime.now() + \
-                    datetime.timedelta(seconds=self.max_reboot_wait_seconds)
+                    datetime.timedelta(seconds=self.MAX_REBOOT_WAIT_SECONDS)
                 while datetime.datetime.now() <= max_time:
                     dm = DeviceManagerSUT(self.phone_cfg['ip'],
                                           self.phone_cfg['sutcmdport'])
@@ -232,7 +233,7 @@ class PhoneWorker(object):
                         return
                 else:
                     logging.info('Phone did not come back up within %d seconds.' %
-                                 self.max_reboot_wait_seconds)
+                                 self.MAX_REBOOT_WAIT_SECONDS)
             else:
                 logging.info('Phone has been rebooted %d times; giving up.' %
                              reboots)
@@ -297,22 +298,33 @@ We gave up on it. Sorry about that.''' %
                 self.phone_cfg['phoneid'],
                 phonetest.PhoneTestMessage.IDLE))
 
+        last_ping = None
+
         while True:
             request = None
             try:
                 request = self.job_queue.get(timeout=60)
             except Queue.Empty:
-                if not self.disabled:
-                    # verify that the phone is still responding
-                    response = androidutils.run_adb('shell', ['ps'],
-                                                    self.phone_cfg['serial'])
-                    if response:
-                        status = phonetest.PhoneTestMessage.IDLE
-                    else:
-                        # FIXME: recover phone here?
-                        status = phonetest.PhoneTestMessage.DISCONNECTED
-                    self.status_update(phonetest.PhoneTestMessage(
-                            self.phone_cfg['phoneid'], status, self.current_build))
+                if (not last_ping or
+                    ((datetime.datetime.now() - last_ping) >
+                     datetime.timedelta(
+                            microseconds=1000*1000*self.PING_SECONDS))):
+                    last_ping = datetime.datetime.now()
+                    if not self.disabled:
+                        logging.info('Pinging phone')
+                        # verify that the phone is still responding
+                        response = androidutils.run_adb('shell', ['ps'],
+                                                        self.phone_cfg['serial'])
+                        if response:
+                            status = phonetest.PhoneTestMessage.IDLE
+                            logging.info('Pong!')
+                        else:
+                            logging.info('No response!')
+                            # FIXME: recover phone here?
+                            status = phonetest.PhoneTestMessage.DISCONNECTED
+                        self.status_update(phonetest.PhoneTestMessage(
+                                self.phone_cfg['phoneid'], status,
+                                self.current_build))
             except KeyboardInterrupt:
                 return
             if self.should_stop():
@@ -662,7 +674,7 @@ class AutoPhone(object):
             self._tests.extend(tests)
 
     def trigger_jobs(self, data):
-        job = self.build_job(self.get_remote_build(data))
+        job = self.build_job(self.get_build(data))
         logging.info('Adding user-specified job: %s' % job)
         self.start_tests(job)
 
@@ -681,23 +693,42 @@ class AutoPhone(object):
         # those, and only run the ones with real URLs
         # We create jobs for all the phones and push them into the queue
         if 'buildurl' in msg:
-            self.start_tests(self.build_job(self.get_remote_build(msg['buildurl'])))
+            self.start_tests(self.build_job(self.get_build(msg['buildurl'])))
 
-    def get_remote_build(self, buildurl):
-        return self.build_cache.get(buildurl)
+    def get_build(self, url_or_path):
+        cmps = urlparse.urlparse(url_or_path)
+        if not cmps.scheme or cmps.scheme == 'file':
+            return cmps.path
+        apkpath = self.build_cache.get(url_or_path)
+        try:
+            z = zipfile.ZipFile(apkpath)
+            z.testzip()
+        except zipfile.BadZipfile:
+            logging.warn('%s is a bad apk; redownloading...' % apkpath)
+            apkpath = self.build_cache.get(url_or_path, force=True)
+        return apkpath
 
     def build_job(self, apkpath):
-        apkfile = zipfile.ZipFile(apkpath)
-        apkfile.extract('application.ini', 'extdir')
+        tmpdir = tempfile.mkdtemp()
+        try:
+            apkfile = zipfile.ZipFile(apkpath)
+            apkfile.extract('application.ini', tmpdir)
+        except zipfile.BadZipfile:
+            # we should have already tried to redownload bad zips, so treat
+            # this as fatal.
+            logging.error('%s is a bad apk; aborting job.' % apkpath)
+            shutil.rmtree(tmpdir)    
+            return None
         cfg = ConfigParser.RawConfigParser()
-        cfg.read('extdir/application.ini')
+        cfg.read(os.path.join(tmpdir, 'application.ini'))
         rev = cfg.get('App', 'SourceStamp')
         ver = cfg.get('App', 'Version')
         repo = cfg.get('App', 'SourceRepository')
         blddate = datetime.datetime.strptime(cfg.get('App', 'BuildID'),
                                              '%Y%m%d%H%M%S')
         procname = ''
-        if repo == 'http://hg.mozilla.org/mozilla-central':
+        if (repo == 'http://hg.mozilla.org/mozilla-central' or
+            repo == 'http://hg.mozilla.org/integration/mozilla-inbound'):
             procname = 'org.mozilla.fennec'
         elif repo == 'http://hg.mozilla.org/releases/mozilla-aurora':
             procname = 'org.mozilla.fennec_aurora'
@@ -710,8 +741,7 @@ class AutoPhone(object):
                 'androidprocname': procname,
                 'version': ver,
                 'bldtype': 'opt' }
-        if os.path.exists('extdir'):
-            shutil.rmtree('extdir')    
+        shutil.rmtree(tmpdir)    
         return job
 
     def stop(self):
