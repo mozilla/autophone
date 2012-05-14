@@ -313,7 +313,8 @@ We gave up on it. Sorry about that.''' %
                     if not self.disabled:
                         logging.info('Pinging phone')
                         # verify that the phone is still responding
-                        response = androidutils.run_adb('shell', ['ps'],
+                        response = androidutils.run_adb('shell',
+                                                        ['echo', 'autophone'],
                                                         self.phone_cfg['serial'])
                         if response:
                             status = phonetest.PhoneTestMessage.IDLE
