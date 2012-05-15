@@ -16,7 +16,6 @@ class PhoneTestMessage(object):
     INSTALLING = 'INSTALLING BUILD'
     WORKING = 'WORKING'
     REBOOTING = 'REBOOTING'
-    DISCONNECTED = 'DISCONNECTED'
     DISABLED = 'DISABLED'
 
     class JsonEncoder(json.JSONEncoder):

@@ -241,13 +241,18 @@ class PhoneWorker(object):
             else:
                 logging.info('Phone has been rebooted %d times; giving up.' %
                              reboots)
-                self.disable_phone('Phone %s was rebooted %d times. We gave up on it. Sorry about that.' % (self.phone_cfg['phoneid'], reboots))
+                self.disable_phone('Phone was rebooted %d times.' % reboots)
 
     def disable_phone(self, msg_body):
         self.disabled = True
         if msg_body:
             self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
-                             'Hello, this is AutoPhone.\n\n%s' % msg_body)
+                             '''Hello, this is AutoPhone. Phone %s has been disabled:
+
+%s
+
+We gave up on it. Sorry about that.
+''' % (self.phone_cfg['phoneid'], msg_body))
         self.status_update(phonetest.PhoneTestMessage(
                 self.phone_cfg['phoneid'],
                 phonetest.PhoneTestMessage.DISABLED))
@@ -281,11 +286,21 @@ class PhoneWorker(object):
                 if len(android_errors) == 2:
                     logging.warn('Phone experienced three android errors in a row; giving up.')
                     self.disable_phone(
-'''Phone %s experienced two android errors in a row:
-%s
+'''Phone experienced two android errors in a row:
+%s''' % '\n'.join(['* %s' % x for x in android_errors]))
 
-We gave up on it. Sorry about that.''' %
-(self.phone_cfg['phoneid'], '\n'.join(['* %s' % x for x in android_errors])))
+    def ping(self):
+        logging.info('Pinging phone')
+        # verify that the phone is still responding
+        response = androidutils.run_adb('shell',
+                                        ['echo', 'autophone'],
+                                        self.phone_cfg['serial'])
+        if response:
+            logging.info('Pong!')
+            return True
+
+        logging.info('No response!')
+        return False
 
     def loop(self):
         for h in logging.getLogger().handlers:
@@ -307,7 +322,7 @@ We gave up on it. Sorry about that.''' %
         while True:
             request = None
             try:
-                request = self.job_queue.get(timeout=60)
+                request = self.job_queue.get(timeout=10)
             except Queue.Empty:
                 if (not last_ping or
                     ((datetime.datetime.now() - last_ping) >
@@ -315,21 +330,20 @@ We gave up on it. Sorry about that.''' %
                             microseconds=1000*1000*self.PING_SECONDS))):
                     last_ping = datetime.datetime.now()
                     if not self.disabled:
-                        logging.info('Pinging phone')
-                        # verify that the phone is still responding
-                        response = androidutils.run_adb('shell',
-                                                        ['echo', 'autophone'],
-                                                        self.phone_cfg['serial'])
-                        if response:
-                            status = phonetest.PhoneTestMessage.IDLE
-                            logging.info('Pong!')
+                        if self.ping():
+                            self.status_update(phonetest.PhoneTestMessage(
+                                    self.phone_cfg['phoneid'],
+                                    phonetest.PhoneTestMessage.IDLE,
+                                    self.current_build))
                         else:
                             logging.info('No response!')
-                            # FIXME: recover phone here?
-                            status = phonetest.PhoneTestMessage.DISCONNECTED
-                        self.status_update(phonetest.PhoneTestMessage(
-                                self.phone_cfg['phoneid'], status,
-                                self.current_build))
+                            self.recover_phone()
+                            # try pinging again, since, if the phone is
+                            # physically disconnected but the agent is running,
+                            # the reboot will appear to succeed even though we
+                            # still can't access it through adb.
+                            if not self.ping():
+                                self.disable_phone('No response to ping via adb.')
             except KeyboardInterrupt:
                 return
             if self.should_stop():
@@ -341,7 +355,7 @@ We gave up on it. Sorry about that.''' %
                 if not job:
                     continue
                 logging.info('Got job.')
-                if not self.check_sdcard():
+                if not self.disabled and not self.check_sdcard():
                     self.recover_phone()
                 if self.disabled:
                     logging.info('Phone is disabled; queuing job for later.')
@@ -379,7 +393,7 @@ We gave up on it. Sorry about that.''' %
                 if self.disabled:
                     self.status_update(phonetest.PhoneTestMessage(
                             self.phone_cfg['phoneid'],
-                            phonetest.PhoneTestMessage.DISCONNECTED))
+                            phonetest.PhoneTestMessage.DISABLED))
                 else:
                     logging.info('Job completed.')
                     self.status_update(phonetest.PhoneTestMessage(
