@@ -220,7 +220,12 @@ class PhoneWorker(object):
                 logging.info('Rebooting phone...')
                 phone_is_up = False
                 reboots += 1
-                androidutils.reboot_adb(self.phone_cfg['serial'])
+                try:
+                    androidutils.reboot_adb(self.phone_cfg['serial'])
+                except androidutils.AndroidError:
+                    logging.error('Could not reboot phone.')
+                    self.disable_phone('Could not reboot phone via adb.')
+                    return
                 time.sleep(10)
                 max_time = datetime.datetime.now() + \
                     datetime.timedelta(seconds=self.MAX_REBOOT_WAIT_SECONDS)
@@ -413,6 +418,7 @@ We gave up on it. Sorry about that.
             elif request[0] == 'reenable':
                 if self.disabled:
                     self.disabled = False
+                    last_ping = None
                 for j in self.skipped_job_queue:
                     self.job_queue.put(('job', j))
 

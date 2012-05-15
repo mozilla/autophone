@@ -188,7 +188,8 @@ def run_adb(adbcmd, cmd, serial=None, check_for_error=False, timeout=0):
 
 
 def reboot_adb(serial):
-    run_adb('shell', ['su', '-c', 'reboot'], serial=serial)
+    run_adb('shell', ['su', '-c', 'reboot'], serial=serial,
+            check_for_error=True)
 
 
 """
