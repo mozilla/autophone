@@ -195,6 +195,10 @@ class PhoneWorker(object):
             return False
         d = dev_root + '/autophonetest'
         out = androidutils.run_adb('shell', ['mkdir', d], serial=self.phone_cfg['serial'], timeout=15)
+        if not out:
+            # Sometimes we don't get an error creating the dir, but we do
+            # when changing to it. Blah.
+            out = androidutils.run_adb('shell', ['cd', d], serial=self.phone_cfg['serial'], timeout=15)            
         if out:
             logging.error('device root is not writable!')
             logging.error(out)
