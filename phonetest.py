@@ -105,7 +105,7 @@ class PhoneTest(object):
     def install_profile(self, profile=None):
         if not profile:
             profile = FirefoxProfile()
-        androidutils.run_adb('shell', ['rm', '-rf', self.profile_path],
+        androidutils.run_adb('shell', ['rm', '-r', self.profile_path],
                              self.phone_cfg['serial'])
         androidutils.run_adb('shell', ['mkdir', self.profile_path],
                              self.phone_cfg['serial'])
