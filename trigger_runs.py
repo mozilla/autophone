@@ -4,6 +4,7 @@
 
 import datetime
 import logging
+import pytz
 import re
 import socket
 
@@ -32,6 +33,10 @@ def main(args, options):
             end_time = from_iso_date_or_datetime(args[1])
         else:
             end_time = datetime.datetime.now()
+    if not start_time.tzinfo:
+        start_time = start_time.replace(tzinfo=pytz.timezone('US/Pacific'))
+    if not end_time.tzinfo:
+        end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
     logging.info('Looking for builds...')
     commands = ['triggerjobs %s' % url for url in
                 builds.BuildCache().find_builds(start_time, end_time, 

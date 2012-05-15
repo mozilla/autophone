@@ -68,6 +68,7 @@ class BuildCache(object):
                     if dirnamematch:
                         build_time = datetime.datetime.strptime(dirnamematch.group(1),
                                                                 '%Y-%m-%d-%H-%M-%S')
+                        build_time = build_time.replace(tzinfo=pytz.timezone('US/Pacific'))
                     else:
                         continue
                 elif branch == 'tinderbox':

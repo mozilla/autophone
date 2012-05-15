@@ -189,7 +189,11 @@ class PhoneWorker(object):
         if not dm:
             dm = DeviceManagerSUT(self.phone_cfg['ip'],
                                   self.phone_cfg['sutcmdport'])
-        d = dm.getDeviceRoot() + '/autophonetest'
+        dev_root = dm.getDeviceRoot()
+        if dev_root is None:
+            logging.error('no response from device when querying device root')
+            return False
+        d = dev_root + '/autophonetest'
         out = androidutils.run_adb('shell', ['mkdir', d], serial=self.phone_cfg['serial'], timeout=15)
         if out:
             logging.error('device root is not writable!')
