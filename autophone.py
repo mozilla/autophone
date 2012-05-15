@@ -251,16 +251,20 @@ class PhoneWorker(object):
     def disable_phone(self, msg_body):
         self.disabled = True
         if msg_body:
-            self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
-                             '''Hello, this is AutoPhone. Phone %s has been disabled:
+            try:
+                self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
+                                 '''Hello, this is AutoPhone. Phone %s has been disabled:
 
 %s
 
 We gave up on it. Sorry about that.
 ''' % (self.phone_cfg['phoneid'], msg_body))
-        self.status_update(phonetest.PhoneTestMessage(
-                self.phone_cfg['phoneid'],
-                phonetest.PhoneTestMessage.DISABLED))
+                self.status_update(phonetest.PhoneTestMessage(
+                        self.phone_cfg['phoneid'],
+                        phonetest.PhoneTestMessage.DISABLED))
+            except socket.error:
+                logging.error('Failed to send disabled-phone notification.')
+                logging.info(traceback.format_exc())
         
     def retry_func(self, error_str, func, args, kwargs):
         """Retries a function up to three times.
