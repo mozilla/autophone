@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import errno
+import fcntl
 import shutil
 import subprocess
 import os
@@ -146,21 +147,37 @@ def run_adb(adbcmd, cmd, serial=None, check_for_error=False, timeout=0):
     adb = find_adb()
 
     if serial:
-        logging.debug('adb cmd: %s' %
-                      subprocess.list2cmdline([adb, '-s', serial, adbcmd]
-                                              + cmd))
-        p = subprocess.Popen([adb, '-s', serial, adbcmd] + cmd,
-                             stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE)
+        args = [adb, '-s', serial, adbcmd] + cmd
     else:
-        logging.debug('run adb cmd: %s' %
-                      subprocess.list2cmdline([adb, adbcmd] + cmd))
-        p = subprocess.Popen([adb, adbcmd] + cmd,
-                             stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE)
+        args = [adb, adbcmd] + cmd
+
+    logging.debug('run adb cmd: %s' %
+                  subprocess.list2cmdline(args))
+    p = subprocess.Popen(args,
+                         stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE)
+
+    fl = fcntl.fcntl(p.stdout.fileno(), fcntl.F_GETFL)
+    fcntl.fcntl(p.stdout.fileno(), fcntl.F_SETFL, fl | os.O_NONBLOCK)
+    fl = fcntl.fcntl(p.stderr.fileno(), fcntl.F_GETFL)
+    fcntl.fcntl(p.stderr.fileno(), fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
     if timeout > 0:
+        stdout = ''
+        stderr = ''
         for i in range(0, timeout):
-            if p.poll() is not None:
+            poll_result = p.poll()
+            try:
+                stdout += p.stdout.read()
+            except IOError, e:
+                if e.errno != errno.EAGAIN:
+                    raise
+            try:
+                stderr += p.stderr.read()
+            except IOError, e:
+                if e.errno != errno.EAGAIN:
+                    raise
+            if poll_result is not None:
                 break
             sleep(1)
         if p.poll() is None:
@@ -174,7 +191,8 @@ def run_adb(adbcmd, cmd, serial=None, check_for_error=False, timeout=0):
             logging.error('adb processed timed out')
             raise AndroidError('timeout: process has been running for %d seconds' %
                            timeout)
-    stdout, stderr = p.communicate()
+    else:
+        stdout, stderr = p.communicate()
     if check_for_error and stderr.startswith('error'):
         logging.error('adb error: %s' % stderr)
         raise AndroidError(stderr)
