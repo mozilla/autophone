@@ -3,51 +3,72 @@
 # http://mozilla.org/MPL/2.0/.
 
 import smtplib
+import sys
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-def SendEmail(From=None, To=None, Subject='No Subject', 
-              TextData=None, HtmlData=None,
-              Server='mail.mozilla.com', Port=465,
-              Username=None, Password=None, UseSsl=True):
-  """Sends an e-mail.
+if sys.hexversion < 0x020603f0:
+    # versions earlier than 2.6.3 have a bug in smtplib when sending over SSL:
+    #     http://bugs.python.org/issue4066
+    # Unfortunately the stock version of Python in Snow Leopard is 2.6.1, so
+    # we patch it here to avoid having to install an updated Python version.
+    import socket
+    import ssl
+
+    def _get_socket_fixed(self, host, port, timeout):
+        if self.debuglevel > 0: print>>stderr, 'connect:', (host, port)
+        new_socket = socket.create_connection((host, port), timeout)
+        new_socket = ssl.wrap_socket(new_socket, self.keyfile, self.certfile)
+        self.file = smtplib.SSLFakeFile(new_socket)
+        return new_socket
+
+    smtplib.SMTP_SSL._get_socket = _get_socket_fixed
+
+
+def sendemail(from_addr=None, to_addrs=None, subject='No Subject', 
+              text_data=None, html_data=None,
+              server='mail.mozilla.com', port=465,
+              username=None, password=None, use_ssl=True):
+    """Sends an email.
   
-     From is an e-mail address, To is a list of e-mail adresses.
+     from_addr is an email address; to_addrs is a list of email adresses.
+     Addresses can be plain (e.g. "jsmith@example.com") or with real names
+     (e.g. "John Smith <jsmith@example.com>").
      
-     TextData and HtmlData are both strings.  You can specify one or both.
-     If you specify both, the e-mail will be sent as a MIME multipart
-     alternative; i.e., the recipient will see the HTML content if his
-     viewer supports it, otherwise he'll see the text content.
-  """
+     text_data and html_data are both strings.  You can specify one or both.
+     If you specify both, the email will be sent as a MIME multipart
+     alternative, i.e., the recipient will see the HTML content if his
+     viewer supports it; otherwise he'll see the text content.
+     """
 
-  if From is None or To is None:
-    raise Exception("Both From and To must be specified")
-  if TextData is None and HtmlData is None:
-    raise Exception("Must specify either TextData or HtmlData")
+    if not from_addr or not to_addrs:
+        raise Exception("Both from_addr and to_addrs must be specified")
+    if not text_data and not html_data:
+        raise Exception("Must specify either text_data or html_data")
 
-  if UseSsl:
-    server = smtplib.SMTP_SSL(Server, Port)
-  else:
-    server = smtplib.SMTP(Server, Port)
+    if use_ssl:
+        server = smtplib.SMTP_SSL(server, port)
+    else:
+        server = smtplib.SMTP(server, port)
 
-  if Username is not None and Password is not None:
-    server.login(Username, Password)
+    if username and password:
+        server.login(username, password)
 
-  if HtmlData is None:
-    msg = MIMEText(TextData)
-  elif TextData is None:
-    msg = MIMEMultipart()
-    msg.preamble = Subject
-    msg.attach(MIMEText(HtmlData, 'html'))
-  else:
-    msg = MIMEMultipart('alternative')
-    msg.attach(MIMEText(TextData, 'plain'))
-    msg.attach(MIMEText(HtmlData, 'html'))
+    if not html_data:
+        msg = MIMEText(text_data)
+    elif not text_data:
+        msg = MIMEMultipart()
+        msg.preamble = subject
+        msg.attach(MIMEText(html_data, 'html'))
+    else:
+        msg = MIMEMultipart('alternative')
+        msg.attach(MIMEText(text_data, 'plain'))
+        msg.attach(MIMEText(html_data, 'html'))
 
-  msg['Subject'] = Subject
-  msg['From'] = From
-  msg['To'] = ', '.join(To)
+    msg['Subject'] = subject
+    msg['From'] = from_addr
+    msg['To'] = ', '.join(to_addrs)
 
-  server.sendmail(From, To, msg.as_string())
+    server.sendmail(from_addr, to_addrs, msg.as_string())
 
-  server.quit()
+    server.quit()
