@@ -194,6 +194,7 @@ class PhoneWorker(object):
             logging.error('no response from device when querying device root')
             return False
         d = dev_root + '/autophonetest'
+        androidutils.run_adb('shell', ['rmdir', d], serial=self.phone_cfg['serial'], timeout=15)
         out = androidutils.run_adb('shell', ['mkdir', d], serial=self.phone_cfg['serial'], timeout=15)
         if not out:
             # Sometimes we don't get an error creating the dir, but we do
