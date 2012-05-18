@@ -324,6 +324,9 @@ We gave up on it. Sorry about that.
                             level=self.loglevel,
                             format='%(asctime)s|%(levelname)s|%(message)s')
 
+        logging.info('Worker for phone %s starting up.' %
+                     self.phone_cfg['phoneid'])
+
         for t in self.tests:
             t.status_cb = self.status_update
 
@@ -338,26 +341,26 @@ We gave up on it. Sorry about that.
             try:
                 request = self.job_queue.get(timeout=10)
             except Queue.Empty:
-                if (not last_ping or
-                    ((datetime.datetime.now() - last_ping) >
-                     datetime.timedelta(
-                            microseconds=1000*1000*self.PING_SECONDS))):
+                if (not self.disabled and
+                    (not last_ping or
+                     ((datetime.datetime.now() - last_ping) >
+                      datetime.timedelta(
+                                microseconds=1000*1000*self.PING_SECONDS)))):
                     last_ping = datetime.datetime.now()
-                    if not self.disabled:
-                        if self.ping():
-                            self.status_update(phonetest.PhoneTestMessage(
-                                    self.phone_cfg['phoneid'],
-                                    phonetest.PhoneTestMessage.IDLE,
-                                    self.current_build))
-                        else:
-                            logging.info('No response!')
-                            self.recover_phone()
-                            # try pinging again, since, if the phone is
-                            # physically disconnected but the agent is running,
-                            # the reboot will appear to succeed even though we
-                            # still can't access it through adb.
-                            if not self.ping():
-                                self.disable_phone('No response to ping via adb.')
+                    if self.ping():
+                        self.status_update(phonetest.PhoneTestMessage(
+                                self.phone_cfg['phoneid'],
+                                phonetest.PhoneTestMessage.IDLE,
+                                self.current_build))
+                    else:
+                        logging.info('No response!')
+                        self.recover_phone()
+                        # try pinging again, since, if the phone is
+                        # physically disconnected but the agent is running,
+                        # the reboot will appear to succeed even though we
+                        # still can't access it through adb.
+                        if not self.ping():
+                            self.disable_phone('No response to ping via adb.')
             except KeyboardInterrupt:
                 return
             if self.should_stop():
@@ -419,9 +422,10 @@ We gave up on it. Sorry about that.
                         self.phone_cfg['phoneid'],
                         phonetest.PhoneTestMessage.REBOOTING))
                 self.recover_phone()
-                self.status_update(phonetest.PhoneTestMessage(
-                        self.phone_cfg['phoneid'],
-                        phonetest.PhoneTestMessage.IDLE, msg='phone reset'))
+                if not self.disabled:
+                    self.status_update(phonetest.PhoneTestMessage(
+                            self.phone_cfg['phoneid'],
+                            phonetest.PhoneTestMessage.IDLE, msg='phone reset'))
             elif request[0] == 'disable':
                 self.disable_phone(None)
             elif request[0] == 'reenable':
