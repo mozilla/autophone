@@ -37,7 +37,7 @@ from pulsebuildmonitor import start_pulse_monitor
 
 from devicemanager import DMError, NetworkTools
 from devicemanagerSUT import DeviceManagerSUT
-from sendemail import SendEmail
+from sendemail import sendemail
 
 
 class Mailer(object):
@@ -84,10 +84,10 @@ class Mailer(object):
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             mail_ssl = True
 
-        SendEmail(From=from_address, To=mail_dest, Subject=subject,
-                  Username=mail_username, Password=mail_password,
-                  TextData=body, Server=mail_server, Port=mail_port,
-                  UseSsl=mail_ssl)
+        sendemail(from_addr=from_address, to_addrs=mail_dest, subject=subject,
+                  username=mail_username, password=mail_password,
+                  text_data=body, server=mail_server, port=mail_port,
+                  use_ssl=mail_ssl)
 
 
 class PhoneWorker(object):
