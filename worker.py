@@ -16,13 +16,61 @@ import androidutils
 import phonetest
 from devicemanagerSUT import DeviceManagerSUT
 
+
 class PhoneWorker(object):
 
     """Runs tests on a single phone in a separate process.
+    This is the interface to the subprocess, accessible by the main
+    process."""
 
-    FIXME: This class represents both the interface to the subprocess and
-    the subprocess itself. It would be best to split those so we can easily
-    tell what can and cannot be accessed from the main process.
+    def __init__(self, worker_num, tests, phone_cfg, autophone_queue, logfile,
+                 loglevel, mailer):
+        self.phone_cfg = phone_cfg
+        self.worker_num = worker_num
+        self.last_status_msg = None
+        self.first_status_of_type = None
+        self.last_status_of_previous_type = None
+        self.job_queue = multiprocessing.Queue()
+        self.lock = multiprocessing.Lock()
+        self.subprocess = PhoneWorkerSubProcess(tests, phone_cfg,
+                                                autophone_queue,
+                                                self.job_queue, logfile,
+                                                loglevel, mailer)
+
+    def start(self):
+        self.subprocess.start()
+
+    def stop(self):
+        self.subprocess.stop()
+
+    def add_job(self, job):
+        self.job_queue.put_nowait(('job', job))
+
+    def reboot(self):
+        self.job_queue.put_nowait(('reboot', None))
+
+    def disable(self):
+        self.job_queue.put_nowait(('disable', None))
+
+    def reenable(self):
+        self.job_queue.put_nowait(('reenable', None))
+
+    def process_msg(self, msg):
+        """These are status messages routed back from the autophone_queue
+        listener in the main AutoPhone class. There is probably a bit
+        clearer way to do this..."""
+        if not self.last_status_msg or msg.status != self.last_status_msg.status:
+            self.last_status_of_previous_type = self.last_status_msg
+            self.first_status_of_type = msg
+        self.last_status_msg = msg
+        logging.info(msg)
+
+
+
+
+class PhoneWorkerSubProcess(object):
+
+    """Worker subprocess.
 
     FIXME: Would be nice to have test results uploaded outside of the
     test objects, and to have them queued (and cached) if the results
@@ -36,69 +84,35 @@ class PhoneWorker(object):
     JOB_QUEUE_TIMEOUT_SECONDS = 10
     POST_REBOOT_SLEEP_SECONDS = 10
 
-    def __init__(self, worker_num, tests, phone_cfg, autophone_queue,
-                 logfile, loglevel, mailer):
-        self.worker_num = worker_num
+    def __init__(self, tests, phone_cfg, autophone_queue, job_queue, logfile,
+                 loglevel, mailer):
         self.tests = tests
         self.phone_cfg = phone_cfg
         self.autophone_queue = autophone_queue
+        self.job_queue = job_queue
         self.logfile = logfile
         self.loglevel = loglevel
         self.mailer = mailer
-        self.job_queue = multiprocessing.Queue()
-        self.lock = multiprocessing.Lock()
         self.p = None
         self.disabled = False
         self.skipped_job_queue = []
         self.current_build = None
-        self.last_status_msg = None
-        self.first_status_of_type = None
-        self.last_status_of_previous_type = None
-
-    def process_msg(self, msg):
-        """FIXME: This is terrible... the subprocess sends the message to
-        the main process, which sends it back to this object, but as part of
-        the main process. See FIXME above."""
-        if not self.last_status_msg or msg.status != self.last_status_msg.status:
-            self.last_status_of_previous_type = self.last_status_msg
-            self.first_status_of_type = msg
-        self.last_status_msg = msg
-        logging.info(msg)
-
-    def add_job(self, job):
-        self.job_queue.put_nowait(('job', job))
-
-    def reboot(self):
-        self.job_queue.put_nowait(('reboot', None))
 
     def start(self):
+        """Call from main process."""
         if self.p:
             return
         self.p = multiprocessing.Process(target=self.loop)
         self.p.start()
 
     def stop(self):
-        self.lock.acquire()
-        will_stop = self.p
-        self.lock.release()
-        if will_stop:
+        """Call from main process."""
+        if self.p:
             self.job_queue.put_nowait(('stop', None))
             self.p.join(self.JOB_QUEUE_TIMEOUT_SECONDS*2)
 
-    def disable(self):
-        self.lock.acquire()
-        self.job_queue.put_nowait(('disable', None))
-        self.lock.release()
-
-    def reenable(self):
-        self.lock.acquire()
-        self.job_queue.put_nowait(('reenable', None))
-        self.lock.release()
-
     def is_disabled(self):
-        self.lock.acquire()
         disabled = self.disabled
-        self.lock.release()
         return disabled
 
     def status_update(self, msg):
@@ -355,3 +369,4 @@ We gave up on it. Sorry about that.
                     last_ping = None
                 for j in self.skipped_job_queue:
                     self.job_queue.put(('job', j))
+

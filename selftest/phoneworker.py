@@ -39,13 +39,22 @@ class WorkerTest(unittest.TestCase):
         self.msg_queue = multiprocessing.Queue()
         self.worker = worker.PhoneWorker(0, [], self.phone_cfg, self.msg_queue,
                                          self.logfile.name, logging.DEBUG, None)
-        self.worker.JOB_QUEUE_TIMEOUT_SECONDS = 2
+        self.worker.subprocess.JOB_QUEUE_TIMEOUT_SECONDS = 2
 
     def tearDown(self):
         self.worker.stop()
         #print 'worker log:'
         #print self.logfile.read()
         del self.logfile
+
+    def wait_for_state(self, state):
+        msg = None
+        start = datetime.datetime.now()
+        while ((not msg or msg.status != state) and
+               (datetime.datetime.now() - start < 
+                datetime.timedelta(seconds=10))):
+            msg = self.msg_queue.get(True, 10)
+        return msg
 
     def test_init(self):
         pass
@@ -60,16 +69,27 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(msg.current_build, None)
 
     def test_disabled(self):
-        self.worker.POST_REBOOT_SLEEP_SECONDS = 0
-        self.worker.MAX_REBOOT_WAIT_SECONDS = 0
+        self.worker.subprocess.POST_REBOOT_SLEEP_SECONDS = 0
+        self.worker.subprocess.MAX_REBOOT_WAIT_SECONDS = 0
         mock_adb = MockAdb()
         androidutils.run_adb = mock_adb.run_empty_adb
         self.worker.start()
         msg = self.msg_queue.get(True, 10)
         self.assertEqual(msg.status, PhoneTestMessage.IDLE)
-        start = datetime.datetime.now()
-        while (msg.status == PhoneTestMessage.IDLE and
-               datetime.datetime.now() - start < 
-               datetime.timedelta(seconds=10)):
-            msg = self.msg_queue.get(True, 10)
+        msg = self.wait_for_state(PhoneTestMessage.DISABLED)
         self.assertEqual(msg.status, PhoneTestMessage.DISABLED)
+
+    def test_manual_disable(self):
+        mock_adb = MockAdb()
+        androidutils.run_adb = mock_adb.run_adb
+        self.worker.start()
+        msg = self.msg_queue.get(True, 10)
+        self.assertEqual(msg.phoneid, self.phone_cfg['phoneid'])
+        self.assertEqual(msg.status, PhoneTestMessage.IDLE)
+        self.assertEqual(msg.current_build, None)
+        self.worker.disable()
+        msg = self.wait_for_state(PhoneTestMessage.DISABLED)
+        self.assertEqual(msg.status, PhoneTestMessage.DISABLED)
+        self.worker.reenable()
+        msg = self.wait_for_state(PhoneTestMessage.IDLE)
+        self.assertEqual(msg.status, PhoneTestMessage.IDLE)
