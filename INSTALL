@@ -58,6 +58,20 @@ from the mobile devices.
 
 The resulturl is the URL used to POST results to the database.
 
+If you want to get notifications indicating when AutoPhone has disabled
+a device due to errors, you can create email.ini like so:
+
+[report]
+from = <from address>
+
+[email]
+dest = <list of to addresses>
+server = <SMTP server>
+port = <SMTP server port, defaults to 465>
+ssl = <enable SMTP over SSL, defaults to true>
+username = <username for SMTP, optional>
+password = <password for SMTP, optional>
+
 
 == Setting up devices ==
 
