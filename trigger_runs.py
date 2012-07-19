@@ -21,26 +21,30 @@ def from_iso_date_or_datetime(s):
 
 
 def main(args, options):
-    m = re.match('(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})', args[0])
-    if re.match('\d{14}', args[0]):
-        # build id
-        build_time = datetime.datetime.strptime(args[0], '%Y%m%d%H%M%S')
-        start_time = build_time
-        end_time = build_time
-    else:
-        start_time = from_iso_date_or_datetime(args[0])
-        if len(args) > 1:
-            end_time = from_iso_date_or_datetime(args[1])
-        else:
-            end_time = datetime.datetime.now()
-    if not start_time.tzinfo:
-        start_time = start_time.replace(tzinfo=pytz.timezone('US/Pacific'))
-    if not end_time.tzinfo:
-        end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
     logging.info('Looking for builds...')
-    commands = ['triggerjobs %s' % url for url in
-                builds.BuildCache().find_builds(start_time, end_time, 
-                                                options.branch)]
+    if args[0] == 'latest':
+        commands = ['triggerjobs %s' %
+                    builds.BuildCache().find_latest_build(options.branch)]
+    else:
+        m = re.match('(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})', args[0])
+        if re.match('\d{14}', args[0]):
+            # build id
+            build_time = datetime.datetime.strptime(args[0], '%Y%m%d%H%M%S')
+            start_time = build_time
+            end_time = build_time
+        else:
+            start_time = from_iso_date_or_datetime(args[0])
+            if len(args) > 1:
+                end_time = from_iso_date_or_datetime(args[1])
+            else:
+                end_time = datetime.datetime.now()
+        if not start_time.tzinfo:
+            start_time = start_time.replace(tzinfo=pytz.timezone('US/Pacific'))
+        if not end_time.tzinfo:
+            end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
+        commands = ['triggerjobs %s' % url for url in
+                    builds.BuildCache().find_builds(start_time, end_time, 
+                                                    options.branch)]
     logging.info('Connecting to autophone server...')
     commands.append('exit')
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -67,6 +71,7 @@ The argument(s) should be one of the following:
 - a build ID, e.g. 20120403063158
 - a date/datetime, e.g. 2012-04-03 or 2012-04-03T06:31:58
 - a date/datetime range, e.g. 2012-04-03T06:31:58 2012-04-05
+- the string "latest"
 
 If a build ID is given, a test run is initiated for that, and only that,
 particular build.
@@ -75,7 +80,9 @@ If a single date or datetime is given, test runs are initiated for all builds
 with build IDs between the given date/datetime and now.
 
 If a date/datetime range is given, test runs are initiated for all builds
-with build IDs in the given range.'''
+with build IDs in the given range.
+
+If "latest" is given, test runs are initiated for the most recent build.'''
     parser = OptionParser(usage=usage)
     parser.add_option('-i', '--ip', action='store', type='string', dest='ip',
                       default='127.0.0.1',

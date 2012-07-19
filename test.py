@@ -10,6 +10,7 @@ by default https://github.com/mozilla/mozbase/blob/master/test-manifest.ini
 """
 
 import imp
+import logging
 import manifestparser
 import os
 import sys
@@ -31,6 +32,11 @@ def unittests(path):
     return unittests
 
 def main(args=sys.argv[1:]):
+    logging.basicConfig(filename='test.log',
+                        filemode='w',
+                        level=logging.DEBUG,
+                        format='%(asctime)s|%(levelname)s|%(message)s')
+
     # read the manifest
     if args:
         manifests = args

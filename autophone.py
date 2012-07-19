@@ -13,6 +13,7 @@ import math
 import multiprocessing
 import os
 import shutil
+import signal
 import socket
 import sys
 import tempfile
@@ -149,6 +150,9 @@ class AutoPhone(object):
                     msg = self.worker_msg_queue.get(timeout=5)
                 except Queue.Empty:
                     continue
+                except IOError, e:
+                    if e.errno == errno.EINTR:
+                        continue
                 self.phone_workers[msg.phoneid].process_msg(msg)
         except KeyboardInterrupt:
             self.stop()
@@ -399,6 +403,9 @@ class AutoPhone(object):
 def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
          logfile, loglevel_name, emailcfg):
 
+    def sigterm_handler(signum, frame):
+        autophone.stop()
+
     adb_check = androidutils.check_for_adb()
     if adb_check != 0:
         print 'Could not execute adb: %s.' % os.strerror(adb_check)
@@ -425,6 +432,7 @@ def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
         (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), port)
     autophone = AutoPhone(is_restarting, reboot_phones, test_path, cachefile,
                           ipaddr, port, logfile, loglevel, emailcfg)
+    signal.signal(signal.SIGTERM, sigterm_handler)
     autophone.run()
     print '%s AutoPhone terminated.' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return 0
