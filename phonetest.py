@@ -5,10 +5,10 @@
 import datetime
 import json
 import logging
+import StringIO
 
-import androidutils
+from mozdevice import DeviceManagerSUT
 from mozprofile import FirefoxProfile
-from devicemanagerSUT import DeviceManagerSUT
 
 class PhoneTestMessage(object):
 
@@ -70,16 +70,22 @@ class PhoneTest(object):
         self.status = None
         self.logger = logging.getLogger('phonetest')
         self._base_device_path = ''
+        self._dm = None
+
+    @property
+    def dm(self):
+        if not self._dm:
+            self._dm = DeviceManagerSUT(self.phone_cfg['ip'],
+                                        self.phone_cfg['sutcmdport'])
+        return self._dm
 
     @property
     def base_device_path(self):
         if self._base_device_path:
             return self._base_device_path
-        dm = DeviceManagerSUT(self.phone_cfg['ip'],
-                              self.phone_cfg['sutcmdport'])
-        self._base_device_path = dm.getDeviceRoot() + '/autophone'
-        if not dm.dirExists(self._base_device_path):
-            dm.mkDirs(self._base_device_path)
+        self._base_device_path = self.dm.getDeviceRoot() + '/autophone'
+        if not self.dm.dirExists(self._base_device_path):
+            self.dm.mkDirs(self._base_device_path)
         return self._base_device_path
 
     @property
@@ -105,25 +111,21 @@ class PhoneTest(object):
     def install_profile(self, profile=None):
         if not profile:
             profile = FirefoxProfile()
-        androidutils.run_adb('shell', ['rm', '-r', self.profile_path],
-                             self.phone_cfg['serial'])
-        androidutils.run_adb('shell', ['mkdir', self.profile_path],
-                             self.phone_cfg['serial'])
-        androidutils.run_adb('push', [profile.profile, self.profile_path],
-                             self.phone_cfg['serial'])
+        
+        self.dm.removeDir(self.profile_path)
+        self.dm.mkDir(self.profile_path)
+        self.dm.pushDir(profile.profile, self.profile_path)
 
     def run_fennec_with_profile(self, intent, url):
-        androidutils.run_adb('push', ['runbrowserprofile.sh',
-                                      self.base_device_path + '/runbrowserprofile.sh'],
-                             self.phone_cfg['serial'], check_for_error=True)
-        androidutils.run_adb('shell',
-                             ['sh',
-                              self.base_device_path + '/runbrowserprofile.sh',
-                              intent, self.profile_path, url],
-                             self.phone_cfg['serial'], check_for_error=True)
+        self.dm.pushFile('runbrowserprofile.sh',
+                         self.base_device_path + '/runbrowserprofile.sh')
+        output = StringIO.StringIO()
+        args = ['am', 'start', '-a', 'android.intent.action.VIEW', '-n',
+                intent, '--es', 'args', '--profile %s' % self.profile_path,
+                '-d', url]
+        self.dm.shell(args, output)
+        logging.debug(output.getvalue())
 
     def remove_sessionstore_files(self):
-        androidutils.run_adb('shell', ['rm',
-                                       self.profile_path + '/sessionstore.js',
-                                       self.profile_path + '/sessionstore.bak'],
-                             self.phone_cfg['serial'])
+        self.dm.removeFile(self.profile_path + '/sessionstore.js')
+        self.dm.removeFile(self.profile_path + '/sessionstore.bak')

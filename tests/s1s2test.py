@@ -11,9 +11,11 @@ import ConfigParser
 import json
 import urllib2
 from time import sleep
-from phonetest import PhoneTest
-from devicemanagerSUT import DeviceManagerSUT
+
+from mozdevice import DeviceManagerSUT
 from mozprofile import FirefoxProfile
+
+from phonetest import PhoneTest
 
 class S1S2Test(PhoneTest):
 
@@ -30,9 +32,6 @@ class S1S2Test(PhoneTest):
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
         self.prepare_phone(job)
-
-        self.dm = DeviceManagerSUT(self.phone_cfg['ip'],
-                                   self.phone_cfg['sutcmdport'])
 
         intent = job['androidprocname'] + '/.App'
 

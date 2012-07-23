@@ -4,17 +4,18 @@
 
 import ConfigParser
 import Queue
+import StringIO
 import datetime
 import logging
 import multiprocessing
 import os
+import posixpath
 import socket
 import time
 import traceback
 
-import androidutils
 import phonetest
-from devicemanagerSUT import DeviceManagerSUT
+from mozdevice import DeviceManagerSUT
 
 
 class PhoneWorker(object):
@@ -23,16 +24,18 @@ class PhoneWorker(object):
     This is the interface to the subprocess, accessible by the main
     process."""
 
-    def __init__(self, worker_num, tests, phone_cfg, autophone_queue, logfile,
-                 loglevel, mailer):
+    def __init__(self, worker_num, ipaddr, tests, phone_cfg, autophone_queue,
+                 logfile, loglevel, mailer):
         self.phone_cfg = phone_cfg
         self.worker_num = worker_num
+        self.ipaddr = ipaddr
         self.last_status_msg = None
         self.first_status_of_type = None
         self.last_status_of_previous_type = None
         self.job_queue = multiprocessing.Queue()
         self.lock = multiprocessing.Lock()
-        self.subprocess = PhoneWorkerSubProcess(tests, phone_cfg,
+        self.subprocess = PhoneWorkerSubProcess(self.worker_num, self.ipaddr,
+                                                tests, phone_cfg,
                                                 autophone_queue,
                                                 self.job_queue, logfile,
                                                 loglevel, mailer)
@@ -44,6 +47,8 @@ class PhoneWorker(object):
         self.subprocess.stop()
 
     def add_job(self, job):
+        # reboot before running each job
+        self.reboot()
         self.job_queue.put_nowait(('job', job))
 
     def reboot(self):
@@ -66,8 +71,6 @@ class PhoneWorker(object):
         logging.info(msg)
 
 
-
-
 class PhoneWorkerSubProcess(object):
 
     """Worker subprocess.
@@ -82,10 +85,11 @@ class PhoneWorkerSubProcess(object):
     MAX_REBOOT_ATTEMPTS = 3
     PING_SECONDS = 60*15
     JOB_QUEUE_TIMEOUT_SECONDS = 10
-    POST_REBOOT_SLEEP_SECONDS = 10
 
-    def __init__(self, tests, phone_cfg, autophone_queue, job_queue, logfile,
-                 loglevel, mailer):
+    def __init__(self, worker_num, ipaddr, tests, phone_cfg, autophone_queue,
+                 job_queue, logfile, loglevel, mailer):
+        self.worker_num = worker_num
+        self.ipaddr = ipaddr
         self.tests = tests
         self.phone_cfg = phone_cfg
         self.autophone_queue = autophone_queue
@@ -97,6 +101,14 @@ class PhoneWorkerSubProcess(object):
         self.disabled = False
         self.skipped_job_queue = []
         self.current_build = None
+        self._dm = None
+
+    @property
+    def dm(self):
+        if not self._dm:
+            self._dm = DeviceManagerSUT(self.phone_cfg['ip'],
+                                        self.phone_cfg['sutcmdport'])
+        return self._dm
 
     def start(self):
         """Call from main process."""
@@ -121,33 +133,24 @@ class PhoneWorkerSubProcess(object):
         except Queue.Full:
             logging.warn('Autophone queue is full!')
 
-    def check_sdcard(self, dm=None):
-        if not dm:
-            dm = DeviceManagerSUT(self.phone_cfg['ip'],
-                                  self.phone_cfg['sutcmdport'])
-        dev_root = dm.getDeviceRoot()
+    def check_sdcard(self):
+        dev_root = self.dm.getDeviceRoot()
         if dev_root is None:
             logging.error('no response from device when querying device root')
             return False
         d = dev_root + '/autophonetest'
-        androidutils.run_adb('shell', ['rmdir', d], serial=self.phone_cfg['serial'], timeout=15)
-        out = androidutils.run_adb('shell', ['mkdir', d], serial=self.phone_cfg['serial'], timeout=15)
-        if not out:
-            # Sometimes we don't get an error creating the dir, but we do
-            # when changing to it. Blah.
-            out = androidutils.run_adb('shell', ['cd', d], serial=self.phone_cfg['serial'], timeout=15)            
-        if out:
+        self.dm.removeDir(d)
+        success = self.dm.mkDir(d) and self.dm.dirExists(d)
+        if not success:
             logging.error('device root is not writable!')
             logging.error(out)
             logging.info('checking sdcard...')
-            out = androidutils.run_adb('shell', ['mkdir', '/mnt/sdcard/tests/autophonetest'], serial=self.phone_cfg['serial'], timeout=15)
-            if out:
-                logging.error(out)
-            else:
+            sdcard_writable = self.dm.mkDir('/mnt/sdcard/tests/autophonetest')
+            if sdcard_writable:
                 logging.error('weird, sd card is writable but device root isn\'t! I\'m confused and giving up anyway!')
             self.clear_test_base_paths()
             return False
-        androidutils.run_adb('shell', ['rmdir', d], serial=self.phone_cfg['serial'], timeout=15)
+        self.dm.removeDir(d)
         return True
 
     def clear_test_base_paths(self):
@@ -161,29 +164,13 @@ class PhoneWorkerSubProcess(object):
                 logging.info('Rebooting phone...')
                 phone_is_up = False
                 reboots += 1
-                try:
-                    androidutils.reboot_adb(self.phone_cfg['serial'])
-                except androidutils.AndroidError:
-                    logging.error('Could not reboot phone.')
-                    self.disable_phone('Could not reboot phone via adb.')
-                    return
-                time.sleep(self.POST_REBOOT_SLEEP_SECONDS)
-                max_time = datetime.datetime.now() + \
-                    datetime.timedelta(seconds=self.MAX_REBOOT_WAIT_SECONDS)
-                while datetime.datetime.now() <= max_time:
-                    dm = DeviceManagerSUT(self.phone_cfg['ip'],
-                                          self.phone_cfg['sutcmdport'])
-                    if dm._sock:
-                        logging.info('Phone is back up.')
-                        phone_is_up = True
-                        break
-                    time.sleep(5)
-                if phone_is_up:
+                success = self.dm.reboot(self.ipaddr, 30000+self.worker_num)
+                if success:
+                    logging.info('Phone is back up.')
                     if self.check_sdcard():
                         return
                 else:
-                    logging.info('Phone did not come back up within %d seconds.' %
-                                 self.MAX_REBOOT_WAIT_SECONDS)
+                    logging.info('Phone did not reboot successfully.')
             else:
                 logging.info('Phone has been rebooted %d times; giving up.' %
                              reboots)
@@ -207,45 +194,12 @@ We gave up on it. Sorry about that.
                 self.phone_cfg['phoneid'],
                 phonetest.PhoneTestMessage.DISABLED))
         
-    def retry_func(self, error_str, func, args, kwargs):
-        """Retries a function up to three times.
-        Note that each attempt may reboot the phone up to three times if it
-        comes up in a bad state. This loop is to catch errors caused by the
-        test or help functions like androidutils.install_adb_build().
-        """
-        attempts = 0
-        android_errors = []
-        while not self.disabled and attempts < 3:
-            attempts += 1
-            # blech I don't like bare try/except clauses, but we
-            # want to track down if/why phone processes are
-            # suddenly exiting.
-            try:
-                return func(*args, **kwargs)
-            except Exception, e:
-                if isinstance(e, androidutils.AndroidError):
-                    android_errors.append(str(e))
-                logging.info(error_str)
-                logging.info(traceback.format_exc())
-                if attempts < 2:
-                    self.recover_phone()
-            else:
-                return
-            if attempts == 2:
-                logging.warn('Failed to run test three times; giving up on it.')
-                if len(android_errors) == 2:
-                    logging.warn('Phone experienced three android errors in a row; giving up.')
-                    self.disable_phone(
-'''Phone experienced two android errors in a row:
-%s''' % '\n'.join(['* %s' % x for x in android_errors]))
-
     def ping(self):
         logging.info('Pinging phone')
         # verify that the phone is still responding
-        response = androidutils.run_adb('shell',
-                                        ['echo', 'autophone'],
-                                        self.phone_cfg['serial'])
-        if response:
+        output = StringIO.StringIO()
+        response = self.dm.shell(['echo', 'autophone'], output)
+        if 'autophone' in output.getvalue():
             logging.info('Pong!')
             return True
 
@@ -320,15 +274,11 @@ We gave up on it. Sorry about that.
                         phonetest.PhoneTestMessage.INSTALLING, job['blddate']))
                 logging.info('Installing build %s.' % datetime.datetime.fromtimestamp(float(job['blddate'])))
                 
-                if not self.retry_func('Exception installing build',
-                                       androidutils.install_build_adb, [],
-                                       dict(phoneid=self.phone_cfg['phoneid'],
-                                            apkpath=job['apkpath'],
-                                            blddate=job['blddate'],
-                                            procname=job['androidprocname'],
-                                            serial=self.phone_cfg['serial'])):
-                    logging.error('Failed to install build!')
-                    continue
+                pathOnDevice = posixpath.join(self.dm.getDeviceRoot(),
+                                              os.path.basename(job['apkpath']))
+                self.dm.pushFile(job['apkpath'], pathOnDevice)
+                self.dm.installApp(pathOnDevice)
+                self.dm.removeFile(pathOnDevice)
 
                 self.current_build = job['blddate']
                 logging.info('Running tests...')
@@ -339,8 +289,8 @@ We gave up on it. Sorry about that.
                     # TODO: Attempt to see if pausing between jobs helps with
                     # our reconnection issues
                     time.sleep(30)
-                    self.retry_func('Exception running test %s.' %
-                                    t.__class__.__name__, t.runjob, [job], {})
+                    # FIXME: We need to detect fatal DeviceManager errors.
+                    t.runjob(job)
 
                 if self.disabled:
                     self.status_update(phonetest.PhoneTestMessage(
@@ -353,6 +303,7 @@ We gave up on it. Sorry about that.
                             phonetest.PhoneTestMessage.IDLE,
                             self.current_build))
             elif request[0] == 'reboot':
+                logging.info('Rebooting at user\'s request...')
                 self.status_update(phonetest.PhoneTestMessage(
                         self.phone_cfg['phoneid'],
                         phonetest.PhoneTestMessage.REBOOTING))
@@ -362,8 +313,10 @@ We gave up on it. Sorry about that.
                             self.phone_cfg['phoneid'],
                             phonetest.PhoneTestMessage.IDLE, msg='phone reset'))
             elif request[0] == 'disable':
+                logging.info('Disabling phone at user\'s request...')
                 self.disable_phone(None)
             elif request[0] == 'reenable':
+                logging.info('Reenabling phone at user\'s request...')
                 if self.disabled:
                     self.disabled = False
                     last_ping = None

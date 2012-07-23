@@ -10,20 +10,50 @@ import tempfile
 import time
 import unittest
 
-import androidutils
+import mozdevice
+
+class MockDeviceManagerSUT(mozdevice.DeviceManagerSUT):
+
+    DISABLE_SHELL = False
+
+    def getDeviceRoot(self):
+        return '/tmp'
+
+    def mkDir(self, d):
+        return True
+
+    def dirExists(self, d):
+        return True
+
+    def removeDir(self, d):
+        return True
+
+    def removeFile(self, f):
+        return True
+
+    def reboot(self, ip, port):
+        return True
+
+    def shell(self, args, output):
+        if self.DISABLE_SHELL:
+            return
+        output.write(' '.join(args))
+
+    def pushFile(self, src, dest):
+        return True
+
+    def installApp(self, path):
+        return True
+
+mozdevice.DeviceManagerSUT = MockDeviceManagerSUT
+
 import worker
 from phonetest import PhoneTestMessage
 
-class MockAdb(object):
-
-    def run_adb(self, command, *a, **kw):
-        return command
-
-    def run_empty_adb(self, command, *a, **kw):
-        return ''
-
 
 class WorkerTest(unittest.TestCase):
+
+    SHOW_LOGS = False
 
     phone_cfg = dict(
         phoneid='fake',
@@ -34,17 +64,19 @@ class WorkerTest(unittest.TestCase):
         osver='1.0')
 
     def setUp(self):
-        reload(androidutils)  # clear overrides
+        MockDeviceManagerSUT.DISABLE_SHELL = False
         self.logfile = tempfile.NamedTemporaryFile()
         self.msg_queue = multiprocessing.Queue()
-        self.worker = worker.PhoneWorker(0, [], self.phone_cfg, self.msg_queue,
-                                         self.logfile.name, logging.DEBUG, None)
+        self.worker = worker.PhoneWorker(0, '', [], self.phone_cfg,
+                                         self.msg_queue, self.logfile.name,
+                                         logging.DEBUG, None)
         self.worker.subprocess.JOB_QUEUE_TIMEOUT_SECONDS = 2
 
     def tearDown(self):
         self.worker.stop()
-        #print 'worker log:'
-        #print self.logfile.read()
+        if self.SHOW_LOGS:
+            print 'worker log:'
+            print self.logfile.read()
         del self.logfile
 
     def wait_for_state(self, state):
@@ -60,8 +92,6 @@ class WorkerTest(unittest.TestCase):
         pass
 
     def test_launch(self):
-        mock_adb = MockAdb()
-        androidutils.run_adb = mock_adb.run_adb
         self.worker.start()
         msg = self.msg_queue.get(True, 10)
         self.assertEqual(msg.phoneid, self.phone_cfg['phoneid'])
@@ -71,8 +101,7 @@ class WorkerTest(unittest.TestCase):
     def test_disabled(self):
         self.worker.subprocess.POST_REBOOT_SLEEP_SECONDS = 0
         self.worker.subprocess.MAX_REBOOT_WAIT_SECONDS = 0
-        mock_adb = MockAdb()
-        androidutils.run_adb = mock_adb.run_empty_adb
+        MockDeviceManagerSUT.DISABLE_SHELL = True
         self.worker.start()
         msg = self.msg_queue.get(True, 10)
         self.assertEqual(msg.status, PhoneTestMessage.IDLE)
@@ -80,8 +109,6 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(msg.status, PhoneTestMessage.DISABLED)
 
     def test_manual_disable(self):
-        mock_adb = MockAdb()
-        androidutils.run_adb = mock_adb.run_adb
         self.worker.start()
         msg = self.msg_queue.get(True, 10)
         self.assertEqual(msg.phoneid, self.phone_cfg['phoneid'])

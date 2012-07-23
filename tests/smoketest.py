@@ -6,14 +6,16 @@ import datetime
 import re
 import os
 import threading
-import androidutils
 import ConfigParser
 import json
 import urllib2
 from time import sleep
-from phonetest import PhoneTest
-from devicemanagerSUT import DeviceManagerSUT
+
+from mozdevice import DeviceManagerSUT
 from mozprofile import FirefoxProfile
+
+from phonetest import PhoneTest
+
 
 class SmokeTest(PhoneTest):
 
@@ -40,20 +42,16 @@ class SmokeTest(PhoneTest):
         # iterations and urls that we will be testing
         self.prepare_phone(job)
 
-        self.dm = DeviceManagerSUT(self.phone_cfg['ip'],
-                                   self.phone_cfg['sutcmdport'])
-
         intent = job['androidprocname'] + '/.App'
 
         # Clear logcat
-        self.logger.debug('clearing logcat')
-        androidutils.run_adb('logcat', ['-c'], self.phone_cfg['serial'])
-        self.logger.debug('logcat cleared')
+        self.dm.recordLogcat()
 
         # Run test
         self.logger.debug('running fennec')
         self.run_fennec_with_profile(intent, 'about:fennec')
 
+        self.logger.debug('analyzing logcat...')
         fennec_launched = self.analyze_logcat(job)
         start = datetime.datetime.now()
         while (not fennec_launched and (datetime.datetime.now() - start
@@ -70,9 +68,7 @@ class SmokeTest(PhoneTest):
 
         self.logger.debug('killing fennec')
         # Get rid of the browser and session store files
-        androidutils.kill_proc_sut(self.phone_cfg['ip'],
-                                   self.phone_cfg['sutcmdport'],
-                                   job['androidprocname'])
+        self.dm.killProcess(job['androidprocname'])
 
         self.logger.debug('removing sessionstore files')
         self.remove_sessionstore_files()
@@ -89,9 +85,7 @@ class SmokeTest(PhoneTest):
         self.install_profile(profile)
  
     def analyze_logcat(self, job):
-        buf = androidutils.run_adb('logcat', ['-d'], self.phone_cfg['serial'],
-                                   timeout=60)
-        buf = [x.strip() for x in buf.split('\n')]
+        buf = self.dm.getLogcat()
         got_start = False
         got_end = False
 

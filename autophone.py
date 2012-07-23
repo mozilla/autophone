@@ -28,14 +28,13 @@ try:
 except ImportError:
     import simplejson
 
-import androidutils
+from manifestparser import TestManifest
+from mozdevice.devicemanager import NetworkTools
+from pulsebuildmonitor import start_pulse_monitor
+
 import builds
 import phonetest
 
-from manifestparser import TestManifest
-from pulsebuildmonitor import start_pulse_monitor
-
-from devicemanager import NetworkTools
 from mailer import Mailer
 from worker import PhoneWorker
 
@@ -240,8 +239,8 @@ class AutoPhone(object):
                  x in self._tests]
 
         logfile_prefix, logfile_ext = os.path.splitext(self.logfile)
-        worker = PhoneWorker(len(self.phone_workers.keys()), tests, phone_cfg,
-                             self.worker_msg_queue,
+        worker = PhoneWorker(len(self.phone_workers.keys()), self.ipaddr,
+                             tests, phone_cfg, self.worker_msg_queue,
                              '%s-%s%s' % (logfile_prefix, phone_cfg['phoneid'],
                                           logfile_ext),
                              self.loglevel, self.mailer)
@@ -264,7 +263,7 @@ class AutoPhone(object):
                     phoneid=phoneid,
                     serial=data['pool'][0].upper(),
                     ip=data['ipaddr'][0],
-                    sutcmdport=data['cmdport'][0],
+                    sutcmdport=int(data['cmdport'][0]),
                     machinetype=data['hardware'][0],
                     osver=data['os'][0])
                 self.register_phone(phone_cfg)
@@ -406,13 +405,6 @@ def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
     def sigterm_handler(signum, frame):
         autophone.stop()
 
-    adb_check = androidutils.check_for_adb()
-    if adb_check != 0:
-        print 'Could not execute adb: %s.' % os.strerror(adb_check)
-        print 'Ensure that the "ANDROID_SDK" environment variable is correctly '
-        print 'set, or that adb is in your path.'
-
-        sys.exit(adb_check)
     loglevel = e = None
     try:
         loglevel = getattr(logging, loglevel_name)
