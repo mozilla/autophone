@@ -13,7 +13,7 @@ AutoPhone does not provide a test framework. Rather, it executes arbitrary
 Python code, which can also launch and control subprocesses to execute tests
 of any format and design.
 
-The [project page](https:// wiki.mozilla.org/Auto-tools/Projects/AutoPhone)
+The [project page](https://wiki.mozilla.org/Auto-tools/Projects/AutoPhone)
 contains more background, goals, implementation notes, and other such
 information.
 

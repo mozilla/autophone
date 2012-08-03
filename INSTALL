@@ -28,7 +28,7 @@ At the moment autophone is packaged with only one test, named s1s2. It
 measures fennec load times for a couple different pages, served both remotely
 and from a local file.
 
-Put the pages to be served into autophone/configs. You will need a way to 
+Put the pages to be served into autophone/configs. You will need a way to
 serve them (FIXME: autophone should do this). If you're using phonedash,
 it can serve the files by just dropping them into phonedash/html/.
 
