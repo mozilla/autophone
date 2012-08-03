@@ -76,18 +76,37 @@ password = <password for SMTP, optional>
 == Setting up devices ==
 
 Each device must be rooted and have the SUT agent installed. See
-https://wiki.mozilla.org/Mobile/Fennec_Unittests/Remote_Testing for details
+https://wiki.mozilla.org/Auto-tools/Projects/SUTAgent for details
 on the SUT agent.
 
 After installing the SUT agent on all the phones, you need to configure
-them. For each device,  you will have to edit SUTAgent.ini appropriately,
-setting "POOL" to the phone's serial number (you can see the serial
-numbers of all connected devices via "adb devices"), "IPAddr" to the
-external IP of the machine running autophone (this is the SUT
-"registration server"), and "HARDWARE" to some short descriptive string,
-e.g. "samsung_gs2" or "droid_pro". Run "python publishAgentIni.py -i
-<phone ip>" to push the SUTAgent.ini file to the phone found at that IP.
+them. For each device, you will have to edit SUTAgent.ini appropriately to
+configure how it connects to the registration server, setting "POOL" to the
+phone's serial number (you can see the serial numbers of all connected devices
+via "adb devices"), "IPAddr" to the external IP of the machine running
+autophone (this is the SUT "registration server"), and "HARDWARE" to some short
+descriptive string, e.g. "samsung_gs2" or "droid_pro".
 
+You may also need to add a "Network Settings" section if you wish to configure
+your device to connect to a specific network on startup.
+
+An example SUTAgent.ini file might be:
+
+[Registration Server]
+IPAddr = 192.168.1.124
+PORT = 28001
+HARDWARE = lg_g2x
+POOL = 033c20444240b197
+
+[Network Settings]
+SSID = Mozilla Ateam
+AUTH = open
+ENCR = disabled
+KEY = auto
+ADHOC = 0
+
+Run "python publishAgentIni.py -i <phone ip>" to push the SUTAgent.ini file
+to the phone found at that IP.
 
 == Setting up phonedash ==
 
