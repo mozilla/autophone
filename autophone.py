@@ -75,8 +75,8 @@ class AutoPhone(object):
                     response = self.server.cmd_cb(line)
                     self.request.send(response + '\n')
 
-    def __init__(self, is_restarting, reboot_phones, test_path, cachefile,
-                 ipaddr, port, logfile, loglevel, emailcfg):
+    def __init__(self, clear_cache, reboot_phones, test_path, cachefile,
+                 ipaddr, port, logfile, loglevel, emailcfg, enable_pulse):
         self._test_path = test_path
         self._cache = cachefile
         if ipaddr:
@@ -121,11 +121,14 @@ class AutoPhone(object):
         self.server = None
         self.server_thread = None
 
-        self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
-                                                trees=['mozilla-central'],
-                                                platforms=['android'],
-                                                buildtypes=['opt'],
-                                                logger=logging.getLogger())
+        if enable_pulse:
+            self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
+                                                    trees=['mozilla-central'],
+                                                    platforms=['android'],
+                                                    buildtypes=['opt'],
+                                                    logger=logging.getLogger())
+        else:
+            self.pulsemonitor = None
 
     def run(self):
         self.server = self.CmdTCPServer(('0.0.0.0', self.port),
@@ -399,8 +402,8 @@ class AutoPhone(object):
         self.server_thread.join()
 
 
-def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
-         logfile, loglevel_name, emailcfg):
+def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
+         logfile, loglevel_name, emailcfg, enable_pulse):
 
     def sigterm_handler(signum, frame):
         autophone.stop()
@@ -422,8 +425,9 @@ def main(is_restarting, reboot_phones, test_path, cachefile, ipaddr, port,
 
     print '%s Starting server on port %d.' % \
         (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), port)
-    autophone = AutoPhone(is_restarting, reboot_phones, test_path, cachefile,
-                          ipaddr, port, logfile, loglevel, emailcfg)
+    autophone = AutoPhone(clear_cache, reboot_phones, test_path, cachefile,
+                          ipaddr, port, logfile, loglevel, emailcfg,
+                          enable_pulse)
     signal.signal(signal.SIGTERM, sigterm_handler)
     autophone.run()
     print '%s AutoPhone terminated.' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -468,11 +472,14 @@ if __name__ == '__main__':
     parser.add_option('--emailcfg', action='store', type='string',
                       dest='emailcfg', default='email.ini',
                       help='config file for email settings; defaults to email.ini')
-    (options, args) = parser.parse_args()
+    parser.add_option('--disable-pulse', action='store_false',
+                      dest="enable_pulse", default=True,
+                      help="Disable connecting to pulse to look for new builds")
 
-    exit_code = main(options.is_restarting, options.reboot_phones,
+    (options, args) = parser.parse_args()
+    exit_code = main(options.clear_cache, options.reboot_phones,
                      options.test_path, options.cachefile, options.ipaddr,
                      options.port, options.logfile, options.loglevel,
-                     options.emailcfg) 
+                     options.emailcfg, options.enable_pulse)
 
     sys.exit(exit_code)
