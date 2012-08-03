@@ -34,22 +34,22 @@ it can serve the files by just dropping them into phonedash/html/.
 
 The s1s2 test is configured in the file configs/s1s2_settings.ini:
 
-[htmlfiles]
-file3 = configs/Twitter_files
-file1 = configs/startup6.html
-file2 = configs/Twitter2.html
-
-[urls]
-# These must resolve, so ensure this matches what is in the code for
-# the testroot
-local-twitter = file://mnt/sdcard/s1test/Twitter2.html
-local-blank = file://mnt/sdcard/s1test/startup6.html
-remote-twitter = http://192.168.1.133:8100/Twitter2.html
-remote-blank = http://192.168.1.133:8100/startup6.html
-
-[settings]
-iterations = 20
-resulturl = http://192.168.1.133:8100/api/s1s2_add/
+    [htmlfiles]
+    file3 = configs/Twitter_files
+    file1 = configs/startup6.html
+    file2 = configs/Twitter2.html
+    
+    [urls]
+    # These must resolve, so ensure this matches what is in the code for
+    # the testroot
+    local-twitter = file://mnt/sdcard/s1test/Twitter2.html
+    local-blank = file://mnt/sdcard/s1test/startup6.html
+    remote-twitter = http://192.168.1.133:8100/Twitter2.html
+    remote-blank = http://192.168.1.133:8100/startup6.html
+    
+    [settings]
+    iterations = 20
+    resulturl = http://192.168.1.133:8100/api/s1s2_add/
 
 [htmlfiles] contains the paths of files to transfer to the phone. [urls]
 lists local and remote URLs (FIXME: we could make this less redundant).
@@ -61,19 +61,18 @@ The resulturl is the URL used to POST results to the database.
 If you want to get notifications indicating when AutoPhone has disabled
 a device due to errors, you can create email.ini like so:
 
-[report]
-from = <from address>
+    [report]
+    from = <from address>
 
-[email]
-dest = <list of to addresses>
-server = <SMTP server>
-port = <SMTP server port, defaults to 465>
-ssl = <enable SMTP over SSL, defaults to true>
-username = <username for SMTP, optional>
-password = <password for SMTP, optional>
+    [email]
+    dest = <list of to addresses>
+    server = <SMTP server>
+    port = <SMTP server port, defaults to 465>
+    ssl = <enable SMTP over SSL, defaults to true>
+    username = <username for SMTP, optional>
+    password = <password for SMTP, optional>
 
-
-== Setting up devices ==
+### Setting up devices ###
 
 Each device must be rooted and have the SUT agent installed. See
 https://wiki.mozilla.org/Auto-tools/Projects/SUTAgent for details
@@ -92,23 +91,23 @@ your device to connect to a specific network on startup.
 
 An example SUTAgent.ini file might be:
 
-[Registration Server]
-IPAddr = 192.168.1.124
-PORT = 28001
-HARDWARE = lg_g2x
-POOL = 033c20444240b197
-
-[Network Settings]
-SSID = Mozilla Ateam
-AUTH = open
-ENCR = disabled
-KEY = auto
-ADHOC = 0
+    [Registration Server]
+    IPAddr = 192.168.1.124
+    PORT = 28001
+    HARDWARE = lg_g2x
+    POOL = 033c20444240b197
+    
+    [Network Settings]
+    SSID = Mozilla Ateam
+    AUTH = open
+    ENCR = disabled
+    KEY = auto
+    ADHOC = 0
 
 Run "python publishAgentIni.py -i <phone ip>" to push the SUTAgent.ini file
 to the phone found at that IP.
 
-== Setting up phonedash ==
+### Setting up phonedash ###
 
 Phonedash is a templeton-based app (https://github.com/markrcote/templeton).
 It stores results in either a MySQL or a sqlite database.
