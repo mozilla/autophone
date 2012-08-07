@@ -2,13 +2,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import datetime
-import re
-import os
-import threading
-import androidutils
 import ConfigParser
+import datetime
 import json
+import os
+import posixpath
+import re
+import threading
 import urllib2
 from time import sleep
 
@@ -49,7 +49,7 @@ class S1S2Test(PhoneTest):
 
                     # Clear logcat
                     self.logger.debug('clearing logcat')
-                    androidutils.run_adb('logcat', ['-c'], self.phone_cfg['serial'])
+                    self.dm.recordLogcat()
                     self.logger.debug('logcat cleared')
 
                     # Get start time
@@ -73,9 +73,7 @@ class S1S2Test(PhoneTest):
 
                     self.logger.debug('killing fennec')
                     # Get rid of the browser and session store files
-                    androidutils.kill_proc_sut(self.phone_cfg['ip'],
-                                               self.phone_cfg['sutcmdport'],
-                                               job['androidprocname'])
+                    self.dm.killProcess(job['androidprocname'])
 
                     self.logger.debug('removing sessionstore files')
                     self.remove_sessionstore_files()
@@ -109,8 +107,7 @@ class S1S2Test(PhoneTest):
                   'toolkit.telemetry.prompted': 2 }
         profile = FirefoxProfile(preferences=prefs)
         self.install_profile(profile)
-        androidutils.run_adb('shell', ['mkdir', '/mnt/sdcard/s1test'],
-                             self.phone_cfg['serial'])
+        self.dm.mkDir('/mnt/sdcard/s1test')
 
         testroot = '/mnt/sdcard/s1test'
         
@@ -128,19 +125,22 @@ class S1S2Test(PhoneTest):
 
         # Move the local html files in htmlfiles onto the phone's sdcard
         # Copy our HTML files for local use into place
-        # TODO: Handle errors       
+        # FIXME: Check for errors, use defined path for configs (e.g. config/)
+        #        so that we can properly strip path root, instead of just
+        #        always using basename.
         for h in cfg.items('htmlfiles'):
-            androidutils.run_adb('push', [h[1], testroot + '/%s' % 
-                                          os.path.basename(h[1])],
-                                 self.phone_cfg['serial'])
+            if os.path.isdir(h[1]):
+                self.dm.pushDir(h[1], posixpath.join(testroot,
+                                                     os.path.basename(h[1])))
+            else:
+                self.dm.pushFile(h[1], posixpath.join(testroot,
+                                                      os.path.basename(h[1])))
         
         self._iterations = cfg.getint('settings', 'iterations')
         self._resulturl = cfg.get('settings', 'resulturl')
  
     def analyze_logcat(self, job):
-        buf = androidutils.run_adb('logcat', ['-d'], self.phone_cfg['serial'],
-                                   timeout=60)
-        buf = buf.split('\r\n')
+        buf = [x.strip('\r\n') for x in self.dm.getLogcat()]
         throbberstartRE = re.compile('.*Throbber start$')
         throbberstopRE = re.compile('.*Throbber stop$')
         endDrawingRE = re.compile('.*endDrawing$')
@@ -150,7 +150,7 @@ class S1S2Test(PhoneTest):
 
         for line in buf:
             line = line.strip()
-            # we want the first throbberstart and throbberstart but the *last*
+            # we want the first throbberstart and throbberstop but the *last*
             # enddrawing
             if throbberstartRE.match(line) and not throbstart:
                 throbstart = line.split(' ')[-4]
