@@ -105,15 +105,14 @@ class AutoPhone(object):
 
         if not os.path.exists(self._cache):
             # If we don't have a cache you aren't restarting
-            is_restarting = False
             open(self._cache, 'wb')
-        elif not is_restarting:
-            # If we have a cache and we are NOT restarting, then assume that
-            # cache is invalid. Blow it away and recreate it
+        elif clear_cache:
+            # If the clear cache option is specified, then blow it away and
+            # recreate it
             os.remove(self._cache)
             open(self._cache, 'wb')
-
-        if is_restarting:
+        else:
+            # Otherwise assume cache is valid and read from it
             self.read_cache()
             if reboot_phones:
                 self.reset_phones()
@@ -438,13 +437,14 @@ if __name__ == '__main__':
     from optparse import OptionParser
 
     parser = OptionParser()
-    parser.add_option('--restarting', action='store_true', dest='is_restarting',
+    parser.add_option('--clear-cache', action='store_true', dest='clear_cache',
                       default=False,
-                      help='If specified, we restart using the information '
-                      'in cache')
+                      help='If specified, we clear the information in the '
+                      'autophone cache before starting')
     parser.add_option('--no-reboot', action='store_false', dest='reboot_phones',
-                      default=True, help='With --restart, indicates that '
-                      'phones should not be rebooted when autophone starts')
+                      default=True, help='Indicates that phones should not be '
+                      'rebooted when autophone starts (ignored if '
+                      '--clear-cache is used')
     parser.add_option('--ipaddr', action='store', type='string', dest='ipaddr',
                       default=None, help='IP address of interface to use for '
                       'phone callbacks, e.g. after rebooting. If not given, '
