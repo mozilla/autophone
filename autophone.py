@@ -110,7 +110,6 @@ class AutoPhone(object):
             # If the clear cache option is specified, then blow it away and
             # recreate it
             os.remove(self._cache)
-            open(self._cache, 'wb')
         else:
             # Otherwise assume cache is valid and read from it
             self.read_cache()
@@ -280,27 +279,24 @@ class AutoPhone(object):
 
     def read_cache(self):
         self.phone_workers.clear()
-        f = file(self._cache, 'r')
         try:
-            cache = json.loads(f.read())
-        except ValueError:
-            cache = {}
-        f.close()
+            with open(self._cache) as f:
+                try:
+                    cache = json.loads(f.read())
+                except ValueError:
+                    cache = {}
 
-        for phone_cfg in cache.get('phones', []):
-            self.register_phone(phone_cfg)
+                for phone_cfg in cache.get('phones', []):
+                    self.register_phone(phone_cfg)
+        except IOError, err:
+            if err.errno != errno.ENOENT:
+                raise err
 
     def update_phone_cache(self):
-        f = file(self._cache, 'r')
-        try:
-            cache = json.loads(f.read())
-        except ValueError:
-            cache = {}
-
+        cache = {}
         cache['phones'] = [x.phone_cfg for x in self.phone_workers.values()]
-        f = file(self._cache, 'w')
-        f.write(json.dumps(cache))
-        f.close()
+        with open(self._cache, 'w') as f:
+            f.write(json.dumps(cache))
 
     def read_tests(self):
         self._tests = []
