@@ -1,26 +1,26 @@
-Using AutoPhone
+Using Autophone
 ===============
 
-Starting AutoPhone
+Starting Autophone
 ------------------
 
-AutoPhone has a number of command-line options. Run "python autophone.py -h"
+Autophone has a number of command-line options. Run "python autophone.py -h"
 to see them. Some important ones are
 
---restarting: By default AutoPhone starts with no knowledge of any devices.
+--restarting: By default Autophone starts with no knowledge of any devices.
               It creates a local cache as devices register with it. This
               option preserves that cache when restarting.
               (FIXME: This should probably be the default behaviour.)
 
---no-reboot: Use with --restarting to prevent AutoPhone from rebooting
+--no-reboot: Use with --restarting to prevent Autophone from rebooting
              all known devices while starting up.
 
---ipaddr: AutoPhone tries to determine an external IP address on the host
+--ipaddr: Autophone tries to determine an external IP address on the host
           machine. This option can override this address, or provide one
-          if AutoPhone can't find one. (FIXME: This may no longer be
+          if Autophone can't find one. (FIXME: This may no longer be
           needed?)
 
---logfile: Log main AutoPhone system messages to this file. Defaults to
+--logfile: Log main Autophone system messages to this file. Defaults to
            autophone.log. Devices will log to their own files in the
            format <logfile base>-<phone id>.<logfile extension>, e.g.
            autophone-a8_26_d9_93_fe_4b_nexus_one.log.
@@ -32,8 +32,8 @@ to see them. Some important ones are
 Running Tests
 -------------
 
-AutoPhone listens to pulse for new fennec builds. When one is detected,
-the main AutoPhone process downloads it and notifies all of its workers,
+Autophone listens to pulse for new fennec builds. When one is detected,
+the main Autophone process downloads it and notifies all of its workers,
 which install it on the phones and begin a test run. If a test run is
 ongoing, the new job is queued.
 

@@ -58,7 +58,7 @@ from the mobile devices.
 
 The resulturl is the URL used to POST results to the database.
 
-If you want to get notifications indicating when AutoPhone has disabled
+If you want to get notifications indicating when Autophone has disabled
 a device due to errors, you can create email.ini like so:
 
     [report]

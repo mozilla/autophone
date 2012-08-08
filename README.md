@@ -1,7 +1,7 @@
-AutoPhone, a mobile-device manager for automated-test frameworks
+Autophone, a mobile-device manager for automated-test frameworks
 ================================================================
 
-AutoPhone controls one or more mobile devices via Mozilla's SUT agent and
+Autophone controls one or more mobile devices via Mozilla's SUT agent and
 adb. Its primary goals are to
 
 * execute arbitrary tests on devices
@@ -9,7 +9,7 @@ adb. Its primary goals are to
 * between tests, verify that devices are still connected and responsive, and,
   if not, attempt to recover them
 
-AutoPhone does not provide a test framework. Rather, it executes arbitrary
+Autophone does not provide a test framework. Rather, it executes arbitrary
 Python code, which can also launch and control subprocesses to execute tests
 of any format and design.
 
