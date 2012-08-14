@@ -26,7 +26,8 @@ import zipfile
 try:
     import json
 except ImportError:
-    import simplejson
+    # for python 2.5 compatibility
+    import simplejson as json
 
 from manifestparser import TestManifest
 from mozdevice.devicemanager import NetworkTools

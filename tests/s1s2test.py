@@ -8,11 +8,9 @@ import json
 import os
 import posixpath
 import re
-import threading
 import urllib2
 from time import sleep
 
-from mozdevice import DeviceManagerSUT
 from mozprofile import FirefoxProfile
 
 from phonetest import PhoneTest

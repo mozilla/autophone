@@ -2,7 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import ConfigParser
 import Queue
 import StringIO
 import datetime
@@ -143,7 +142,6 @@ class PhoneWorkerSubProcess(object):
         success = self.dm.mkDir(d) and self.dm.dirExists(d)
         if not success:
             logging.error('device root is not writable!')
-            logging.error(out)
             logging.info('checking sdcard...')
             sdcard_writable = self.dm.mkDir('/mnt/sdcard/tests/autophonetest')
             if sdcard_writable:
@@ -162,7 +160,6 @@ class PhoneWorkerSubProcess(object):
         while not self.disabled:
             if reboots < self.MAX_REBOOT_ATTEMPTS:
                 logging.info('Rebooting phone...')
-                phone_is_up = False
                 reboots += 1
                 success = self.dm.reboot(self.ipaddr, 30000+self.worker_num)
                 if success:
@@ -198,7 +195,7 @@ We gave up on it. Sorry about that.
         logging.info('Pinging phone')
         # verify that the phone is still responding
         output = StringIO.StringIO()
-        response = self.dm.shell(['echo', 'autophone'], output)
+        self.dm.shell(['echo', 'autophone'], output)
         if 'autophone' in output.getvalue():
             logging.info('Pong!')
             return True

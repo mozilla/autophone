@@ -16,7 +16,7 @@ if sys.hexversion < 0x020603f0:
     import ssl
 
     def _get_socket_fixed(self, host, port, timeout):
-        if self.debuglevel > 0: print>>stderr, 'connect:', (host, port)
+        if self.debuglevel > 0: print>>sys.stderr, 'connect:', (host, port)
         new_socket = socket.create_connection((host, port), timeout)
         new_socket = ssl.wrap_socket(new_socket, self.keyfile, self.certfile)
         self.file = smtplib.SSLFakeFile(new_socket)

@@ -26,7 +26,6 @@ def main(args, options):
         commands = ['triggerjobs %s' %
                     builds.BuildCache().find_latest_build(options.branch)]
     else:
-        m = re.match('(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})', args[0])
         if re.match('\d{14}', args[0]):
             # build id
             build_time = datetime.datetime.strptime(args[0], '%Y%m%d%H%M%S')

@@ -3,15 +3,9 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
-import re
 import os
-import threading
-import ConfigParser
-import json
-import urllib2
 from time import sleep
 
-from mozdevice import DeviceManagerSUT
 from mozprofile import FirefoxProfile
 
 from phonetest import PhoneTest
@@ -25,11 +19,11 @@ class SmokeTest(PhoneTest):
     def runjob(self, job):
         try:
             os.unlink('smoketest_pass')
-        except OSError, e:
+        except OSError:
             pass
         try:
             os.unlink('smoketest_fail')
-        except OSError, e:
+        except OSError:
             pass
 
         if 'androidprocname' not in job or \
