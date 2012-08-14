@@ -117,8 +117,6 @@ class PhoneTest(object):
         self.dm.pushDir(profile.profile, self.profile_path)
 
     def run_fennec_with_profile(self, intent, url):
-        self.dm.pushFile('runbrowserprofile.sh',
-                         self.base_device_path + '/runbrowserprofile.sh')
         output = StringIO.StringIO()
         args = ['am', 'start', '-a', 'android.intent.action.VIEW', '-n',
                 intent, '--es', 'args', '--profile %s' % self.profile_path,
