@@ -17,7 +17,7 @@ class Mailer(object):
         try:
             from_address = cfg.get('report', 'from')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            logging.error('No "from" option defined in "report" section of file "%s".\n' % options.config_file)
+            logging.error('No "from" option defined in "report" section of file "%s".\n' % self.cfgfile)
             return
 
         try:
