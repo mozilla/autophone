@@ -57,15 +57,19 @@ i=0
 while [ $i -le 60 ]
 do
     i=$(($i+1))
-    if [ -a smoketest_pass ]
+    if [ -e smoketest_pass ]
     then
         echo 'Smoke test passed!'
-        break
+        exit 0
     fi
-    if [ -a smoketest_fail ]
+    if [ -e smoketest_fail ]
     then
         echo 'Smoke test failed!'
-        break
+        exit 1
     fi
     sleep 5
 done
+
+echo 'Smoke test did not finish. The phone might have been disabled.'
+echo 'Check *.log for details.'
+exit 1

@@ -2,6 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from __future__ import with_statement
+
 import Queue
 import StringIO
 import datetime
@@ -10,6 +12,7 @@ import multiprocessing
 import os
 import posixpath
 import socket
+import tempfile
 import time
 import traceback
 
@@ -133,13 +136,20 @@ class PhoneWorkerSubProcess(object):
             logging.warn('Autophone queue is full!')
 
     def check_sdcard(self):
+        logging.info('checking sd card')
         dev_root = self.dm.getDeviceRoot()
         if dev_root is None:
             logging.error('no response from device when querying device root')
             return False
-        d = dev_root + '/autophonetest'
+        d = posixpath.join(dev_root, 'autophonetest')
         self.dm.removeDir(d)
         success = self.dm.mkDir(d) and self.dm.dirExists(d)
+        if success:
+            with tempfile.NamedTemporaryFile() as tmp:
+                tmp.write('autophone test\n')
+                tmp.flush()
+                success = self.dm.pushFile(tmp.name, posixpath.join(d,
+                                                                    'testfile'))
         if not success:
             logging.error('device root is not writable!')
             logging.info('checking sdcard...')
@@ -147,9 +157,8 @@ class PhoneWorkerSubProcess(object):
             if sdcard_writable:
                 logging.error('weird, sd card is writable but device root isn\'t! I\'m confused and giving up anyway!')
             self.clear_test_base_paths()
-            return False
         self.dm.removeDir(d)
-        return True
+        return success
 
     def clear_test_base_paths(self):
         for t in self.tests:
@@ -190,7 +199,7 @@ We gave up on it. Sorry about that.
         self.status_update(phonetest.PhoneTestMessage(
                 self.phone_cfg['phoneid'],
                 phonetest.PhoneTestMessage.DISABLED))
-        
+
     def ping(self):
         logging.info('Pinging phone')
         # verify that the phone is still responding
@@ -223,6 +232,11 @@ We gave up on it. Sorry about that.
 
         last_ping = None
 
+        if not self.disabled and not self.check_sdcard():
+            self.recover_phone()
+        if self.disabled:
+            logging.error("Initial SD card check failed.")
+
         while True:
             request = None
             try:
@@ -248,7 +262,7 @@ We gave up on it. Sorry about that.
                         # still can't access it through adb.
                         if not self.ping():
                             self.disable_phone('No response to ping via adb.')
-                            
+
             except KeyboardInterrupt:
                 return
             if not request:
@@ -270,7 +284,7 @@ We gave up on it. Sorry about that.
                         self.phone_cfg['phoneid'],
                         phonetest.PhoneTestMessage.INSTALLING, job['blddate']))
                 logging.info('Installing build %s.' % datetime.datetime.fromtimestamp(float(job['blddate'])))
-                
+
                 pathOnDevice = posixpath.join(self.dm.getDeviceRoot(),
                                               os.path.basename(job['apkpath']))
                 self.dm.pushFile(job['apkpath'], pathOnDevice)
