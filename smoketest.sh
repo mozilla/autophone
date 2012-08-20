@@ -46,7 +46,13 @@ fi
 
 echo Triggering run...
 python trigger_runs.py latest
-echo Waiting for result...
+if [ $? -ne 0 ]
+then
+    echo 'Could not find a suitable build!'
+    exit 1
+fi
+
+echo 'Waiting for result...'
 i=0
 while [ $i -le 60 ]
 do

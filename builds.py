@@ -116,18 +116,20 @@ class BuildCache(object):
         return None
 
     def find_latest_build(self, branch_name='nightly'):
-        # This assumes at least one build has been created in the last 24
-        # hours.
+        window = datetime.timedelta(days=3)
         now = datetime.datetime.now()
-        builds = self.find_builds(now - datetime.timedelta(days=1), now,
-                                  branch_name)
+        builds = self.find_builds(now - window, now, branch_name)
+        if not builds:
+            logging.error('Could not find any nightly builds in the last '
+                          '%d days!' % window.days)
+            return None
         builds.sort()
         return builds[-1]
 
     def find_builds(self, start_time, end_time, branch_name='nightly'):
         branch = self.branch(branch_name)
         if not branch:
-            logging.error('unsupport branch "%s"' % branch_name)
+            logging.error('unsupported branch "%s"' % branch_name)
             return []
 
         if not start_time.tzinfo:
@@ -165,6 +167,8 @@ class BuildCache(object):
                     if fennecregex.match(filename):
                         fileurl = url.scheme + '://' + url.netloc + newpath + "/" + filename
                         builds.append(fileurl)
+        if not builds:
+            logging.error('No builds found.')
         return builds
 
     def build_date(self, url):
