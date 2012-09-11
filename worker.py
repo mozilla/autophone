@@ -12,6 +12,7 @@ import multiprocessing
 import os
 import posixpath
 import socket
+import sys
 import tempfile
 import time
 import traceback
@@ -27,7 +28,7 @@ class PhoneWorker(object):
     process."""
 
     def __init__(self, worker_num, ipaddr, tests, phone_cfg, autophone_queue,
-                 logfile, loglevel, mailer):
+                 logfile_prefix, loglevel, mailer):
         self.phone_cfg = phone_cfg
         self.worker_num = worker_num
         self.ipaddr = ipaddr
@@ -39,7 +40,7 @@ class PhoneWorker(object):
         self.subprocess = PhoneWorkerSubProcess(self.worker_num, self.ipaddr,
                                                 tests, phone_cfg,
                                                 autophone_queue,
-                                                self.job_queue, logfile,
+                                                self.job_queue, logfile_prefix,
                                                 loglevel, mailer)
 
     def start(self):
@@ -89,14 +90,16 @@ class PhoneWorkerSubProcess(object):
     JOB_QUEUE_TIMEOUT_SECONDS = 10
 
     def __init__(self, worker_num, ipaddr, tests, phone_cfg, autophone_queue,
-                 job_queue, logfile, loglevel, mailer):
+                 job_queue, logfile_prefix, loglevel, mailer):
         self.worker_num = worker_num
         self.ipaddr = ipaddr
         self.tests = tests
         self.phone_cfg = phone_cfg
         self.autophone_queue = autophone_queue
         self.job_queue = job_queue
-        self.logfile = logfile
+        self.logfile = logfile_prefix + '.log'
+        self.outfile = logfile_prefix + '.out'
+        self.errfile = logfile_prefix + '.err'
         self.loglevel = loglevel
         self.mailer = mailer
         self.p = None
@@ -213,6 +216,10 @@ We gave up on it. Sorry about that.
         return False
 
     def loop(self):
+        sys.stdout = file(self.outfile, 'a', 0)
+        sys.stderr = file(self.errfile, 'a', 0)
+        print '%s Worker starting up.' % \
+            datetime.datetime.now().replace(microsecond=0).isoformat()
         for h in logging.getLogger().handlers:
             logging.getLogger().removeHandler(h)
         logging.basicConfig(filename=self.logfile,

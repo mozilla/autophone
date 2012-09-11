@@ -240,11 +240,10 @@ class AutoPhone(object):
         tests = [x[0](phone_cfg=phone_cfg, config_file=x[1]) for
                  x in self._tests]
 
-        logfile_prefix, logfile_ext = os.path.splitext(self.logfile)
+        logfile_prefix = os.path.splitext(self.logfile)[0]
         worker = PhoneWorker(len(self.phone_workers.keys()), self.ipaddr,
                              tests, phone_cfg, self.worker_msg_queue,
-                             '%s-%s%s' % (logfile_prefix, phone_cfg['phoneid'],
-                                          logfile_ext),
+                             '%s-%s' % (logfile_prefix, phone_cfg['phoneid']),
                              self.loglevel, self.mailer)
         self.phone_workers[phone_cfg['phoneid']] = worker
         worker.start()
