@@ -50,8 +50,6 @@ class PhoneWorker(object):
         self.subprocess.stop()
 
     def add_job(self, job):
-        # reboot before running each job
-        self.reboot()
         self.job_queue.put_nowait(('job', job))
 
     def reboot(self):
@@ -111,8 +109,11 @@ class PhoneWorkerSubProcess(object):
     @property
     def dm(self):
         if not self._dm:
+            logging.info('Connecting to %s:%d...' %
+                         (self.phone_cfg['ip'], self.phone_cfg['sutcmdport']))
             self._dm = DeviceManagerSUT(self.phone_cfg['ip'],
                                         self.phone_cfg['sutcmdport'])
+            logging.info('Connected.')
         return self._dm
 
     def start(self):
@@ -139,10 +140,10 @@ class PhoneWorkerSubProcess(object):
             logging.warn('Autophone queue is full!')
 
     def check_sdcard(self):
-        logging.info('checking sd card')
+        logging.info('Checking SD card.')
         dev_root = self.dm.getDeviceRoot()
         if dev_root is None:
-            logging.error('no response from device when querying device root')
+            logging.error('No response from device when querying device root.')
             return False
         d = posixpath.join(dev_root, 'autophonetest')
         self.dm.removeDir(d)
@@ -154,11 +155,11 @@ class PhoneWorkerSubProcess(object):
                 success = self.dm.pushFile(tmp.name, posixpath.join(d,
                                                                     'testfile'))
         if not success:
-            logging.error('device root is not writable!')
-            logging.info('checking sdcard...')
+            logging.error('Device root is not writable!')
+            logging.info('Checking sdcard...')
             sdcard_writable = self.dm.mkDir('/mnt/sdcard/tests/autophonetest')
             if sdcard_writable:
-                logging.error('weird, sd card is writable but device root isn\'t! I\'m confused and giving up anyway!')
+                logging.error('Weird, sd card is writable but device root isn\'t! I\'m confused and giving up anyway!')
             self.clear_test_base_paths()
         self.dm.removeDir(d)
         return success
@@ -178,6 +179,7 @@ class PhoneWorkerSubProcess(object):
                     logging.info('Phone is back up.')
                     if self.check_sdcard():
                         return
+                    logging.info('Failed SD card check.')
                 else:
                     logging.info('Phone did not reboot successfully.')
             else:
@@ -185,17 +187,30 @@ class PhoneWorkerSubProcess(object):
                              reboots)
                 self.disable_phone('Phone was rebooted %d times.' % reboots)
 
+    def reboot(self):
+        self.status_update(phonetest.PhoneTestMessage(
+                self.phone_cfg['phoneid'],
+                phonetest.PhoneTestMessage.REBOOTING))
+        self.recover_phone()
+        if not self.disabled:
+            self.status_update(phonetest.PhoneTestMessage(
+                    self.phone_cfg['phoneid'],
+                    phonetest.PhoneTestMessage.IDLE, msg='phone reset'))
+
     def disable_phone(self, msg_body):
+        logging.info('Disabling phone: %s.' % msg_body)
         self.disabled = True
         if msg_body and self.mailer:
+            logging.info('Sending notification...')
             try:
                 self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
-                                 '''Hello, this is AutoPhone. Phone %s has been disabled:
+                                 '''Hello, this is Autophone. Phone %s has been disabled:
 
 %s
 
 We gave up on it. Sorry about that.
 ''' % (self.phone_cfg['phoneid'], msg_body))
+                logging.info('Sent.')
             except socket.error:
                 logging.error('Failed to send disabled-phone notification.')
                 logging.info(traceback.format_exc())
@@ -207,8 +222,10 @@ We gave up on it. Sorry about that.
         logging.info('Pinging phone')
         # verify that the phone is still responding
         output = StringIO.StringIO()
-        self.dm.shell(['echo', 'autophone'], output)
-        if 'autophone' in output.getvalue():
+ 
+        # It should always be possible to get the device root, so use this
+        # command to ensure that the device is still reachable.
+        if self.dm.getDeviceRoot():
             logging.info('Pong!')
             return True
 
@@ -242,7 +259,7 @@ We gave up on it. Sorry about that.
         if not self.disabled and not self.check_sdcard():
             self.recover_phone()
         if self.disabled:
-            logging.error("Initial SD card check failed.")
+            logging.error('Initial SD card check failed.')
 
         while True:
             request = None
@@ -261,14 +278,12 @@ We gave up on it. Sorry about that.
                                 phonetest.PhoneTestMessage.IDLE,
                                 self.current_build))
                     else:
-                        logging.info('No response!')
+                        logging.info('Ping unanswered.')
                         self.recover_phone()
-                        # try pinging again, since, if the phone is
-                        # physically disconnected but the agent is running,
-                        # the reboot will appear to succeed even though we
-                        # still can't access it through adb.
+                        # try ping once more, since sometimes the reboot
+                        # appears to succeed but the ping fails.
                         if not self.ping():
-                            self.disable_phone('No response to ping via adb.')
+                            self.disable_phone('No response to ping.')
 
             except KeyboardInterrupt:
                 return
@@ -280,11 +295,14 @@ We gave up on it. Sorry about that.
                 job = request[1]
                 if not job:
                     continue
-                logging.info('Got job.')
-                if not self.disabled and not self.check_sdcard():
-                    self.recover_phone()
+                logging.info('Got job. Rebooting...')
+                if not self.disabled:
+                    self.reboot()
                 if self.disabled:
                     logging.info('Phone is disabled; queuing job for later.')
+                    # FIXME: Write these to a file to resume eventually.
+                    # We'll need a way (command, cli option) to automatically
+                    # clear these as well.
                     self.skipped_job_queue.append(job)
                     continue
                 self.status_update(phonetest.PhoneTestMessage(
@@ -322,14 +340,7 @@ We gave up on it. Sorry about that.
                             self.current_build))
             elif request[0] == 'reboot':
                 logging.info('Rebooting at user\'s request...')
-                self.status_update(phonetest.PhoneTestMessage(
-                        self.phone_cfg['phoneid'],
-                        phonetest.PhoneTestMessage.REBOOTING))
-                self.recover_phone()
-                if not self.disabled:
-                    self.status_update(phonetest.PhoneTestMessage(
-                            self.phone_cfg['phoneid'],
-                            phonetest.PhoneTestMessage.IDLE, msg='phone reset'))
+                self.reboot()
             elif request[0] == 'disable':
                 logging.info('Disabling phone at user\'s request...')
                 self.disable_phone(None)
