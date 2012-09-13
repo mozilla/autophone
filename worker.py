@@ -311,8 +311,8 @@ We gave up on it. Sorry about that.
                 logging.info('Installing build %s.' % datetime.datetime.fromtimestamp(float(job['blddate'])))
 
                 pathOnDevice = posixpath.join(self.dm.getDeviceRoot(),
-                                              os.path.basename(job['apkpath']))
-                self.dm.pushFile(job['apkpath'], pathOnDevice)
+                                              'build.apk')
+                self.dm.pushFile(os.path.join(job['cache_build_dir'], 'build.apk'), pathOnDevice)
                 self.dm.installApp(pathOnDevice)
                 self.dm.removeFile(pathOnDevice)
 

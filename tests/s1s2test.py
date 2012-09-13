@@ -187,8 +187,12 @@ class S1S2Test(PhoneTest):
         try:
             f = urllib2.urlopen(req)
         except urllib2.URLError, e:
-            self.logger.error('Could not send results to server: %s' %
-                              e.reason.strerror)
+            try:
+                self.logger.error('Could not send results to server: %s' %
+                                  e.reason.strerror)
+            except:
+                self.logger.error('Could not send results to server: %s' %
+                                  e.reason)
         else:
             f.read()
             f.close()

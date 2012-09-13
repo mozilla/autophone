@@ -77,7 +77,8 @@ class AutoPhone(object):
                     self.request.send(response + '\n')
 
     def __init__(self, clear_cache, reboot_phones, test_path, cachefile,
-                 ipaddr, port, logfile, loglevel, emailcfg, enable_pulse):
+                 ipaddr, port, logfile, loglevel, emailcfg, enable_pulse,
+                 enable_unittests, override_build_dir):
         self._test_path = test_path
         self._cache = cachefile
         if ipaddr:
@@ -91,7 +92,8 @@ class AutoPhone(object):
         self.logfile = logfile
         self.loglevel = loglevel
         self.mailer = Mailer(emailcfg)
-        self.build_cache = builds.BuildCache()
+        self.build_cache = builds.BuildCache(override_build_dir=override_build_dir,
+                                             enable_unittests=enable_unittests)
         self._stop = False
         self.phone_workers = {}  # indexed by mac address
         self.worker_lock = threading.Lock()
@@ -128,6 +130,8 @@ class AutoPhone(object):
                                                     logger=logging.getLogger())
         else:
             self.pulsemonitor = None
+
+        self.enable_unittests = enable_unittests
 
     def run(self):
         self.server = self.CmdTCPServer(('0.0.0.0', self.port),
@@ -319,12 +323,13 @@ class AutoPhone(object):
             self._tests.extend(tests)
 
     def trigger_jobs(self, data):
+        logging.debug('trigger_jobs: data  %s' % data)
         job = self.build_job(self.get_build(data))
         logging.info('Adding user-specified job: %s' % job)
         self.start_tests(job)
 
     def reset_phones(self):
-        logging.info('Restting phones...')
+        logging.info('Resetting phones...')
         for phoneid, phone in self.phone_workers.iteritems():
             phone.reboot()
 
@@ -340,28 +345,30 @@ class AutoPhone(object):
         if 'buildurl' in msg:
             self.start_tests(self.build_job(self.get_build(msg['buildurl'])))
 
-    def get_build(self, url_or_path):
-        cmps = urlparse.urlparse(url_or_path)
-        if not cmps.scheme or cmps.scheme == 'file':
-            return cmps.path
-        apkpath = self.build_cache.get(url_or_path)
+    def get_build(self, buildurl):
+        cache_build_dir = self.build_cache.get(buildurl,
+                                               self.enable_unittests)
         try:
-            z = zipfile.ZipFile(apkpath)
+            build_path = os.path.join(cache_build_dir, 'build.apk')
+            z = zipfile.ZipFile(build_path)
             z.testzip()
         except zipfile.BadZipfile:
-            logging.warn('%s is a bad apk; redownloading...' % apkpath)
-            apkpath = self.build_cache.get(url_or_path, force=True)
-        return apkpath
+            logging.warn('%s is a bad apk; redownloading...' % build_path)
+            cache_build_dir = self.build_cache.get(buildurl,
+                                                   self.enable_unittests,
+                                                   force=True)
+        return cache_build_dir
 
-    def build_job(self, apkpath):
+    def build_job(self, cache_build_dir):
         tmpdir = tempfile.mkdtemp()
         try:
-            apkfile = zipfile.ZipFile(apkpath)
+            build_path = os.path.join(cache_build_dir, 'build.apk')
+            apkfile = zipfile.ZipFile(build_path)
             apkfile.extract('application.ini', tmpdir)
         except zipfile.BadZipfile:
             # we should have already tried to redownload bad zips, so treat
             # this as fatal.
-            logging.error('%s is a bad apk; aborting job.' % apkpath)
+            logging.error('%s is a bad apk; aborting job.' % build_path)
             shutil.rmtree(tmpdir)    
             return None
         cfg = ConfigParser.RawConfigParser()
@@ -380,7 +387,7 @@ class AutoPhone(object):
         elif repo == 'http://hg.mozilla.org/releases/mozilla-beta':
             procname = 'org.mozilla.firefox'
 
-        job = { 'apkpath': apkpath,
+        job = { 'cache_build_dir': cache_build_dir,
                 'blddate': math.trunc(time.mktime(blddate.timetuple())),
                 'revision': rev,
                 'androidprocname': procname,
@@ -398,7 +405,8 @@ class AutoPhone(object):
 
 
 def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
-         logfile, loglevel_name, emailcfg, enable_pulse):
+         logfile, loglevel_name, emailcfg, enable_pulse, enable_unittests,
+         override_build_dir):
 
     def sigterm_handler(signum, frame):
         autophone.stop()
@@ -420,9 +428,25 @@ def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
 
     print '%s Starting server on port %d.' % \
         (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), port)
-    autophone = AutoPhone(clear_cache, reboot_phones, test_path, cachefile,
-                          ipaddr, port, logfile, loglevel, emailcfg,
-                          enable_pulse)
+    try:
+        autophone = AutoPhone(clear_cache, reboot_phones, test_path, cachefile,
+                              ipaddr, port, logfile, loglevel, emailcfg,
+                              enable_pulse, enable_unittests,
+                              override_build_dir)
+    except builds.BuildCacheException, e:
+        print '''%s 
+
+When specifying --override-build-dir, the directory must already exist
+and contain a build.apk package file to be tested.
+
+In addition, if you have specified --enable-unittests, the override
+build directory must also contain a tests directory containing the
+unpacked tests package for the build.
+
+        ''' % e
+        parser.print_help()
+        return 1
+
     signal.signal(signal.SIGTERM, sigterm_handler)
     autophone.run()
     print '%s AutoPhone terminated.' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -471,11 +495,21 @@ if __name__ == '__main__':
     parser.add_option('--disable-pulse', action='store_false',
                       dest="enable_pulse", default=True,
                       help="Disable connecting to pulse to look for new builds")
+    parser.add_option('--enable-unittests', action='store_true',
+                      dest='enable_unittests', default=False,
+                      help='Enable running unittests by downloading and installing '
+                      'the unittests package for each build')
+    parser.add_option('--override-build-dir', type='string',
+                      dest='override_build_dir', default=None,
+                      help='Use the specified directory as the current build '
+                      'cache directory without attempting to download a build '
+                      'or test package.')
 
     (options, args) = parser.parse_args()
     exit_code = main(options.clear_cache, options.reboot_phones,
                      options.test_path, options.cachefile, options.ipaddr,
                      options.port, options.logfile, options.loglevel,
-                     options.emailcfg, options.enable_pulse)
+                     options.emailcfg, options.enable_pulse,
+                     options.enable_unittests, options.override_build_dir)
 
     sys.exit(exit_code)

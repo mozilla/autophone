@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import urllib
 import urlparse
-
+import zipfile
 
 class NightlyBranch(object):
 
@@ -91,6 +91,9 @@ class TinderboxBranch(object):
                                                pytz.timezone('US/Pacific'))
 
 
+class BuildCacheException(Exception):
+    pass
+
 class BuildCache(object):
 
     MAX_NUM_BUILDS = 20
@@ -102,8 +105,23 @@ class BuildCache(object):
         def __call__(self, line):
             self.lines.append(line)
 
-    def __init__(self, cache_dir='builds'):
+    def __init__(self, cache_dir='builds', override_build_dir = None, enable_unittests = False):
         self.cache_dir = cache_dir
+        self.enable_unittests = enable_unittests
+        self.override_build_dir = override_build_dir
+        if override_build_dir:
+            if not os.path.exists(override_build_dir):
+                raise BuildCacheException('Override Build Directory does not exist')
+
+            build_path = os.path.join(override_build_dir, 'build.apk')
+            if not os.path.exists(build_path):
+                raise BuildCacheException('Override Build Directory %s does not contain a build.apk.' %
+                                          override_build_dir)
+
+            tests_path = os.path.join(override_build_dir, 'tests')
+            if self.enable_unittests and not os.path.exists(tests_path):
+                raise BuildCacheException('Override Build Directory %s does not contain a tests directory.' %
+                                          override_build_dir)
         if not os.path.exists(self.cache_dir):
             os.mkdir(self.cache_dir)
 
@@ -165,8 +183,8 @@ class BuildCache(object):
                 for l2 in lines2.lines:
                     filename = l2.split(' ')[-1].strip()
                     if fennecregex.match(filename):
-                        fileurl = url.scheme + '://' + url.netloc + newpath + "/" + filename
-                        builds.append(fileurl)
+                        buildurl = url.scheme + '://' + url.netloc + newpath + "/" + filename
+                        builds.append(buildurl)
         if not builds:
             logging.error('No builds found.')
         return builds
@@ -180,22 +198,50 @@ class BuildCache(object):
             logging.error('bad URL "%s"' % url)
         return builddate
 
-    def get(self, url, force=False):
-        build_dir = base64.b64encode(url)
+    def get(self, buildurl, enable_unittests, force=False):
+        if self.override_build_dir:
+            return self.override_build_dir
+        build_dir = base64.b64encode(buildurl)
         self.clean_cache([build_dir])
-        dir = os.path.join(self.cache_dir, build_dir)
-        f = os.path.join(dir, 'build.apk')
-        if not os.path.exists(dir):
-            os.makedirs(dir)
-        if force or not os.path.exists(f):
+        cache_build_dir = os.path.join(self.cache_dir, build_dir)
+        build_path = os.path.join(cache_build_dir, 'build.apk')
+        if not os.path.exists(cache_build_dir):
+            os.makedirs(cache_build_dir)
+        if force or not os.path.exists(build_path):
             # retrieve to temporary file then move over, so we don't end
             # up with half a file if it aborts
             tmpf = tempfile.NamedTemporaryFile(delete=False)
             tmpf.close()
-            urllib.urlretrieve(url, tmpf.name)
-            os.rename(tmpf.name, f)
-        file(os.path.join(dir, 'lastused'), 'w')
-        return f
+            urllib.urlretrieve(buildurl, tmpf.name)
+            os.rename(tmpf.name, build_path)
+        file(os.path.join(cache_build_dir, 'lastused'), 'w')
+        if enable_unittests:
+            tests_path = os.path.join(cache_build_dir, 'tests')
+            if (force or not os.path.exists(tests_path)) and enable_unittests:
+                tmpf = tempfile.NamedTemporaryFile(delete=False)
+                tmpf.close()
+                # XXX: assumes fixed buildurl-> tests_url mapping
+                tests_url = re.sub('.apk$', '.tests.zip', buildurl)
+                urllib.urlretrieve(tests_url, tmpf.name)
+                tests_zipfile = zipfile.ZipFile(tmpf.name)
+                tests_zipfile.extractall(tests_path)
+                tests_zipfile.close()
+                os.unlink(tmpf.name)
+                # XXX: assumes fixed buildurl-> robocop mapping
+                robocop_url = urlparse.urljoin(buildurl, 'robocop.apk')
+                robocop_path = os.path.join(cache_build_dir, 'robocop.apk')
+                tmpf = tempfile.NamedTemporaryFile(delete=False)
+                tmpf.close()
+                urllib.urlretrieve(robocop_url, tmpf.name)
+                os.rename(tmpf.name, robocop_path)
+                # XXX: assumes fixed buildurl-> fennec_ids.txt mapping
+                fennec_ids_url = urlparse.urljoin(buildurl, 'fennec_ids.txt')
+                fennec_ids_path = os.path.join(cache_build_dir, 'fennec_ids.txt')
+                tmpf = tempfile.NamedTemporaryFile(delete=False)
+                tmpf.close()
+                urllib.urlretrieve(fennec_ids_url, tmpf.name)
+                os.rename(tmpf.name, fennec_ids_path)
+        return cache_build_dir
 
     def clean_cache(self, preserve=[]):
         def lastused_path(d):

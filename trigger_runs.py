@@ -23,10 +23,10 @@ def from_iso_date_or_datetime(s):
 def main(args, options):
     logging.info('Looking for builds...')
     if args[0] == 'latest':
-        build = builds.BuildCache().find_latest_build(options.branch)
-        if not build:
+        cache_build_dir = builds.BuildCache().find_latest_build(options.branch)
+        if not cache_build_dir:
             return 1
-        commands = ['triggerjobs %s' % build]
+        commands = ['triggerjobs %s' % cache_build_dir]
     else:
         if re.match('\d{14}', args[0]):
             # build id
@@ -43,11 +43,12 @@ def main(args, options):
             start_time = start_time.replace(tzinfo=pytz.timezone('US/Pacific'))
         if not end_time.tzinfo:
             end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
-        build_list = builds.BuildCache().find_builds(start_time, end_time, 
-                                                     options.branch)
-        if not build_list:
+        cache_build_dir_list = builds.BuildCache().find_builds(start_time, end_time,
+                                                               options.branch)
+        if not cache_build_dir_list:
             return 1
-        commands = ['triggerjobs %s' % url for url in build_list]
+        commands = ['triggerjobs %s' % cache_build_dir for cache_build_dir in
+                    cache_build_dir_list]
     logging.info('Connecting to autophone server...')
     commands.append('exit')
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
