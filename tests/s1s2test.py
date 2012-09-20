@@ -108,14 +108,14 @@ class S1S2Test(PhoneTest):
         self.dm.mkDir('/mnt/sdcard/s1test')
 
         testroot = '/mnt/sdcard/s1test'
-        
+
         if not os.path.exists(self.config_file):
             self.logger.error('Cannot find config file: %s' % self.config_file)
             raise NameError('Cannot find config file: %s' % self.config_file)
-        
+
         cfg = ConfigParser.RawConfigParser()
         cfg.read(self.config_file)
-        
+
         # Map URLS - {urlname: url} - urlname serves as testname
         self._urls = {}
         for u in cfg.items('urls'):
@@ -133,10 +133,10 @@ class S1S2Test(PhoneTest):
             else:
                 self.dm.pushFile(h[1], posixpath.join(testroot,
                                                       os.path.basename(h[1])))
-        
+
         self._iterations = cfg.getint('settings', 'iterations')
         self._resulturl = cfg.get('settings', 'resulturl')
- 
+
     def analyze_logcat(self, job):
         buf = [x.strip('\r\n') for x in self.dm.getLogcat()]
         throbberstartRE = re.compile('.*Throbber start$')
@@ -162,7 +162,7 @@ class S1S2Test(PhoneTest):
         msg = 'Start Time: %s Throbber Start: %s Throbber Stop: %s EndDraw: %s' % (starttime, tstrt, tstop, drawing)
         print 'RESULTS %s %s:%s' % (self.phone_cfg['phoneid'], datetime.datetime.fromtimestamp(int(job['blddate'])), msg)
         self.logger.info('RESULTS: %s:%s' % (self.phone_cfg['phoneid'], msg))
-        
+
         # Create JSON to send to webserver
         resultdata = {}
         resultdata['phoneid'] = self.phone_cfg['phoneid']
@@ -172,14 +172,14 @@ class S1S2Test(PhoneTest):
         resultdata['throbberstop'] = tstop
         resultdata['enddrawing'] = drawing
         resultdata['blddate'] = job['blddate']
-        
+
         resultdata['revision'] = job['revision']
         resultdata['productname'] = job['androidprocname']
         resultdata['productversion'] = job['version']
         resultdata['osver'] = self.phone_cfg['osver']
         resultdata['bldtype'] = job['bldtype']
         resultdata['machineid'] = self.phone_cfg['machinetype']
-        
+
         # Upload
         result = json.dumps({'data': resultdata})
         req = urllib2.Request(self._resulturl, result,

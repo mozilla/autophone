@@ -95,6 +95,10 @@ class PhoneTest(object):
     def runjob(self, job):
         raise NotImplementedError
 
+    def set_dm_debug(self, level):
+        self.phone_cfg['debug'] = level
+        if self._dm:
+            self._dm.debug = level
 
     """
     sets the status
@@ -111,7 +115,7 @@ class PhoneTest(object):
     def install_profile(self, profile=None):
         if not profile:
             profile = FirefoxProfile()
-        
+
         self.dm.removeDir(self.profile_path)
         self.dm.mkDir(self.profile_path)
         self.dm.pushDir(profile.profile, self.profile_path)

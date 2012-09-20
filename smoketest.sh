@@ -20,7 +20,7 @@ cleanup() {
 }
 
 trap cleanup INT TERM EXIT
-cache=`mktemp`
+cache=$(mktemp tmp.XXXXXXXXXX)
 rm -f smoketest_pass smoketest_fail
 echo Launching autophone...
 python autophone.py --cache $cache -t tests/smoketest_manifest.ini &

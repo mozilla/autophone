@@ -43,8 +43,11 @@ class PhoneWorker(object):
                                                 self.job_queue, logfile_prefix,
                                                 loglevel, mailer)
 
-    def start(self):
-        self.subprocess.start()
+    def is_alive(self):
+        return self.subprocess.is_alive()
+
+    def start(self, disabled=False):
+        self.subprocess.start(disabled)
 
     def stop(self):
         self.subprocess.stop()
@@ -58,8 +61,20 @@ class PhoneWorker(object):
     def disable(self):
         self.job_queue.put_nowait(('disable', None))
 
-    def reenable(self):
-        self.job_queue.put_nowait(('reenable', None))
+    def enable(self):
+        self.job_queue.put_nowait(('enable', None))
+
+    def debug(self, level):
+        try:
+            level = int(level)
+        except ValueError:
+            logging.error('Invalid argument for debug: %s' % level)
+        else:
+            self.phone_cfg['debug'] = level
+            self.job_queue.put_nowait(('debug', level))
+
+    def ping(self):
+        self.job_queue.put_nowait(('ping', None))
 
     def process_msg(self, msg):
         """These are status messages routed back from the autophone_queue
@@ -97,7 +112,6 @@ class PhoneWorkerSubProcess(object):
         self.job_queue = job_queue
         self.logfile = logfile_prefix + '.log'
         self.outfile = logfile_prefix + '.out'
-        self.errfile = logfile_prefix + '.err'
         self.loglevel = loglevel
         self.mailer = mailer
         self.p = None
@@ -111,27 +125,42 @@ class PhoneWorkerSubProcess(object):
         if not self._dm:
             logging.info('Connecting to %s:%d...' %
                          (self.phone_cfg['ip'], self.phone_cfg['sutcmdport']))
+            # Droids and other slow phones can take a while to come back
+            # after a SUT crash or spontaneous reboot, so we up the
+            # default retrylimit.
             self._dm = DeviceManagerSUT(self.phone_cfg['ip'],
-                                        self.phone_cfg['sutcmdport'])
+                                        self.phone_cfg['sutcmdport'],
+                                        retrylimit=8)
             logging.info('Connected.')
         return self._dm
 
-    def start(self):
+    def is_alive(self):
+        """Call from main process."""
+        return self.p and self.p.is_alive()
+
+    def start(self, disabled=False):
         """Call from main process."""
         if self.p:
-            return
+            if self.is_alive():
+                return
+            del self.p
+        if disabled:
+            self.disabled = True
         self.p = multiprocessing.Process(target=self.loop)
         self.p.start()
 
     def stop(self):
         """Call from main process."""
-        if self.p:
+        if self.is_alive():
             self.job_queue.put_nowait(('stop', None))
             self.p.join(self.JOB_QUEUE_TIMEOUT_SECONDS*2)
 
     def is_disabled(self):
         disabled = self.disabled
         return disabled
+
+    def disconnect_dm(self):
+        self._dm = None
 
     def status_update(self, msg):
         try:
@@ -182,6 +211,8 @@ class PhoneWorkerSubProcess(object):
                     logging.info('Failed SD card check.')
                 else:
                     logging.info('Phone did not reboot successfully.')
+                    # DM can be in a weird state if reboot failed.
+                    self.disconnect_dm()
             else:
                 logging.info('Phone has been rebooted %d times; giving up.' %
                              reboots)
@@ -222,7 +253,7 @@ We gave up on it. Sorry about that.
         logging.info('Pinging phone')
         # verify that the phone is still responding
         output = StringIO.StringIO()
- 
+
         # It should always be possible to get the device root, so use this
         # command to ensure that the device is still reachable.
         if self.dm.getDeviceRoot():
@@ -234,7 +265,7 @@ We gave up on it. Sorry about that.
 
     def loop(self):
         sys.stdout = file(self.outfile, 'a', 0)
-        sys.stderr = file(self.errfile, 'a', 0)
+        sys.stderr = sys.stdout
         print '%s Worker starting up.' % \
             datetime.datetime.now().replace(microsecond=0).isoformat()
         for h in logging.getLogger().handlers:
@@ -247,19 +278,28 @@ We gave up on it. Sorry about that.
         logging.info('Worker for phone %s starting up.' %
                      self.phone_cfg['phoneid'])
 
+        DeviceManagerSUT.debug = self.phone_cfg.get('debug', 3)
+
         for t in self.tests:
             t.status_cb = self.status_update
 
-        self.status_update(phonetest.PhoneTestMessage(
-                self.phone_cfg['phoneid'],
-                phonetest.PhoneTestMessage.IDLE))
-
-        last_ping = None
-
-        if not self.disabled and not self.check_sdcard():
-            self.recover_phone()
         if self.disabled:
-            logging.error('Initial SD card check failed.')
+            # In case the worker was started in a disabled state
+            self.status_update(phonetest.PhoneTestMessage(
+                    self.phone_cfg['phoneid'],
+                    phonetest.PhoneTestMessage.DISABLED,
+                    msg='Starting in disabled mode.'))
+        else:
+            self.status_update(phonetest.PhoneTestMessage(
+                    self.phone_cfg['phoneid'],
+                    phonetest.PhoneTestMessage.IDLE))
+
+            last_ping = None
+
+            if not self.check_sdcard():
+                self.recover_phone()
+            if self.disabled:
+                logging.error('Initial SD card check failed.')
 
         while True:
             request = None
@@ -295,8 +335,9 @@ We gave up on it. Sorry about that.
                 job = request[1]
                 if not job:
                     continue
-                logging.info('Got job. Rebooting...')
+                logging.info('Got job.')
                 if not self.disabled:
+                    logging.info('Rebooting...')
                     self.reboot()
                 if self.disabled:
                     logging.info('Phone is disabled; queuing job for later.')
@@ -344,11 +385,20 @@ We gave up on it. Sorry about that.
             elif request[0] == 'disable':
                 logging.info('Disabling phone at user\'s request...')
                 self.disable_phone(None)
-            elif request[0] == 'reenable':
-                logging.info('Reenabling phone at user\'s request...')
+            elif request[0] == 'enable':
+                logging.info('Enabling phone at user\'s request...')
                 if self.disabled:
                     self.disabled = False
                     last_ping = None
                 for j in self.skipped_job_queue:
                     self.job_queue.put(('job', j))
-
+            elif request[0] == 'debug':
+                self.phone_cfg['debug'] = request[1]
+                DeviceManagerSUT.debug = self.phone_cfg['debug']
+                # update any existing DeviceManagerSUT objects
+                if self._dm:
+                    self._dm.debug = self.phone_cfg['debug']
+                for t in self.tests:
+                    t.set_dm_debug(self.phone_cfg['debug'])
+            elif request[0] == 'ping':
+                self.ping()

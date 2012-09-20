@@ -25,16 +25,16 @@ if sys.hexversion < 0x020603f0:
     smtplib.SMTP_SSL._get_socket = _get_socket_fixed
 
 
-def sendemail(from_addr=None, to_addrs=None, subject='No Subject', 
+def sendemail(from_addr=None, to_addrs=None, subject='No Subject',
               text_data=None, html_data=None,
               server='mail.mozilla.com', port=465,
               username=None, password=None, use_ssl=True):
     """Sends an email.
-  
+
      from_addr is an email address; to_addrs is a list of email adresses.
      Addresses can be plain (e.g. "jsmith@example.com") or with real names
      (e.g. "John Smith <jsmith@example.com>").
-     
+
      text_data and html_data are both strings.  You can specify one or both.
      If you specify both, the email will be sent as a MIME multipart
      alternative, i.e., the recipient will see the HTML content if his

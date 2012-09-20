@@ -42,7 +42,7 @@ from worker import PhoneWorker
 
 class AutoPhone(object):
 
-    class CmdTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer): 
+    class CmdTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
         allow_reuse_address = True
         daemon_threads = True
@@ -95,12 +95,13 @@ class AutoPhone(object):
         self.build_cache = builds.BuildCache(override_build_dir=override_build_dir,
                                              enable_unittests=enable_unittests)
         self._stop = False
+        self._next_worker_num = 0
         self.phone_workers = {}  # indexed by mac address
         self.worker_lock = threading.Lock()
         self.cmd_lock = threading.Lock()
         self._tests = []
         logging.info('Starting autophone.')
-        
+
         # queue for listening to status updates from tests
         self.worker_msg_queue = multiprocessing.Queue()
 
@@ -133,6 +134,12 @@ class AutoPhone(object):
 
         self.enable_unittests = enable_unittests
 
+    @property
+    def next_worker_num(self):
+        n = self._next_worker_num
+        self._next_worker_num += 1
+        return n
+
     def run(self):
         self.server = self.CmdTCPServer(('0.0.0.0', self.port),
                                         self.CmdTCPHandler)
@@ -140,6 +147,27 @@ class AutoPhone(object):
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.start()
         self.worker_msg_loop()
+
+    def check_for_dead_workers(self):
+        phoneids = self.phone_workers.keys()
+        for phoneid in phoneids:
+            if not self.phone_workers[phoneid].is_alive():
+                print 'Worker %s died!' % phoneid
+                logging.error('Worker %s died!' % phoneid)
+                worker = self.phone_workers[phoneid]
+                worker.stop()
+                worker.start(disabled=True)
+                logging.info('Sending notification...')
+                try:
+                    self.mailer.send('Worker for phone %s died' %
+                                     worker.phone_cfg['phoneid'],
+'''Hello, this is Autophone. The worker process for phone %s died and
+has been disabled. Sorry about that.
+''' % worker.phone_cfg['phoneid'])
+                    logging.info('Sent.')
+                except socket.error:
+                    logging.error('Failed to send dead-phone notification.')
+                    logging.info(traceback.format_exc())
 
     def worker_msg_loop(self):
         # FIXME: look up worker by msg.phoneid and have worker process
@@ -151,6 +179,7 @@ class AutoPhone(object):
         # a phone/worker process is stuck.
         try:
             while not self._stop:
+                self.check_for_dead_workers()
                 try:
                     msg = self.worker_msg_queue.get(timeout=5)
                 except Queue.Empty:
@@ -192,6 +221,12 @@ class AutoPhone(object):
         self.worker_lock.release()
 
     def route_cmd(self, data):
+        # There is not currently any way to get proper responses for commands
+        # that interact with workers, since communication between the main
+        # process and the worker processes is asynchronous.
+        # It would be possible but nontrivial for the workers to put responses
+        # onto a queue and have them routed to the proper connection by using
+        # request IDs or something like that.
         self.cmd_lock.acquire()
         data = data.strip()
         cmd, space, params = data.partition(' ')
@@ -211,6 +246,7 @@ class AutoPhone(object):
             now = datetime.datetime.now().replace(microsecond=0)
             for i, w in self.phone_workers.iteritems():
                 response += 'phone %s (%s):\n' % (i, w.phone_cfg['ip'])
+                response += '  debug level %d\n' % w.phone_cfg.get('debug', 3)
                 if not w.last_status_msg:
                     response += '  no updates\n'
                 else:
@@ -223,16 +259,24 @@ class AutoPhone(object):
                     if w.last_status_of_previous_type:
                         response += '  previous state %s ago:\n    %s\n' % (now - w.last_status_of_previous_type.timestamp, w.last_status_of_previous_type.short_desc())
             response += 'ok'
-        elif cmd == 'disable' or cmd == 'reenable':
-            serial = params.strip()
+        elif (cmd == 'disable' or cmd == 'enable' or cmd == 'debug' or
+              cmd == 'ping'):
+            # Commands that take a phone as a parameter
+            phoneid, space, params = params.partition(' ')
             worker = None
             for w in self.phone_workers.values():
-                if w.phone_cfg['serial'] == serial:
+                if (w.phone_cfg['serial'] == phoneid or
+                    w.phone_cfg['phoneid'] == phoneid):
                     worker = w
                     break
             if worker:
-                getattr(worker, cmd)()
+                f = getattr(worker, cmd)
+                if params:
+                    f(params)
+                else:
+                    f()
                 response = 'ok'
+                self.update_phone_cache()
             else:
                 response = 'error: phone not found'
         else:
@@ -245,7 +289,7 @@ class AutoPhone(object):
                  x in self._tests]
 
         logfile_prefix = os.path.splitext(self.logfile)[0]
-        worker = PhoneWorker(len(self.phone_workers.keys()), self.ipaddr,
+        worker = PhoneWorker(self.next_worker_num, self.ipaddr,
                              tests, phone_cfg, self.worker_msg_queue,
                              '%s-%s' % (logfile_prefix, phone_cfg['phoneid']),
                              self.loglevel, self.mailer)
@@ -270,7 +314,8 @@ class AutoPhone(object):
                     ip=data['ipaddr'][0],
                     sutcmdport=int(data['cmdport'][0]),
                     machinetype=data['hardware'][0],
-                    osver=data['os'][0])
+                    osver=data['os'][0],
+                    debug=3)
                 self.register_phone(phone_cfg)
                 self.update_phone_cache()
             else:
@@ -369,7 +414,7 @@ class AutoPhone(object):
             # we should have already tried to redownload bad zips, so treat
             # this as fatal.
             logging.error('%s is a bad apk; aborting job.' % build_path)
-            shutil.rmtree(tmpdir)    
+            shutil.rmtree(tmpdir)
             return None
         cfg = ConfigParser.RawConfigParser()
         cfg.read(os.path.join(tmpdir, 'application.ini'))
@@ -393,7 +438,7 @@ class AutoPhone(object):
                 'androidprocname': procname,
                 'version': ver,
                 'bldtype': 'opt' }
-        shutil.rmtree(tmpdir)    
+        shutil.rmtree(tmpdir)
         return job
 
     def stop(self):
@@ -434,7 +479,7 @@ def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
                               enable_pulse, enable_unittests,
                               override_build_dir)
     except builds.BuildCacheException, e:
-        print '''%s 
+        print '''%s
 
 When specifying --override-build-dir, the directory must already exist
 and contain a build.apk package file to be tested.
