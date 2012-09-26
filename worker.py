@@ -207,6 +207,7 @@ class PhoneWorkerSubProcess(object):
                 if success:
                     logging.info('Phone is back up.')
                     if self.check_sdcard():
+                        self.disabled = False
                         return
                     logging.info('Failed SD card check.')
                 else:
@@ -306,23 +307,23 @@ We gave up on it. Sorry about that.
             try:
                 request = self.job_queue.get(timeout=self.JOB_QUEUE_TIMEOUT_SECONDS)
             except Queue.Empty:
-                if (not self.disabled and
-                    (not last_ping or
-                     ((datetime.datetime.now() - last_ping) >
-                      datetime.timedelta(
-                                microseconds=1000*1000*self.PING_SECONDS)))):
+                if (not last_ping or
+                    (datetime.datetime.now() - last_ping >
+                     datetime.timedelta(seconds=self.PING_SECONDS))):
                     last_ping = datetime.datetime.now()
                     if self.ping():
-                        self.status_update(phonetest.PhoneTestMessage(
-                                self.phone_cfg['phoneid'],
-                                phonetest.PhoneTestMessage.IDLE,
-                                self.current_build))
+                        if self.disabled:
+                            self.recover_phone()
+                        if not self.disabled:
+                            self.status_update(phonetest.PhoneTestMessage(
+                                    self.phone_cfg['phoneid'],
+                                    phonetest.PhoneTestMessage.IDLE,
+                                    self.current_build))
                     else:
                         logging.info('Ping unanswered.')
-                        self.recover_phone()
-                        # try ping once more, since sometimes the reboot
-                        # appears to succeed but the ping fails.
-                        if not self.ping():
+                        # No point in trying to recover, since we couldn't
+                        # even perform a simple action.
+                        if not self.disabled:
                             self.disable_phone('No response to ping.')
 
             except KeyboardInterrupt:

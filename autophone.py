@@ -262,6 +262,9 @@ has been disabled. Sorry about that.
         elif (cmd == 'disable' or cmd == 'enable' or cmd == 'debug' or
               cmd == 'ping'):
             # Commands that take a phone as a parameter
+            # FIXME: need start, stop, and remove
+            # Note that disable means that the device will still be pinged
+            # periodically. Do we need permanently disabled/stopped?
             phoneid, space, params = params.partition(' ')
             worker = None
             for w in self.phone_workers.values():
