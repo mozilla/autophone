@@ -18,7 +18,24 @@ import time
 import traceback
 
 import phonetest
-from mozdevice import DeviceManagerSUT
+from mozdevice import DeviceManagerSUT, DMError
+
+
+class Crashes(object):
+
+    CRASH_WINDOW = datetime.timedelta(seconds=30)
+    MAX_CRASHES = 5
+
+    def __init__(self):
+        self.crash_times = []
+
+    def add_crash(self):
+        self.crash_times.append(datetime.datetime.now())
+        self.crash_times = [x for x in self.crash_times
+                            if self.crash_times[-1] - x <= self.CRASH_WINDOW]
+
+    def too_many_crashes(self):
+        return len(self.crash_times) >= self.MAX_CRASHES
 
 
 class PhoneWorker(object):
@@ -35,6 +52,7 @@ class PhoneWorker(object):
         self.last_status_msg = None
         self.first_status_of_type = None
         self.last_status_of_previous_type = None
+        self.crashes = Crashes()
         self.job_queue = multiprocessing.Queue()
         self.lock = multiprocessing.Lock()
         self.subprocess = PhoneWorkerSubProcess(self.worker_num, self.ipaddr,
@@ -46,8 +64,8 @@ class PhoneWorker(object):
     def is_alive(self):
         return self.subprocess.is_alive()
 
-    def start(self, disabled=False):
-        self.subprocess.start(disabled)
+    def start(self, status=phonetest.PhoneTestMessage.IDLE):
+        self.subprocess.start(status)
 
     def stop(self):
         self.subprocess.stop()
@@ -115,10 +133,10 @@ class PhoneWorkerSubProcess(object):
         self.loglevel = loglevel
         self.mailer = mailer
         self.p = None
-        self.disabled = False
         self.skipped_job_queue = []
         self.current_build = None
         self._dm = None
+        self.status = None
 
     @property
     def dm(self):
@@ -138,14 +156,13 @@ class PhoneWorkerSubProcess(object):
         """Call from main process."""
         return self.p and self.p.is_alive()
 
-    def start(self, disabled=False):
+    def start(self, status):
         """Call from main process."""
         if self.p:
             if self.is_alive():
                 return
             del self.p
-        if disabled:
-            self.disabled = True
+        self.status = status
         self.p = multiprocessing.Process(target=self.loop)
         self.p.start()
 
@@ -155,14 +172,15 @@ class PhoneWorkerSubProcess(object):
             self.job_queue.put_nowait(('stop', None))
             self.p.join(self.JOB_QUEUE_TIMEOUT_SECONDS*2)
 
-    def is_disabled(self):
-        disabled = self.disabled
-        return disabled
+    def has_error(self):
+        return (self.status == phonetest.PhoneTestMessage.DISABLED or
+                self.status == phonetest.PhoneTestMessage.DISCONNECTED)
 
     def disconnect_dm(self):
         self._dm = None
 
     def status_update(self, msg):
+        self.status = msg.status
         try:
             self.autophone_queue.put_nowait(msg)
         except Queue.Full:
@@ -170,69 +188,116 @@ class PhoneWorkerSubProcess(object):
 
     def check_sdcard(self):
         logging.info('Checking SD card.')
-        dev_root = self.dm.getDeviceRoot()
-        if dev_root is None:
-            logging.error('No response from device when querying device root.')
-            return False
-        d = posixpath.join(dev_root, 'autophonetest')
-        self.dm.removeDir(d)
-        success = self.dm.mkDir(d) and self.dm.dirExists(d)
-        if success:
-            with tempfile.NamedTemporaryFile() as tmp:
-                tmp.write('autophone test\n')
-                tmp.flush()
-                success = self.dm.pushFile(tmp.name, posixpath.join(d,
-                                                                    'testfile'))
+        success = True
+        try:
+            dev_root = self.dm.getDeviceRoot()
+            if dev_root:
+                d = posixpath.join(dev_root, 'autophonetest')
+                self.dm.removeDir(d)
+                self.dm.mkDir(d)
+                if self.dm.dirExists(d):
+                    with tempfile.NamedTemporaryFile() as tmp:
+                        tmp.write('autophone test\n')
+                        tmp.flush()
+                        self.dm.pushFile(tmp.name,
+                                         posixpath.join(d, 'sdcard_check'))
+                    self.dm.removeDir(d)
+                else:
+                    logging.error('Failed to create directory under device '
+                                  'root!')
+                    success = False
+            else:
+                logging.error('Invalid device root.')
+                success = False
+        except DMError:
+            logging.error('Exception while checking SD card!')
+            logging.error(traceback.format_exc())
+            success = False
+
         if not success:
-            logging.error('Device root is not writable!')
-            logging.info('Checking sdcard...')
-            sdcard_writable = self.dm.mkDir('/mnt/sdcard/tests/autophonetest')
-            if sdcard_writable:
-                logging.error('Weird, sd card is writable but device root isn\'t! I\'m confused and giving up anyway!')
+            # FIXME: Should this be called under more circumstances than just
+            # checking the SD card?
             self.clear_test_base_paths()
-        self.dm.removeDir(d)
-        return success
+            return False
+
+        # reset status if there had previous been an error.
+        # FIXME: should send email that phone is back up.
+        self.status_update(phonetest.PhoneTestMessage(
+                self.phone_cfg['phoneid'],
+                phonetest.PhoneTestMessage.IDLE))
+        return True
 
     def clear_test_base_paths(self):
         for t in self.tests:
             t._base_device_path = ''
 
     def recover_phone(self):
+        exc = None
         reboots = 0
-        while not self.disabled:
-            if reboots < self.MAX_REBOOT_ATTEMPTS:
-                logging.info('Rebooting phone...')
-                reboots += 1
-                success = self.dm.reboot(self.ipaddr, 30000+self.worker_num)
-                if success:
+        while reboots < self.MAX_REBOOT_ATTEMPTS:
+            logging.info('Rebooting phone...')
+            reboots += 1
+            # FIXME: reboot() no longer indicates success/failure; instead
+            # we just verify the device root.
+            try:
+                self.dm.reboot(self.ipaddr, 30000+self.worker_num)
+                if self.dm.getDeviceRoot():
                     logging.info('Phone is back up.')
                     if self.check_sdcard():
-                        self.disabled = False
                         return
                     logging.info('Failed SD card check.')
                 else:
                     logging.info('Phone did not reboot successfully.')
-                    # DM can be in a weird state if reboot failed.
-                    self.disconnect_dm()
-            else:
-                logging.info('Phone has been rebooted %d times; giving up.' %
-                             reboots)
-                self.disable_phone('Phone was rebooted %d times.' % reboots)
+            except DMError:
+                exc = 'Exception while checking SD card!\n%s' % \
+                    traceback.format_exc()
+                logging.error(exc)
+            # DM can be in a weird state if reboot failed.
+            self.disconnect_dm()
+
+        logging.info('Phone has been rebooted %d times; giving up.' %
+                     reboots)
+        msg_body = 'Phone was rebooted %d times.' % reboots
+        if exc:
+            msg_body += '\n\n%s' % exc
+        self.phone_disconnected(msg_body)
 
     def reboot(self):
         self.status_update(phonetest.PhoneTestMessage(
                 self.phone_cfg['phoneid'],
                 phonetest.PhoneTestMessage.REBOOTING))
         self.recover_phone()
-        if not self.disabled:
-            self.status_update(phonetest.PhoneTestMessage(
-                    self.phone_cfg['phoneid'],
-                    phonetest.PhoneTestMessage.IDLE, msg='phone reset'))
 
-    def disable_phone(self, msg_body):
-        logging.info('Disabling phone: %s.' % msg_body)
-        self.disabled = True
+    def phone_disconnected(self, msg_body):
+        """Indicate that a phone has become unreachable or experienced a
+        error from which we might be able to recover."""
+        if self.has_error():
+            return
+        logging.info('Phone disconnected: %s.' % msg_body)
         if msg_body and self.mailer:
+            logging.info('Sending notification...')
+            try:
+                self.mailer.send('Phone %s disconnected' % self.phone_cfg['phoneid'],
+                                 '''Hello, this is Autophone. Phone %s appears to be disconnected:
+
+%s
+
+I'll keep trying to ping it periodically in case it reappears.
+''' % (self.phone_cfg['phoneid'], msg_body))
+                logging.info('Sent.')
+            except socket.error:
+                logging.error('Failed to send disconnected-phone '
+                              'notification.')
+                logging.error(traceback.format_exc())
+        self.status_update(phonetest.PhoneTestMessage(
+                self.phone_cfg['phoneid'],
+                phonetest.PhoneTestMessage.DISCONNECTED))
+
+    def disable_phone(self, errmsg, send_email=True):
+        """Completely disable phone. No further attempts to recover it will
+        be performed unless initiated by the user."""
+        logging.info('Disabling phone: %s.' % errmsg)
+        if errmsg and send_email and self.mailer:
             logging.info('Sending notification...')
             try:
                 self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
@@ -240,29 +305,87 @@ class PhoneWorkerSubProcess(object):
 
 %s
 
-We gave up on it. Sorry about that.
-''' % (self.phone_cfg['phoneid'], msg_body))
+I gave up on it. Sorry about that. You can manually re-enable it with
+the "enable" command.
+''' % (self.phone_cfg['phoneid'], errmsg))
                 logging.info('Sent.')
             except socket.error:
                 logging.error('Failed to send disabled-phone notification.')
-                logging.info(traceback.format_exc())
+                logging.error(traceback.format_exc())
         self.status_update(phonetest.PhoneTestMessage(
                 self.phone_cfg['phoneid'],
-                phonetest.PhoneTestMessage.DISABLED))
+                phonetest.PhoneTestMessage.DISABLED,
+                msg=errmsg))
 
     def ping(self):
         logging.info('Pinging phone')
-        # verify that the phone is still responding
-        output = StringIO.StringIO()
-
+        # Verify that the phone is still responding.
         # It should always be possible to get the device root, so use this
         # command to ensure that the device is still reachable.
-        if self.dm.getDeviceRoot():
-            logging.info('Pong!')
-            return True
-
-        logging.info('No response!')
+        try:
+            if self.dm.getDeviceRoot():
+                logging.info('Pong!')
+                return True
+        except DMError:
+            logging.error('Exception while pinging:')
+            logging.error(traceback.format_exc())
+        logging.error('Got empty device root!')
         return False
+
+    def do_job(self, job):
+        if not self.has_error():
+            logging.info('Rebooting...')
+            self.reboot()
+
+        # may have gotten an error trying to reboot, so test again
+        if self.has_error():
+            logging.info('Phone is in error state; queuing job '
+                         'for later.')
+            # FIXME: Write these to a file to resume eventually.
+            # We'll need a way (command, cli option) to automatically
+            # clear these as well.
+            return False
+
+        self.status_update(phonetest.PhoneTestMessage(
+                self.phone_cfg['phoneid'],
+                phonetest.PhoneTestMessage.INSTALLING,
+                job['blddate']))
+        logging.info('Installing build %s.' %
+                     datetime.datetime.fromtimestamp(float(job['blddate'])))
+
+        try:
+            pathOnDevice = posixpath.join(self.dm.getDeviceRoot(),
+                                          'build.apk')
+            self.dm.pushFile(os.path.join(job['cache_build_dir'],
+                                          'build.apk'), pathOnDevice)
+            self.dm.installApp(pathOnDevice)
+            self.dm.removeFile(pathOnDevice)
+        except DMError:
+            exc = 'Exception installing fennec!\n\n%s' % traceback.format_exc()
+            logging.error(exc)
+            self.phone_disconnected(exc)
+            return False
+        self.current_build = job['blddate']
+
+        logging.info('Running tests...')
+        for t in self.tests:
+            if self.has_error():
+                break
+            t.current_build = job['blddate']
+            # TODO: Attempt to see if pausing between jobs helps with
+            # our reconnection issues
+            time.sleep(30)
+            try:
+                t.runjob(job)
+            except DMError:
+                exc = 'Uncaught device error while running test!\n\n%s' % \
+                    traceback.format_exc()
+                logging.error(exc)
+                # FIXME: We should retry the whole thing; as it is, we
+                # actually skip this job.
+                self.phone_disconnected(exc)
+                return False
+        return True
 
     def loop(self):
         sys.stdout = file(self.outfile, 'a', 0)
@@ -284,37 +407,33 @@ We gave up on it. Sorry about that.
         for t in self.tests:
             t.status_cb = self.status_update
 
-        if self.disabled:
-            # In case the worker was started in a disabled state
-            self.status_update(phonetest.PhoneTestMessage(
-                    self.phone_cfg['phoneid'],
-                    phonetest.PhoneTestMessage.DISABLED,
-                    msg='Starting in disabled mode.'))
-        else:
-            self.status_update(phonetest.PhoneTestMessage(
-                    self.phone_cfg['phoneid'],
-                    phonetest.PhoneTestMessage.IDLE))
+        last_ping = None
 
-            last_ping = None
+        self.status_update(phonetest.PhoneTestMessage(
+                self.phone_cfg['phoneid'], self.status))
 
+        if self.status != phonetest.PhoneTestMessage.DISABLED:
             if not self.check_sdcard():
                 self.recover_phone()
-            if self.disabled:
+            if self.has_error():
                 logging.error('Initial SD card check failed.')
 
         while True:
             request = None
             try:
-                request = self.job_queue.get(timeout=self.JOB_QUEUE_TIMEOUT_SECONDS)
+                request = self.job_queue.get(
+                    timeout=self.JOB_QUEUE_TIMEOUT_SECONDS)
             except Queue.Empty:
-                if (not last_ping or
-                    (datetime.datetime.now() - last_ping >
-                     datetime.timedelta(seconds=self.PING_SECONDS))):
+                if (self.status != phonetest.PhoneTestMessage.DISABLED and
+                    (not last_ping or
+                     (datetime.datetime.now() - last_ping >
+                      datetime.timedelta(seconds=self.PING_SECONDS)))):
                     last_ping = datetime.datetime.now()
                     if self.ping():
-                        if self.disabled:
+                        if (self.status ==
+                            phonetest.PhoneTestMessage.DISCONNECTED):
                             self.recover_phone()
-                        if not self.disabled:
+                        if not self.has_error():
                             self.status_update(phonetest.PhoneTestMessage(
                                     self.phone_cfg['phoneid'],
                                     phonetest.PhoneTestMessage.IDLE,
@@ -323,11 +442,11 @@ We gave up on it. Sorry about that.
                         logging.info('Ping unanswered.')
                         # No point in trying to recover, since we couldn't
                         # even perform a simple action.
-                        if not self.disabled:
-                            self.disable_phone('No response to ping.')
-
+                        if not self.has_error():
+                            self.phone_disconnected('No response to ping.')
             except KeyboardInterrupt:
                 return
+
             if not request:
                 continue
             if request[0] == 'stop':
@@ -337,59 +456,27 @@ We gave up on it. Sorry about that.
                 if not job:
                     continue
                 logging.info('Got job.')
-                if not self.disabled:
-                    logging.info('Rebooting...')
-                    self.reboot()
-                if self.disabled:
-                    logging.info('Phone is disabled; queuing job for later.')
-                    # FIXME: Write these to a file to resume eventually.
-                    # We'll need a way (command, cli option) to automatically
-                    # clear these as well.
-                    self.skipped_job_queue.append(job)
-                    continue
-                self.status_update(phonetest.PhoneTestMessage(
-                        self.phone_cfg['phoneid'],
-                        phonetest.PhoneTestMessage.INSTALLING, job['blddate']))
-                logging.info('Installing build %s.' % datetime.datetime.fromtimestamp(float(job['blddate'])))
-
-                pathOnDevice = posixpath.join(self.dm.getDeviceRoot(),
-                                              'build.apk')
-                self.dm.pushFile(os.path.join(job['cache_build_dir'], 'build.apk'), pathOnDevice)
-                self.dm.installApp(pathOnDevice)
-                self.dm.removeFile(pathOnDevice)
-
-                self.current_build = job['blddate']
-                logging.info('Running tests...')
-                for t in self.tests:
-                    if self.disabled:
-                        break
-                    t.current_build = job['blddate']
-                    # TODO: Attempt to see if pausing between jobs helps with
-                    # our reconnection issues
-                    time.sleep(30)
-                    # FIXME: We need to detect fatal DeviceManager errors.
-                    t.runjob(job)
-
-                if self.disabled:
-                    self.status_update(phonetest.PhoneTestMessage(
-                            self.phone_cfg['phoneid'],
-                            phonetest.PhoneTestMessage.DISABLED))
-                else:
+                if self.do_job(job):
                     logging.info('Job completed.')
                     self.status_update(phonetest.PhoneTestMessage(
                             self.phone_cfg['phoneid'],
                             phonetest.PhoneTestMessage.IDLE,
                             self.current_build))
+                else:
+                    logging.error('Job failed; queuing it for later.')
+                    self.skipped_job_queue.append(job)
             elif request[0] == 'reboot':
                 logging.info('Rebooting at user\'s request...')
                 self.reboot()
             elif request[0] == 'disable':
-                logging.info('Disabling phone at user\'s request...')
-                self.disable_phone(None)
+                self.disable_phone('Disabled at user\'s request', False)
             elif request[0] == 'enable':
                 logging.info('Enabling phone at user\'s request...')
-                if self.disabled:
-                    self.disabled = False
+                if self.has_error():
+                    self.status_update(phonetest.PhoneTestMessage(
+                            self.phone_cfg['phoneid'],
+                            phonetest.PhoneTestMessage.IDLE,
+                            self.current_build))
                     last_ping = None
                 for j in self.skipped_job_queue:
                     self.job_queue.put(('job', j))

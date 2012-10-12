@@ -91,7 +91,7 @@ class AutoPhone(object):
         self.port = port
         self.logfile = logfile
         self.loglevel = loglevel
-        self.mailer = Mailer(emailcfg)
+        self.mailer = Mailer(emailcfg, '[autophone] ')
         self.build_cache = builds.BuildCache(override_build_dir=override_build_dir,
                                              enable_unittests=enable_unittests)
         self._stop = False
@@ -156,14 +156,23 @@ class AutoPhone(object):
                 logging.error('Worker %s died!' % phoneid)
                 worker = self.phone_workers[phoneid]
                 worker.stop()
-                worker.start(disabled=True)
+                worker.crashes.add_crash()
+                msg_subj = 'Worker for phone %s died' % \
+                    worker.phone_cfg['phoneid']
+                msg_body = 'Hello, this is Autophone. Just to let you know, ' \
+                    'the worker process\nfor phone %s died.\n' % \
+                    worker.phone_cfg['phoneid']
+                if worker.crashes.too_many_crashes():
+                    initial_state = phonetest.PhoneTestMessage.DISABLED
+                    msg_subj += ' and was disabled'
+                    msg_body += 'It looks really crashy, so I disabled it. ' \
+                        'Sorry about that.\n'
+                else:
+                    initial_state = phonetest.PhoneTestMessage.DISCONNECTED
+                worker.start(initial_state)
                 logging.info('Sending notification...')
                 try:
-                    self.mailer.send('Worker for phone %s died' %
-                                     worker.phone_cfg['phoneid'],
-'''Hello, this is Autophone. The worker process for phone %s died and
-has been disabled. Sorry about that.
-''' % worker.phone_cfg['phoneid'])
+                    self.mailer.send(msg_subj, msg_body)
                     logging.info('Sent.')
                 except socket.error:
                     logging.error('Failed to send dead-phone notification.')

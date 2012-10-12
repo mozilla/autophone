@@ -8,8 +8,9 @@ from sendemail import sendemail
 
 class Mailer(object):
 
-    def __init__(self, cfgfile):
+    def __init__(self, cfgfile, subject_prefix=''):
         self.cfgfile = cfgfile
+        self.subject_prefix = subject_prefix
 
     def send(self, subject, body):
         cfg = ConfigParser.ConfigParser()
@@ -50,7 +51,8 @@ class Mailer(object):
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             mail_ssl = True
 
-        sendemail(from_addr=from_address, to_addrs=mail_dest, subject=subject,
+        sendemail(from_addr=from_address, to_addrs=mail_dest,
+                  subject='%s%s' % (self.subject_prefix, subject),
                   username=mail_username, password=mail_password,
                   text_data=body, server=mail_server, port=mail_port,
                   use_ssl=mail_ssl)

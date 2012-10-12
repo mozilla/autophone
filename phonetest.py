@@ -16,7 +16,8 @@ class PhoneTestMessage(object):
     INSTALLING = 'INSTALLING BUILD'
     WORKING = 'WORKING'
     REBOOTING = 'REBOOTING'
-    DISABLED = 'DISABLED'
+    DISCONNECTED = 'DISCONNECTED'  # temporary error
+    DISABLED = 'DISABLED'  # permanent error
 
     class JsonEncoder(json.JSONEncoder):
         def default(self, obj):
