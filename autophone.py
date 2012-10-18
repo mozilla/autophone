@@ -405,18 +405,24 @@ class AutoPhone(object):
     def get_build(self, buildurl):
         cache_build_dir = self.build_cache.get(buildurl,
                                                self.enable_unittests)
+        if not cache_build_dir:
+            logging.warn('Errors occured getting build %s.' % buildurl)
+            return None
         try:
             build_path = os.path.join(cache_build_dir, 'build.apk')
             z = zipfile.ZipFile(build_path)
             z.testzip()
         except zipfile.BadZipfile:
-            logging.warn('%s is a bad apk; redownloading...' % build_path)
+            logging.error('%s is a bad apk; redownloading...' % build_path)
             cache_build_dir = self.build_cache.get(buildurl,
                                                    self.enable_unittests,
                                                    force=True)
         return cache_build_dir
 
     def build_job(self, cache_build_dir):
+        if not cache_build_dir:
+            logging.warn('No build available. Aborting job.')
+            return None
         tmpdir = tempfile.mkdtemp()
         try:
             build_path = os.path.join(cache_build_dir, 'build.apk')

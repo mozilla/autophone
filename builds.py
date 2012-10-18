@@ -14,6 +14,8 @@ import tempfile
 import urllib
 import urlparse
 import zipfile
+import traceback
+
 
 class NightlyBranch(object):
 
@@ -212,7 +214,13 @@ class BuildCache(object):
             # up with half a file if it aborts
             tmpf = tempfile.NamedTemporaryFile(delete=False)
             tmpf.close()
-            urllib.urlretrieve(buildurl, tmpf.name)
+            try:
+                urllib.urlretrieve(buildurl, tmpf.name)
+            except IOError:
+                os.unlink(tmpf.name)
+                logging.error('IO Error retrieving build: %s.' % buildurl)
+                logging.error(traceback.format_exc())
+                return None
             os.rename(tmpf.name, build_path)
         file(os.path.join(cache_build_dir, 'lastused'), 'w')
         if enable_unittests:
@@ -222,7 +230,13 @@ class BuildCache(object):
                 tmpf.close()
                 # XXX: assumes fixed buildurl-> tests_url mapping
                 tests_url = re.sub('.apk$', '.tests.zip', buildurl)
-                urllib.urlretrieve(tests_url, tmpf.name)
+                try:
+                    urllib.urlretrieve(tests_url, tmpf.name)
+                except IOError:
+                    os.unlink(tmpf.name)
+                    logging.error('IO Error retrieving tests: %s.' % tests_url)
+                    logging.error(traceback.format_exc())
+                    return None
                 tests_zipfile = zipfile.ZipFile(tmpf.name)
                 tests_zipfile.extractall(tests_path)
                 tests_zipfile.close()
@@ -232,14 +246,28 @@ class BuildCache(object):
                 robocop_path = os.path.join(cache_build_dir, 'robocop.apk')
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
                 tmpf.close()
-                urllib.urlretrieve(robocop_url, tmpf.name)
+                try:
+                    urllib.urlretrieve(robocop_url, tmpf.name)
+                except IOError:
+                    os.unlink(tmpf.name)
+                    logging.error('IO Error retrieving robocop.apk: %s.' %
+                                  robocop_url)
+                    logging.error(traceback.format_exc())
+                    return None
                 os.rename(tmpf.name, robocop_path)
                 # XXX: assumes fixed buildurl-> fennec_ids.txt mapping
                 fennec_ids_url = urlparse.urljoin(buildurl, 'fennec_ids.txt')
                 fennec_ids_path = os.path.join(cache_build_dir, 'fennec_ids.txt')
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
                 tmpf.close()
-                urllib.urlretrieve(fennec_ids_url, tmpf.name)
+                try:
+                    urllib.urlretrieve(fennec_ids_url, tmpf.name)
+                except IOError:
+                    os.unlink(tmpf.name)
+                    logging.error('IO Error retrieving fennec_ids.txt: %s.' %
+                                  fennec_ids_url)
+                    logging.error(traceback.format_exc())
+                    return None
                 os.rename(tmpf.name, fennec_ids_path)
         return cache_build_dir
 
