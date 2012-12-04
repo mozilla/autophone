@@ -26,34 +26,32 @@ class NightlyBranch(object):
                                                                       month)
 
     def ftpdirs(self, start_time, end_time):
+        logging.debug('Getting ftp dirs...')
         dirs = []
         y = start_time.year
         m = start_time.month
-        while y < end_time.year or m <= end_time.month:
+        while y < end_time.year or (y == end_time.year and m <= end_time.month):
             dirs.append(self.nightly_ftpdir(y, m))
             if m == 12:
                 y += 1
                 m = 1
             else:
                 m += 1
+        logging.debug('Searching these ftp dirs: %s' % ', '.join(dirs))
         return dirs
 
     def build_info_from_ftp(self, ftpline):
         srcdir = ftpline.split(' ')[-1].strip()
         build_time = None
         dirnamematch = None
-        logging.debug('matching dir names')
         for r in self.nightly_dirnames:
             dirnamematch = r.match(srcdir)
             if dirnamematch:
                 break
         if dirnamematch:
-            logging.debug('build time')
             build_time = datetime.datetime.strptime(dirnamematch.group(1),
                                                     '%Y-%m-%d-%H-%M-%S')
             build_time = build_time.replace(tzinfo=pytz.timezone('US/Pacific'))
-            logging.debug('got build time')
-        logging.debug('got info')
         return (srcdir, build_time)
 
     def build_date_from_url(self, url):
@@ -147,6 +145,8 @@ class BuildCache(object):
         return builds[-1]
 
     def find_builds(self, start_time, end_time, branch_name='nightly'):
+        logging.debug('Finding most recent build between %s and %s...' %
+                      (start_time, end_time))
         branch = self.branch(branch_name)
         if not branch:
             logging.error('unsupported branch "%s"' % branch_name)
@@ -162,10 +162,10 @@ class BuildCache(object):
 
         for d in branch.ftpdirs(start_time, end_time):
             url = urlparse.urlparse(d)
-            logging.debug('logging into %s...' % url.netloc)
+            logging.debug('Logging into %s...' % url.netloc)
             f = ftplib.FTP(url.netloc)
             f.login()
-            logging.debug('looking for builds in %s...' % url.path)
+            logging.debug('Looking for builds in %s...' % url.path)
             lines = self.FtpLineCache()
             f.dir(url.path, lines)
             file('lines.out', 'w').write('\n'.join(lines.lines))

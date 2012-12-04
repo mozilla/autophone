@@ -66,8 +66,6 @@ if __name__ == '__main__':
     import sys
     from optparse import OptionParser
 
-    logging.basicConfig(level=logging.INFO)
-
     usage = '''%prog [options] <datetime, date/datetime, or date/datetime range>
 Triggers one or more test runs.
 
@@ -98,8 +96,18 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       dest='branch', default='nightly',
                       help='branch to search for builds, defaults to nightly;'
                       ' can be "tinderbox" for both m-c and m-i')
+    parser.add_option('-v', '--verbose', action='store_true', dest='verbose',
+                      default=False, help='verbose output')
     (options, args) = parser.parse_args()
     if len(args) > 2:
         parser.print_help()
         sys.exit(errno.EINVAL)
+    
+    if options.verbose:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.INFO
+
+    logging.basicConfig(level=log_level)
+
     sys.exit(main(args, options))
