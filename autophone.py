@@ -78,7 +78,8 @@ class AutoPhone(object):
 
     def __init__(self, clear_cache, reboot_phones, test_path, cachefile,
                  ipaddr, port, logfile, loglevel, emailcfg, enable_pulse,
-                 enable_unittests, override_build_dir):
+                 enable_unittests, override_build_dir,
+                 repos, buildtypes):
         self._test_path = test_path
         self._cache = cachefile
         if ipaddr:
@@ -92,7 +93,8 @@ class AutoPhone(object):
         self.logfile = logfile
         self.loglevel = loglevel
         self.mailer = Mailer(emailcfg, '[autophone] ')
-        self.build_cache = builds.BuildCache(override_build_dir=override_build_dir,
+        self.build_cache = builds.BuildCache(repos, buildtypes,
+                                             override_build_dir=override_build_dir,
                                              enable_unittests=enable_unittests)
         self._stop = False
         self._next_worker_num = 0
@@ -125,9 +127,9 @@ class AutoPhone(object):
 
         if enable_pulse:
             self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
-                                                    trees=['mozilla-central'],
+                                                    trees=repos,
                                                     platforms=['android'],
-                                                    buildtypes=['opt'],
+                                                    buildtypes=buildtypes,
                                                     logger=logging.getLogger())
         else:
             self.pulsemonitor = None
@@ -487,7 +489,7 @@ class AutoPhone(object):
 
 def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
          logfile, loglevel_name, emailcfg, enable_pulse, enable_unittests,
-         override_build_dir):
+         override_build_dir, repos, buildtypes):
 
     def sigterm_handler(signum, frame):
         autophone.stop()
@@ -513,7 +515,8 @@ def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
         autophone = AutoPhone(clear_cache, reboot_phones, test_path, cachefile,
                               ipaddr, port, logfile, loglevel, emailcfg,
                               enable_pulse, enable_unittests,
-                              override_build_dir)
+                              override_build_dir,
+                              repos, buildtypes)
     except builds.BuildCacheException, e:
         print '''%s
 
@@ -585,12 +588,33 @@ if __name__ == '__main__':
                       help='Use the specified directory as the current build '
                       'cache directory without attempting to download a build '
                       'or test package.')
+    parser.add_option('--repo',
+                      dest='repos',
+                      action='append',
+                      help='The repos to test. '
+                      'One of mozilla-central, mozilla-inbound, mozilla-aurora, '
+                      'mozilla-beta. To specify multiple repos, specify them '
+                      'with additional --repo options. Defaults to mozilla-central.')
+    parser.add_option('--buildtype',
+                      dest='buildtypes',
+                      action='append',
+                      help='The build types to test. '
+                      'One of opt or debug. To specify multiple build types, '
+                      'specify them with additional --buildtype options. '
+                      'Defaults to opt.')
 
     (options, args) = parser.parse_args()
+    if not options.repos:
+        options.repos = ['mozilla-central']
+
+    if not options.buildtypes:
+        options.buildtypes = ['opt']
+
     exit_code = main(options.clear_cache, options.reboot_phones,
                      options.test_path, options.cachefile, options.ipaddr,
                      options.port, options.logfile, options.loglevel,
                      options.emailcfg, options.enable_pulse,
-                     options.enable_unittests, options.override_build_dir)
+                     options.enable_unittests, options.override_build_dir,
+                     options.repos, options.buildtypes)
 
     sys.exit(exit_code)

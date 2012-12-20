@@ -17,9 +17,13 @@ import zipfile
 import traceback
 
 
-class NightlyBranch(object):
+class Nightly(object):
 
-    nightly_dirnames = [re.compile('(.*)-mozilla-central-android$')]
+    def __init__(self, repos, buildtypes):
+        self.repos = repos
+        self.buildtypes = buildtypes
+        self.nightly_dirnames = [(re.compile('(.*)-%s-android$'
+                                             % repo)) for repo in repos]
 
     def nightly_ftpdir(self, year, month):
         return 'ftp://ftp.mozilla.org/pub/mobile/nightly/%d/%02d/' % (year,
@@ -57,7 +61,7 @@ class NightlyBranch(object):
     def build_date_from_url(self, url):
         # nightly urls are of the form
         #  ftp://ftp.mozilla.org/pub/mobile/nightly/<year>/<month>/<year>-
-        #    <month>-<day>-<hour>-<minute>-<second>-<branch>-android/
+        #    <month>-<day>-<hour>-<minute>-<second>-<repo>-android(-armv6)?/
         #    <buildfile>
         m = re.search('nightly\/[\d]{4}\/[\d]{2}\/([\d]{4}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2})-', url)
         if not m:
@@ -65,15 +69,20 @@ class NightlyBranch(object):
         return datetime.datetime.strptime(m.group(1), '%Y-%m-%d-%H-%M-%S')
 
 
-class TinderboxBranch(object):
+class Tinderbox(object):
 
     main_ftp_url = 'ftp://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/'
 
+    def __init__(self, repos, buildtypes):
+        self.repos = repos
+        self.buildtypes = buildtypes
+
     def ftpdirs(self, start_time, end_time):
         # FIXME: Can we be certain that there's only one buildID (unique
-        # timestamp) regardless of branch (at least m-i vs m-c)?
-        return [self.main_ftp_url + 'mozilla-inbound-android/',
-                self.main_ftp_url + 'mozilla-central-android/']
+        # timestamp) regardless of repo (at least m-i vs m-c)?
+        dirnames = [('%s%s-android/' % (self.main_ftp_url, repo)) for repo in self.repos]
+
+        return dirnames
 
     def build_info_from_ftp(self, ftpline):
         srcdir = ftpline.split()[8].strip()
@@ -83,10 +92,12 @@ class TinderboxBranch(object):
     def build_date_from_url(self, url):
         # tinderbox urls are of the form
         #   ftp://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/
-        #     <branch>-android/<build timestamp>/<buildfile>
-        m = re.search('tinderbox-builds\/.*-android\/[\d]+\/', url)
+        #     <repo>-android/<build timestamp>/<buildfile>
+        m = re.search('tinderbox-builds\/.*-android\/([\d]+)\/', url)
+        logging.debug('build_date_from_url: url: %s, match: %s' % (url, m))
         if not m:
             return None
+        logging.debug('build_date_from_url: match.group(1): %s' % m.group(1))
         return datetime.datetime.fromtimestamp(int(m.group(1)),
                                                pytz.timezone('US/Pacific'))
 
@@ -94,18 +105,24 @@ class TinderboxBranch(object):
 class BuildCacheException(Exception):
     pass
 
+
 class BuildCache(object):
 
     MAX_NUM_BUILDS = 20
-    EXPIRE_AFTER_SECONDS = 60*60*24
+    EXPIRE_AFTER_SECONDS = 60 * 60 * 24
 
     class FtpLineCache(object):
         def __init__(self):
             self.lines = []
+
         def __call__(self, line):
             self.lines.append(line)
 
-    def __init__(self, cache_dir='builds', override_build_dir = None, enable_unittests = False):
+    def __init__(self, repos, buildtypes,
+                 cache_dir='builds', override_build_dir=None,
+                 enable_unittests=False):
+        self.repos = repos
+        self.buildtypes = buildtypes
         self.cache_dir = cache_dir
         self.enable_unittests = enable_unittests
         self.override_build_dir = override_build_dir
@@ -125,18 +142,17 @@ class BuildCache(object):
         if not os.path.exists(self.cache_dir):
             os.mkdir(self.cache_dir)
 
-    @classmethod
-    def branch(cls, s):
+    def build_location(self, s):
         if 'nightly' in s:
-            return NightlyBranch()
+            return Nightly(self.repos, self.buildtypes)
         if 'tinderbox' in s:
-            return TinderboxBranch()
+            return Tinderbox(self.repos, self.buildtypes)
         return None
 
-    def find_latest_build(self, branch_name='nightly'):
+    def find_latest_build(self, build_location_name='nightly'):
         window = datetime.timedelta(days=3)
         now = datetime.datetime.now()
-        builds = self.find_builds(now - window, now, branch_name)
+        builds = self.find_builds(now - window, now, build_location_name)
         if not builds:
             logging.error('Could not find any nightly builds in the last '
                           '%d days!' % window.days)
@@ -144,12 +160,12 @@ class BuildCache(object):
         builds.sort()
         return builds[-1]
 
-    def find_builds(self, start_time, end_time, branch_name='nightly'):
+    def find_builds(self, start_time, end_time, build_location_name='nightly'):
         logging.debug('Finding most recent build between %s and %s...' %
                       (start_time, end_time))
-        branch = self.branch(branch_name)
-        if not branch:
-            logging.error('unsupported branch "%s"' % branch_name)
+        build_location = self.build_location(build_location_name)
+        if not build_location:
+            logging.error('unsupported build_location "%s"' % build_location_name)
             return []
 
         if not start_time.tzinfo:
@@ -160,7 +176,7 @@ class BuildCache(object):
         builds = []
         fennecregex = re.compile("fennec.*\.android-arm\.apk")
 
-        for d in branch.ftpdirs(start_time, end_time):
+        for d in build_location.ftpdirs(start_time, end_time):
             url = urlparse.urlparse(d)
             logging.debug('Logging into %s...' % url.netloc)
             f = ftplib.FTP(url.netloc)
@@ -170,7 +186,7 @@ class BuildCache(object):
             f.dir(url.path, lines)
             file('lines.out', 'w').write('\n'.join(lines.lines))
             for line in lines.lines:
-                srcdir, build_time = branch.build_info_from_ftp(line)
+                srcdir, build_time = build_location.build_info_from_ftp(line)
 
                 if not build_time:
                     continue
@@ -192,10 +208,10 @@ class BuildCache(object):
         return builds
 
     def build_date(self, url):
-        branch = self.branch(url)
+        build_location = self.build_location(url)
         builddate = None
-        if branch:
-            builddate = branch.build_date_from_url(url)
+        if build_location:
+            builddate = build_location.build_date_from_url(url)
         if not builddate:
             logging.error('bad URL "%s"' % url)
         return builddate
@@ -299,6 +315,7 @@ class BuildCache(object):
     def clean_cache(self, preserve=[]):
         def lastused_path(d):
             return os.path.join(self.cache_dir, d, 'lastused')
+
         def keep_build(d):
             if preserve and d in preserve:
                 # specifically keep this build
@@ -308,11 +325,11 @@ class BuildCache(object):
                 return True
             if ((datetime.datetime.now() -
                  datetime.datetime.fromtimestamp(os.stat(lastused_path(d)).st_mtime) <=
-                 datetime.timedelta(microseconds=1000*1000*self.EXPIRE_AFTER_SECONDS))):
+                 datetime.timedelta(microseconds=1000 * 1000 * self.EXPIRE_AFTER_SECONDS))):
                 # too new
                 return True
             return False
-            
+
         builds = [(x, os.stat(lastused_path(x)).st_mtime) for x in
                   os.listdir(self.cache_dir) if not keep_build(x)]
         builds.sort(key=lambda x: x[1])

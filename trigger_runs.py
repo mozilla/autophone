@@ -23,7 +23,9 @@ def from_iso_date_or_datetime(s):
 def main(args, options):
     logging.info('Looking for builds...')
     if args[0] == 'latest':
-        cache_build_dir = builds.BuildCache().find_latest_build(options.branch)
+        cache_build_dir = (builds.BuildCache(options.repos,
+                                             options.buildtypes).
+                           find_latest_build(options.build_location))
         if not cache_build_dir:
             return 1
         commands = ['triggerjobs %s' % cache_build_dir]
@@ -43,8 +45,10 @@ def main(args, options):
             start_time = start_time.replace(tzinfo=pytz.timezone('US/Pacific'))
         if not end_time.tzinfo:
             end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
-        cache_build_dir_list = builds.BuildCache().find_builds(start_time, end_time,
-                                                               options.branch)
+        cache_build_dir_list = (builds.BuildCache(options.repos,
+                                                  options.buildtypes).
+                                find_builds(start_time, end_time,
+                                            options.build_location))
         if not cache_build_dir_list:
             return 1
         commands = ['triggerjobs %s' % cache_build_dir for cache_build_dir in
@@ -92,17 +96,37 @@ If "latest" is given, test runs are initiated for the most recent build.'''
     parser.add_option('-p', '--port', action='store', type='int', dest='port',
                       default=28001,
                       help='port of autophone controller; defaults to 28001')
-    parser.add_option('-b', '--branch', action='store', type='string',
-                      dest='branch', default='nightly',
-                      help='branch to search for builds, defaults to nightly;'
+    parser.add_option('-b', '--build-location', action='store', type='string',
+                      dest='build_location', default='nightly',
+                      help='build location to search for builds, defaults to nightly;'
                       ' can be "tinderbox" for both m-c and m-i')
     parser.add_option('-v', '--verbose', action='store_true', dest='verbose',
                       default=False, help='verbose output')
+    parser.add_option('--repo',
+                      dest='repos',
+                      action='append',
+                      help='The repos to test. '
+                      'One of mozilla-central, mozilla-inbound, mozilla-aurora, '
+                      'mozilla-beta. To specify multiple repos, specify them '
+                      'with additional --repo options. Defaults to mozilla-central.')
+    parser.add_option('--buildtype',
+                      dest='buildtypes',
+                      action='append',
+                      help='The build types to test. '
+                      'One of opt or debug. To specify multiple build types, '
+                      'specify them with additional --buildtype options. '
+                      'Defaults to opt.')
     (options, args) = parser.parse_args()
     if len(args) > 2:
         parser.print_help()
         sys.exit(errno.EINVAL)
-    
+
+    if not options.repos:
+        options.repos = ['mozilla-central']
+
+    if not options.buildtypes:
+        options.buildtypes = ['opt']
+
     if options.verbose:
         log_level = logging.DEBUG
     else:
