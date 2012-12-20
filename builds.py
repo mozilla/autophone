@@ -223,6 +223,31 @@ class BuildCache(object):
                 return None
             os.rename(tmpf.name, build_path)
         file(os.path.join(cache_build_dir, 'lastused'), 'w')
+        symbols_path = os.path.join(cache_build_dir, 'symbols')
+        if force or not os.path.exists(symbols_path):
+            tmpf = tempfile.NamedTemporaryFile(delete=False)
+            tmpf.close()
+            # XXX: assumes fixed buildurl-> symbols_url mapping
+            symbols_url = re.sub('.apk$', '.crashreporter-symbols.zip', buildurl)
+            try:
+                urllib.urlretrieve(symbols_url, tmpf.name)
+                symbols_zipfile = zipfile.ZipFile(tmpf.name)
+                symbols_zipfile.extractall(symbols_path)
+                symbols_zipfile.close()
+            except IOError, ioerror:
+                if '550 Failed to change directory' in ioerror.strerror.strerror.message:
+                    logging.info('No symbols found: %s.' % symbols_url)
+                else:
+                    logging.error('IO Error retrieving symbols: %s.' % symbols_url)
+                    logging.error(traceback.format_exc())
+            except zipfile.BadZipfile:
+                logging.info('Ignoring zipfile.BadZipFile Error retrieving symbols: %s.' % symbols_url)
+                try:
+                    with open(tmpf.name, 'r') as badzipfile:
+                        logging.debug(badzipfile.read())
+                except:
+                    pass
+            os.unlink(tmpf.name)
         if enable_unittests:
             tests_path = os.path.join(cache_build_dir, 'tests')
             if (force or not os.path.exists(tests_path)) and enable_unittests:

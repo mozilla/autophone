@@ -21,12 +21,6 @@ class S1S2Test(PhoneTest):
         PhoneTest.__init__(self, phone_cfg, config_file, status_cb)
 
     def runjob(self, job):
-        if 'androidprocname' not in job or \
-                'revision' not in job or 'blddate' not in job or \
-                'bldtype' not in job or 'version' not in job:
-            self.logger.error('Invalid job configuration: %s' % job)
-            raise NameError('ERROR: Invalid job configuration: %s' % job)
-
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
         self.prepare_phone(job)

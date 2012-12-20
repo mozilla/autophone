@@ -1,0 +1,47 @@
+[runtests]
+# Settings related to executing runtestsremote.py
+
+# xre_path is the path to the XRE (probably xulrunner)
+xre_path = path-to-firefox-bin
+
+# utility_path is the path to the necessary utility programs such as
+# xpcshell etc.
+utility_path = path-to-firefox-bin
+
+# minidump_stackwalk is the path to the breakpad utility to process
+# minidumps.
+minidump_stackwalk = path-to-minidump_stackwalk
+
+# Specify androidprocname if you are testing with a custom build which
+# does not follow the conventions in autophone.py:build_job. e.g.
+# androidprocname = org.mozilla.fennec_foobar
+
+# Debug message levels for the runtestsremote.py
+console_level = DEBUG
+file_level = DEBUG
+
+time_out = 300
+
+[autolog]
+# Settings related to submitting results to Autolog
+
+# ElasticSearch server
+# For local development use localhost:9200
+es_server = buildbot-es.metrics.scl3.mozilla.com:9200
+
+# Autolog server
+# For local development use http://localhost:8051
+rest_server = http://brasstacks.mozilla.com/autologserver/
+
+# Submit passing results to Autolog.  Note: Setting include_pass to
+# True will cause a failure until RESTfulAutologTestGroup.submit
+# supports submitting results via POST.
+include_pass = False
+
+# Submit log to Autolog.
+submit_log = True
+
+# Set use_newparser to True to parse the logs using newlogparser.py
+# instead of logparser/logparser.py. Set it to False to use
+# logparser/logparser.py.
+use_newparser = True

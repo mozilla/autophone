@@ -1,0 +1,5 @@
+*.pyc
+*.out
+*.log
+*~
+configs/unittest_defaults.ini

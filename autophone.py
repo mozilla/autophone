@@ -200,29 +200,10 @@ class AutoPhone(object):
         except KeyboardInterrupt:
             self.stop()
 
-    # This runs the tests and resets the self._lasttest variable.
-    # It also can install a new build, to install, set build_url to the URL of the
-    # build to download and install
-    def disperse_jobs(self):
-        try:
-            logging.debug('Asking for jobs')
-            while not self._jobqueue.empty():
-                job = self._jobqueue.get()
-                logging.debug('Got job: %s' % job)
-                for k,v in self._phonemap.iteritems():
-                    # TODO: Refactor so that the job can specify the test so that
-                    # then multiple types of test objects can be ran on one set of
-                    # phones.
-                    logging.debug('Adding job to phone: %s' % v['name'])
-                    ### FIXME: Need to serialize tests on each phone...
-                    for t in v['testobjs']:
-                        t.add_job(job)
-                self._jobqueue.task_done()
-        except:
-            logging.error('Exception adding jobs: %s %s' % sys.exc_info()[:2])
-
     # Start the phones for testing
     def start_tests(self, job):
+        if not self.is_valid_job(job):
+            return
         self.worker_lock.acquire()
         for p in self.phone_workers.values():
             logging.info('Starting job on phone: %s' % p.phone_cfg['phoneid'])
@@ -327,7 +308,8 @@ class AutoPhone(object):
                     sutcmdport=int(data['cmdport'][0]),
                     machinetype=data['hardware'][0],
                     osver=data['os'][0],
-                    debug=3)
+                    debug=3,
+                    ipaddr=self.ipaddr)
                 self.register_phone(phone_cfg)
                 self.update_phone_cache()
             else:
@@ -382,7 +364,7 @@ class AutoPhone(object):
     def trigger_jobs(self, data):
         logging.debug('trigger_jobs: data  %s' % data)
         job = self.build_job(self.get_build(data))
-        logging.info('Adding user-specified job: %s' % job)
+        logging.info('Received user-specified job: %s' % job)
         self.start_tests(job)
 
     def reset_phones(self):
@@ -439,25 +421,61 @@ class AutoPhone(object):
         rev = cfg.get('App', 'SourceStamp')
         ver = cfg.get('App', 'Version')
         repo = cfg.get('App', 'SourceRepository')
-        blddate = datetime.datetime.strptime(cfg.get('App', 'BuildID'),
+        buildid = cfg.get('App', 'BuildID')
+        blddate = datetime.datetime.strptime(buildid,
                                              '%Y%m%d%H%M%S')
         procname = ''
-        if (repo == 'http://hg.mozilla.org/mozilla-central' or
-            repo == 'http://hg.mozilla.org/integration/mozilla-inbound'):
+        if repo == 'http://hg.mozilla.org/mozilla-central':
+            tree = 'mozilla-central'
+            procname = 'org.mozilla.fennec'
+        elif repo == 'http://hg.mozilla.org/integration/mozilla-inbound':
+            tree = 'mozilla-inbound'
             procname = 'org.mozilla.fennec'
         elif repo == 'http://hg.mozilla.org/releases/mozilla-aurora':
+            tree = 'mozilla-aurora'
             procname = 'org.mozilla.fennec_aurora'
         elif repo == 'http://hg.mozilla.org/releases/mozilla-beta':
+            tree = 'mozilla-beta'
             procname = 'org.mozilla.firefox'
 
-        job = { 'cache_build_dir': cache_build_dir,
-                'blddate': math.trunc(time.mktime(blddate.timetuple())),
-                'revision': rev,
-                'androidprocname': procname,
-                'version': ver,
-                'bldtype': 'opt' }
+        job = {'cache_build_dir': cache_build_dir,
+               'tree': tree,
+               'blddate': math.trunc(time.mktime(blddate.timetuple())),
+               'buildid': buildid,
+               'revision': rev,
+               'androidprocname': procname,
+               'version': ver,
+               'bldtype': 'opt'}
         shutil.rmtree(tmpdir)
         return job
+
+    def is_valid_job(self, job):
+        if job is None:
+            return False
+
+        error_list = []
+
+        if 'androidprocname' not in job:
+            error_list.append('missing androidprocname')
+
+        if 'revision' not in job:
+            error_list.append('missing revision')
+
+        if 'blddate' not in job:
+            error_list.append('missing blddate')
+
+        if 'bldtype' not in job:
+            error_list.append('missing bldtype')
+
+        if 'version' not in job:
+            error_list.append('missing version')
+
+        if len(error_list) > 0:
+            error_message = 'ERROR: Invalid job configuration: %s ' % job + ', '.join(error_list)
+            self.logger.error(error_message)
+            raise NameError(error_message)
+
+        return True
 
     def stop(self):
         self._stop = True

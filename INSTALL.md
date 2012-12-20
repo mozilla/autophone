@@ -24,9 +24,12 @@ Autophone doesn't yet support distuils, so some prerequisite Python packages
 must be manually installed by pip, easy_install, or some other method: pytz,
 pulsebuildmonitor, and mozprofile.
 
-At the moment autophone is packaged with only one test, named s1s2. It
-measures fennec load times for a couple different pages, served both remotely
-and from a local file.
+Autophone is packaged with two tests: s1s2 and unittests.
+
+s1s2
+----
+s1s2 measures fennec load times for a couple different pages,
+served both remotely and from a local file.
 
 Put the pages to be served into autophone/configs. You will need a way to
 serve them (FIXME: autophone should do this). If you're using phonedash,
@@ -57,6 +60,54 @@ Remember that the remote links must be external IPs, since they are loaded
 from the mobile devices.
 
 The resulturl is the URL used to POST results to the database.
+
+unittests
+---------
+
+Autophone requires additional Python packages in order to run the unittests:
+
+* logparser  - http://hg.mozilla.org/automation/logparser
+* mozautolog - http://hg.mozilla.org/users/jgriffin_mozilla.com/mozautolog/
+
+The unittests also require a local installation of the XRE and the utility
+programs such as xpcshell. A local build of Firefox can be used.
+
+In order to process crash minidumps, you will also need a local
+installation of breakpad's minidump_stackwalk. You can build
+minidump_stack via:
+
+svn checkout http://google-breakpad.googlecode.com/svn/trunk/ google-breakpad-read-only
+cd google-breakpad-read-only
+if [[ $(uname) == "Darwin" ]]; then
+    CC=clang CXX=clang++ ./configure
+else
+   CXXFLAGS="-g -O1" ./configure
+fi
+make
+sudo make install
+
+If you wish to run a development environment, you will also need to
+set up an ElasticSearch and Autolog server. Note that you do not need
+to set up test data using testdata.py but you will need to create an
+autolog index using curl -XPUT 'http://localhost:9200/autolog/'
+once the ElasticSearch server is up and running and before
+you start the Autolog server.
+
+See
+https://wiki.mozilla.org/Auto-tools/Projects/Autolog for more details.
+
+To configure Autolog to display the results for a device, you will
+need to update the OSNames property in js/Config.js in Autolog. See
+http://hg.mozilla.org/automation/autolog/file/2a32ea0367f5/js/Config.js#l67 .
+Note that the key for the device should consist of the string 'autophone-'
+followed by the same value as used in SUTAgent.ini's HARDWARE property for
+the device.
+
+Once you have the XRE, utility programs and minidump_stack installed, change
+configs/unittest_default.ini to point to your local environment.
+
+Email notifications
+-------------------
 
 If you want to get notifications indicating when Autophone has disabled
 a device due to errors, you can create email.ini like so:

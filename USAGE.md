@@ -7,6 +7,14 @@ Starting Autophone
 Autophone has a number of command-line options. Run "python autophone.py -h"
 to see them. Some important ones are
 
+--test-path <testpath>: Specifies the test manifest which will load the
+                        appropriate phone test. Autophone will use
+                        tests/manifest.ini by default.
+
+--enable-unittests: Tells Autophone to download the appropriate tests.zip
+                    for each build to use when running the unittests. This
+                    is required when running the unittests.
+
 --restarting: By default Autophone starts with no knowledge of any devices.
               It creates a local cache as devices register with it. This
               option preserves that cache when restarting.
@@ -27,6 +35,33 @@ to see them. Some important ones are
 
 --loglevel: Log messages at or above this level. Can be set to
             DEBUG (default), INFO, WARNING, or ERROR.
+
+Running Unit Tests
+------------------
+
+Autophone can run individual unit tests such as robocop, reftests,
+crashtests, jsreftests or mochitests for each build or it can run combinations of
+them.
+
+Before running the unit tests, you will need to copy
+configs/unittest_defaults.ini.example to configs/unittest_defaults.ini
+and edit configs/unittest_defaults.ini to change the xre_path,
+utility_path, and minidump_stackwalk values. If you wish to use a
+development version of ElasticSearch or Autolog, you will need to edit
+the es_server and rest_server values as well.
+
+You can switch from using the experimental 'new' logparser and
+logparser by changing the use_newparser value to False.
+
+For example,
+
+to run only the robocop tests:
+
+python autophone.py --enable-unittests --test-path=./tests/robocoptests_manifest.ini
+
+to run all of the unit tests specified in the configs/unittests_settings.ini file:
+
+python autophone.py --enable-unittests --test-path=./tests/unittests_manifest.ini
 
 
 Running Tests
