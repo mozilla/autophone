@@ -220,7 +220,10 @@ class TestRun(object):
         'TESTCASE-RUNNING',
         'TESTCASE-END',
         'TESTSUITE-SHUTDOWN',
-        'FRAMEWORK-END'
+        'FRAMEWORK-END',
+        'FRAMEWORK-SUMMARY',
+        'FRAMEWORK-SUMMARY-START',
+        'FRAMEWORK-SUMMARY-SHUTDOWN',
     ]
 
     def __init__(self, state='FRAMEWORK-START'):
@@ -1198,6 +1201,36 @@ def parse_log(fh):
 
                 test_run.state = 'FRAMEWORK-END'
 
+            elif text == 'Test summary: start.':
+                valid_states = 'FRAMEWORK-END'
+
+                if test_run.state not in valid_states:
+                    message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
+                    logger.warn(message_text)
+                    framework_message = TestMessage('end')
+                    error_result = TestResult('ERROR', 'ERROR',
+                                              message_text, True)
+                    framework_message.addTestResult(error_result)
+                    test_run.addTestMessage(framework_message)
+                    test_run.failed += 1
+
+                test_run.state = 'FRAMEWORK-SUMMARY'
+
+            elif text == 'Test summary: end.':
+                valid_states = 'FRAMEWORK-SUMMARY-SHUTDOWN'
+
+                if test_run.state not in valid_states:
+                    message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
+                    logger.warn(message_text)
+                    framework_message = TestMessage('end')
+                    error_result = TestResult('ERROR', 'ERROR',
+                                              message_text, True)
+                    framework_message.addTestResult(error_result)
+                    test_run.addTestMessage(framework_message)
+                    test_run.failed += 1
+
+                test_run.state = 'FRAMEWORK-END'
+
             else:
                 pass
 
@@ -1251,7 +1284,7 @@ def parse_log(fh):
 
                 if reason.startswith('SimpleTest START'):  # reason can have trailing Loop <n>
 
-                    valid_states = 'TESTSUITE-SHUTDOWN,FRAMEWORK-RUNNING'
+                    valid_states = 'TESTSUITE-SHUTDOWN,FRAMEWORK-RUNNING,FRAMEWORK-SUMMARY'
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
                         logger.warn(message_text)
@@ -1262,11 +1295,14 @@ def parse_log(fh):
                         test_run.addTestMessage(error_message)
                         test_run.failed += 1
 
-                    test_run.state = 'TESTSUITE-START'
+                    if test_run.state == 'FRAMEWORK-SUMMARY':
+                        test_run.state = 'FRAMEWORK-SUMMARY-START'
+                    else:
+                        test_run.state = 'TESTSUITE-START'
 
                 elif reason == 'TEST-START':
 
-                    valid_states = 'TESTSUITE-START,TESTCASE-END'
+                    valid_states = 'TESTSUITE-START,TESTCASE-END,FRAMEWORK-SUMMARY-START'
                     if testpath.find(' - ') != -1:
                         # robocop testBrowserProvider does a brain dead thing
                         # with test paths by changing the test path by adding
@@ -1286,7 +1322,10 @@ def parse_log(fh):
                         test_run.failed += 1
 
                     if testpath == 'Shutdown':
-                        test_run.state = 'TESTSUITE-SHUTDOWN'
+                        if test_run.state == 'FRAMEWORK-SUMMARY-START':
+                            test_run.state = 'FRAMEWORK-SUMMARY-SHUTDOWN'
+                        else:
+                            test_run.state = 'TESTSUITE-SHUTDOWN'
                     else:
                         test_run.state = 'TESTCASE-START'
                         mochitest_message = TestMessage(testpath)
@@ -1416,9 +1455,10 @@ def parse_log(fh):
                     #mochitest_message.addTestResult(mochitest_result)
                     test_run.state = 'TESTCASE-END'
 
-                elif reason.startswith(('Passed: ',
-                                        'Failed: ',
-                                        'Todo: ')):
+                elif (test_run.state != 'FRAMEWORK-SUMMARY-SHUTDOWN' and
+                      reason.startswith(('Passed: ',
+                                         'Failed: ',
+                                         'Todo: '))):
                     (countertype, countervalue) = reason.split(': ')
                     countertype = countertype.strip()
                     countervalue = int(countervalue.strip())
@@ -1448,7 +1488,7 @@ def parse_log(fh):
                     pass
 
                 elif text == 'SimpleTest FINISHED':
-                    valid_states = 'TESTSUITE-SHUTDOWN'
+                    valid_states = 'TESTSUITE-SHUTDOWN,FRAMEWORK-SUMMARY-SHUTDOWN'
                     if test_run.state not in valid_states:
                         # Missing shutdown
                         message_text = 'line: %d: MALFORMED TEST LOG - missing test run shutdown: %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, line, valid_states, test_run.state, test_run.id)
