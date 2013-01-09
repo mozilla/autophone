@@ -68,7 +68,8 @@ class SmokeTest(PhoneTest):
                   'shell.checkDefaultClient': False,
                   'browser.warnOnQuit': False,
                   'browser.EULA.override': True,
-                  'toolkit.telemetry.prompted': 2 }
+                  'toolkit.telemetry.prompted': 999,
+                  'toolkit.telemetry.notifiedOptOut': 999 }
         profile = FirefoxProfile(preferences=prefs)
         self.install_profile(profile)
  
