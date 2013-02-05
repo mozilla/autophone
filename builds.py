@@ -237,7 +237,7 @@ class BuildCache(object):
                 logging.error('IO Error retrieving build: %s.' % buildurl)
                 logging.error(traceback.format_exc())
                 return None
-            os.rename(tmpf.name, build_path)
+            shutil.move(tmpf.name, build_path)
         file(os.path.join(cache_build_dir, 'lastused'), 'w')
         symbols_path = os.path.join(cache_build_dir, 'symbols')
         if force or not os.path.exists(symbols_path):
@@ -295,7 +295,7 @@ class BuildCache(object):
                                   robocop_url)
                     logging.error(traceback.format_exc())
                     return None
-                os.rename(tmpf.name, robocop_path)
+                shutil.move(tmpf.name, robocop_path)
                 # XXX: assumes fixed buildurl-> fennec_ids.txt mapping
                 fennec_ids_url = urlparse.urljoin(buildurl, 'fennec_ids.txt')
                 fennec_ids_path = os.path.join(cache_build_dir, 'fennec_ids.txt')
@@ -309,7 +309,7 @@ class BuildCache(object):
                                   fennec_ids_url)
                     logging.error(traceback.format_exc())
                     return None
-                os.rename(tmpf.name, fennec_ids_path)
+                shutil.move(tmpf.name, fennec_ids_path)
         return cache_build_dir
 
     def clean_cache(self, preserve=[]):
