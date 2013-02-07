@@ -78,7 +78,7 @@ class AutoPhone(object):
 
     def __init__(self, clear_cache, reboot_phones, test_path, cachefile,
                  ipaddr, port, logfile, loglevel, emailcfg, enable_pulse,
-                 enable_unittests, override_build_dir,
+                 enable_unittests, cache_dir, override_build_dir,
                  repos, buildtypes):
         self._test_path = test_path
         self._cache = cachefile
@@ -94,6 +94,7 @@ class AutoPhone(object):
         self.loglevel = loglevel
         self.mailer = Mailer(emailcfg, '[autophone] ')
         self.build_cache = builds.BuildCache(repos, buildtypes,
+                                             cache_dir=cache_dir,
                                              override_build_dir=override_build_dir,
                                              enable_unittests=enable_unittests)
         self._stop = False
@@ -489,7 +490,7 @@ class AutoPhone(object):
 
 def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
          logfile, loglevel_name, emailcfg, enable_pulse, enable_unittests,
-         override_build_dir, repos, buildtypes):
+         cache_dir, override_build_dir, repos, buildtypes):
 
     def sigterm_handler(signum, frame):
         autophone.stop()
@@ -515,7 +516,7 @@ def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
         autophone = AutoPhone(clear_cache, reboot_phones, test_path, cachefile,
                               ipaddr, port, logfile, loglevel, emailcfg,
                               enable_pulse, enable_unittests,
-                              override_build_dir,
+                              cache_dir, override_build_dir,
                               repos, buildtypes)
     except builds.BuildCacheException, e:
         print '''%s
@@ -583,6 +584,10 @@ if __name__ == '__main__':
                       dest='enable_unittests', default=False,
                       help='Enable running unittests by downloading and installing '
                       'the unittests package for each build')
+    parser.add_option('--cache-dir', type='string',
+                      dest='cache_dir', default='builds',
+                      help='Use the specified directory as the build '
+                      'cache directory; defaults to builds.')
     parser.add_option('--override-build-dir', type='string',
                       dest='override_build_dir', default=None,
                       help='Use the specified directory as the current build '
@@ -614,7 +619,8 @@ if __name__ == '__main__':
                      options.test_path, options.cachefile, options.ipaddr,
                      options.port, options.logfile, options.loglevel,
                      options.emailcfg, options.enable_pulse,
-                     options.enable_unittests, options.override_build_dir,
+                     options.enable_unittests,
+                     options.cache_dir, options.override_build_dir,
                      options.repos, options.buildtypes)
 
     sys.exit(exit_code)
