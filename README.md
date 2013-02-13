@@ -17,11 +17,11 @@ The [project page](https://wiki.mozilla.org/Auto-tools/Projects/AutoPhone)
 contains more background, goals, implementation notes, and other such
 information.
 
-The main code repo is currently https://github.com/markrcote/autophone/
+Source code is at https://github.com/mozilla/autophone/
 
 See also [phonedash](https://github.com/markrcote/phonedash) for a basic
 results server. At some point, [DataZilla](https://github.com/mozilla/datazilla)
 will obsolete this.
 
-See the files INSTALL and USAGE for more detailed information.
+See the files INSTALL.md and USAGE.md for more detailed information.
 

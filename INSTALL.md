@@ -7,10 +7,11 @@ There are three separate components in a complete autophone system:
 - mobile devices with root access running the SUT agent
 - a server running phonedash to collect, serve, and present the results
 
-Since an autophone server appears to be limited to 4-6 devices (because of
-power issues and problems with adb), there can be multiple autophone servers
-to support more devices. Each server runs independently with no knowledge of
-the others.
+Multiple autophone servers can run on the same machine. Until mozpool support
+is added, each server runs independently with no knowledge of the others and
+should be configured with individual device pools. If running two or more
+instances from the same installation, you will need to use the --cache-dir
+option on all but the primary to avoid cache contention.
 
 The phonedash server is optional, e.g. for development environments. It can
 be found at https://github.com/markrcote/phonedash/. It is customized for
@@ -20,9 +21,8 @@ the s1s2 test and will be eventually deprecated in favour of DataZilla.
 Setting up autophone
 --------------------
 
-Autophone doesn't yet support distuils, so some prerequisite Python packages
-must be manually installed by pip, easy_install, or some other method: pytz,
-pulsebuildmonitor, and mozprofile.
+Autophone doesn't have a setup.py script, but "pip install -r requirements.txt"
+will install all prerequisite packages.
 
 Autophone is packaged with two tests: s1s2 and unittests.
 

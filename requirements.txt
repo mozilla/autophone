@@ -1,0 +1,6 @@
+logparser
+mozautolog
+mozdevice
+mozprofile
+pulsebuildmonitor
+pytz
