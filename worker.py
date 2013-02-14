@@ -44,9 +44,10 @@ class PhoneWorker(object):
     This is the interface to the subprocess, accessible by the main
     process."""
 
-    def __init__(self, worker_num, ipaddr, tests, phone_cfg, autophone_queue,
-                 logfile_prefix, loglevel, mailer):
+    def __init__(self, worker_num, ipaddr, tests, phone_cfg, user_cfg,
+                 autophone_queue, logfile_prefix, loglevel, mailer):
         self.phone_cfg = phone_cfg
+        self.user_cfg = user_cfg
         self.worker_num = worker_num
         self.ipaddr = ipaddr
         self.last_status_msg = None
@@ -56,7 +57,7 @@ class PhoneWorker(object):
         self.job_queue = multiprocessing.Queue()
         self.lock = multiprocessing.Lock()
         self.subprocess = PhoneWorkerSubProcess(self.worker_num, self.ipaddr,
-                                                tests, phone_cfg,
+                                                tests, phone_cfg, user_cfg,
                                                 autophone_queue,
                                                 self.job_queue, logfile_prefix,
                                                 loglevel, mailer)
@@ -88,7 +89,7 @@ class PhoneWorker(object):
         except ValueError:
             logging.error('Invalid argument for debug: %s' % level)
         else:
-            self.phone_cfg['debug'] = level
+            self.user_cfg['debug'] = level
             self.job_queue.put_nowait(('debug', level))
 
     def ping(self):
@@ -120,12 +121,13 @@ class PhoneWorkerSubProcess(object):
     PING_SECONDS = 60*15
     JOB_QUEUE_TIMEOUT_SECONDS = 10
 
-    def __init__(self, worker_num, ipaddr, tests, phone_cfg, autophone_queue,
-                 job_queue, logfile_prefix, loglevel, mailer):
+    def __init__(self, worker_num, ipaddr, tests, phone_cfg, user_cfg,
+                 autophone_queue, job_queue, logfile_prefix, loglevel, mailer):
         self.worker_num = worker_num
         self.ipaddr = ipaddr
         self.tests = tests
         self.phone_cfg = phone_cfg
+        self.user_cfg = user_cfg
         self.autophone_queue = autophone_queue
         self.job_queue = job_queue
         self.logfile = logfile_prefix + '.log'
@@ -402,7 +404,7 @@ the "enable" command.
         logging.info('Worker for phone %s starting up.' %
                      self.phone_cfg['phoneid'])
 
-        DeviceManagerSUT.debug = self.phone_cfg.get('debug', 3)
+        DeviceManagerSUT.debug = self.user_cfg.get('debug', 3)
 
         for t in self.tests:
             t.status_cb = self.status_update
@@ -481,12 +483,12 @@ the "enable" command.
                 for j in self.skipped_job_queue:
                     self.job_queue.put(('job', j))
             elif request[0] == 'debug':
-                self.phone_cfg['debug'] = request[1]
-                DeviceManagerSUT.debug = self.phone_cfg['debug']
+                self.user_cfg['debug'] = request[1]
+                DeviceManagerSUT.debug = self.user_cfg['debug']
                 # update any existing DeviceManagerSUT objects
                 if self._dm:
-                    self._dm.debug = self.phone_cfg['debug']
+                    self._dm.debug = self.user_cfg['debug']
                 for t in self.tests:
-                    t.set_dm_debug(self.phone_cfg['debug'])
+                    t.set_dm_debug(self.user_cfg['debug'])
             elif request[0] == 'ping':
                 self.ping()

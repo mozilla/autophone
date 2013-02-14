@@ -13,9 +13,6 @@ from phonetest import PhoneTest
 
 class SmokeTest(PhoneTest):
 
-    def __init__(self, phone_cfg, config_file=None, status_cb=None):
-        PhoneTest.__init__(self, phone_cfg, config_file, status_cb)
-
     def runjob(self, job):
         try:
             os.unlink('smoketest_pass')

@@ -136,6 +136,7 @@ class AutoPhone(object):
             self.pulsemonitor = None
 
         self.enable_unittests = enable_unittests
+        self.restart_workers = {}
 
     @property
     def next_worker_num(self):
@@ -152,12 +153,18 @@ class AutoPhone(object):
         self.worker_msg_loop()
 
     def check_for_dead_workers(self):
-        phoneids = self.phone_workers.keys()
-        for phoneid in phoneids:
-            if not self.phone_workers[phoneid].is_alive():
+        for phoneid, worker in self.phone_workers.iteritems():
+            if not worker.is_alive():
+                if phoneid in self.restart_workers:
+                    logging.info('Worker %s exited; restarting with new '
+                                 'values.' % phoneid)
+                    self.create_worker(self.restart_workers[phoneid],
+                                       worker.user_cfg)
+                    del self.restart_workers[phoneid]
+                    continue
+
                 print 'Worker %s died!' % phoneid
                 logging.error('Worker %s died!' % phoneid)
-                worker = self.phone_workers[phoneid]
                 worker.stop()
                 worker.crashes.add_crash()
                 msg_subj = 'Worker for phone %s died' % \
@@ -239,7 +246,7 @@ class AutoPhone(object):
             now = datetime.datetime.now().replace(microsecond=0)
             for i, w in self.phone_workers.iteritems():
                 response += 'phone %s (%s):\n' % (i, w.phone_cfg['ip'])
-                response += '  debug level %d\n' % w.phone_cfg.get('debug', 3)
+                response += '  debug level %d\n' % w.user_cfg.get('debug', 3)
                 if not w.last_status_msg:
                     response += '  no updates\n'
                 else:
@@ -280,18 +287,17 @@ class AutoPhone(object):
         self.cmd_lock.release()
         return response
 
-    def register_phone(self, phone_cfg):
-        tests = [x[0](phone_cfg=phone_cfg, config_file=x[1]) for
-                 x in self._tests]
-
+    def create_worker(self, phone_cfg, user_cfg):
+        logging.info('Creating worker for %s.' % phone_cfg['phoneid'])
+        tests = [x[0](phone_cfg=phone_cfg, user_cfg=user_cfg, config_file=x[1])
+                 for x in self._tests]
         logfile_prefix = os.path.splitext(self.logfile)[0]
         worker = PhoneWorker(self.next_worker_num, self.ipaddr,
-                             tests, phone_cfg, self.worker_msg_queue,
+                             tests, phone_cfg, user_cfg, self.worker_msg_queue,
                              '%s-%s' % (logfile_prefix, phone_cfg['phoneid']),
                              self.loglevel, self.mailer)
         self.phone_workers[phone_cfg['phoneid']] = worker
         worker.start()
-        logging.info('Registered phone %s.' % phone_cfg['phoneid'])
 
     def register_cmd(self, data):
         # Un-url encode it
@@ -302,22 +308,36 @@ class AutoPhone(object):
             # The configparser does odd things with the :'s so remove them.
             macaddr = data['name'][0].replace(':', '_')
             phoneid = '%s_%s' % (macaddr, data['hardware'][0])
-
-            if phoneid not in self.phone_workers:
-                phone_cfg = dict(
-                    phoneid=phoneid,
-                    serial=data['pool'][0].upper(),
-                    ip=data['ipaddr'][0],
-                    sutcmdport=int(data['cmdport'][0]),
-                    machinetype=data['hardware'][0],
-                    osver=data['os'][0],
-                    debug=3,
-                    ipaddr=self.ipaddr)
-                self.register_phone(phone_cfg)
-                self.update_phone_cache()
+            phone_cfg = dict(
+                phoneid=phoneid,
+                serial=data['pool'][0].upper(),
+                ip=data['ipaddr'][0],
+                sutcmdport=int(data['cmdport'][0]),
+                machinetype=data['hardware'][0],
+                osver=data['os'][0],
+                ipaddr=self.ipaddr)
+            if phoneid in self.phone_workers:
+                logging.debug('Received registration message for known phone '
+                              '%s.' % phoneid)
+                worker = self.phone_workers[phoneid]
+                if worker.phone_cfg != phone_cfg:
+                    # This won't update the subprocess, but it will allow
+                    # us to write out the updated values right away.
+                    worker.phone_cfg = phone_cfg
+                    self.update_phone_cache()
+                    logging.info('Registration info has changed; restarting '
+                                 'worker.')
+                    if phoneid in self.restart_workers:
+                        logging.info('Phone worker is already scheduled to be '
+                                     'restarted!')
+                    else:
+                        self.restart_workers[phoneid] = phone_cfg
+                        worker.stop()
             else:
-                logging.debug('Registering known phone: %s' %
-                              self.phone_workers[phoneid].phone_cfg['phoneid'])
+                user_cfg = {'debug': 3}
+                self.create_worker(phone_cfg, user_cfg)
+                logging.info('Registered phone %s.' % phone_cfg['phoneid'])
+                self.update_phone_cache()
         except:
             print 'ERROR: could not write cache file, exiting'
             traceback.print_exception(*sys.exc_info())
@@ -332,15 +352,16 @@ class AutoPhone(object):
                 except ValueError:
                     cache = {}
 
-                for phone_cfg in cache.get('phones', []):
-                    self.register_phone(phone_cfg)
+                for cfg in cache.get('phones', []):
+                    self.create_worker(cfg['phone_cfg'], cfg['user_cfg'])
         except IOError, err:
             if err.errno != errno.ENOENT:
                 raise err
 
     def update_phone_cache(self):
         cache = {}
-        cache['phones'] = [x.phone_cfg for x in self.phone_workers.values()]
+        cache['phones'] = [{'phone_cfg': x.phone_cfg, 'user_cfg': x.user_cfg}
+                           for x in self.phone_workers.values()]
         with open(self._cache, 'w') as f:
             f.write(json.dumps(cache))
 

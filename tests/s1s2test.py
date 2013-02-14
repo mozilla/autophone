@@ -17,9 +17,6 @@ from phonetest import PhoneTest
 
 class S1S2Test(PhoneTest):
 
-    def __init__(self, phone_cfg, config_file=None, status_cb=None):
-        PhoneTest.__init__(self, phone_cfg, config_file, status_cb)
-
     def runjob(self, job):
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing

@@ -64,10 +64,11 @@ class PhoneTest(object):
     TODO: Add in connection data here for programmable power so we can add a
     powercycle method to this class.
     """
-    def __init__(self, phone_cfg, config_file=None, status_cb=None):
+    def __init__(self, phone_cfg, user_cfg, config_file=None, status_cb=None):
         self.config_file = config_file
         self.status_cb = status_cb
         self.phone_cfg = phone_cfg
+        self.user_cfg = user_cfg
         self.status = None
         self.logger = logging.getLogger('phonetest')
         self._base_device_path = ''
@@ -97,7 +98,7 @@ class PhoneTest(object):
         raise NotImplementedError
 
     def set_dm_debug(self, level):
-        self.phone_cfg['debug'] = level
+        self.user_cfg['debug'] = level
         if self._dm:
             self._dm.debug = level
 

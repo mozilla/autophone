@@ -26,9 +26,6 @@ except ImportError:
 
 class UnitTest(PhoneTest):
 
-    def __init__(self, phone_cfg, config_file=None, status_cb=None):
-        PhoneTest.__init__(self, phone_cfg, config_file, status_cb)
-
     def runjob(self, job):
 
         self.logger.debug('runtestsremote.py runjob start')
