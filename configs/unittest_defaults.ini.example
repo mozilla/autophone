@@ -20,7 +20,7 @@ minidump_stackwalk = path-to-minidump_stackwalk
 console_level = DEBUG
 file_level = DEBUG
 
-time_out = 300
+time_out = 2400
 
 [autolog]
 # Settings related to submitting results to Autolog
