@@ -378,7 +378,7 @@ the "enable" command.
             # our reconnection issues
             time.sleep(30)
             try:
-                t.runjob(job)
+                t.runjob(job, self)
             except DMError:
                 exc = 'Uncaught device error while running test!\n\n%s' % \
                     traceback.format_exc()

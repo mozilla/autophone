@@ -13,7 +13,7 @@ from phonetest import PhoneTest
 
 class SmokeTest(PhoneTest):
 
-    def runjob(self, job):
+    def runjob(self, job, worker_subprocess):
         try:
             os.unlink('smoketest_pass')
         except OSError:

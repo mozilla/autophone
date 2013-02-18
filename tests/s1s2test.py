@@ -17,7 +17,7 @@ from phonetest import PhoneTest
 
 class S1S2Test(PhoneTest):
 
-    def runjob(self, job):
+    def runjob(self, job, worker_subprocess):
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
         self.prepare_phone(job)

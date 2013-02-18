@@ -14,6 +14,7 @@ import logging
 from logparser import LogParser
 from mozautolog import RESTfulAutologTestGroup
 import re
+import time
 
 import newlogparser
 
@@ -26,9 +27,13 @@ except ImportError:
 
 class UnitTest(PhoneTest):
 
-    def runjob(self, job):
+    def runjob(self, job, worker_subprocess):
 
         self.logger.debug('runtestsremote.py runjob start')
+        self.set_status(msg='runtestsremote.py runjob start')
+
+        self.worker_subprocess = worker_subprocess
+        self.worker_subprocess.check_sdcard()
 
         host_ip_address = self.phone_cfg['ipaddr']
         phone_ip_address = self.phone_cfg['ip']
@@ -77,14 +82,22 @@ class UnitTest(PhoneTest):
                 }
 
                 self.load_test_parameters(test_parameters, config_file)
-
                 self.runtest(test_parameters)
 
             except:
-                self.logger.error('runtestsremote.py:runjob: Exception running test.')
-                self.logger.error(traceback.format_exc())
+                # This exception handler deals with exceptions which occur outside
+                # of the actual test runner. Exceptions from the test runner
+                # are handled locally in runtest.
+                error_message = ('runtestsremote.py:runjob: Exception running test: %s' %
+                                 traceback.format_exc())
+                self.logger.error(error_message)
+                self.set_status(msg=error_message)
+                # give the phone a minute to recover
+                time.sleep(60)
+                self.worker_subprocess.recover_phone()
 
         self.logger.debug('runtestsremote.py runjob exit')
+        self.set_status(msg='runtestsremote.py runjob exit')
 
     def load_test_parameters(self, test_parameters, config_file):
 
@@ -324,6 +337,8 @@ class UnitTest(PhoneTest):
                 self.logger.debug('test parameters: %s = %s' %
                                   (key, test_parameters[key]))
 
+        self.set_status(msg='Starting test %s' % test_parameters['test_name'])
+
         test_parameters['harness_type'] = test_parameters['test_name']
 
         if test_parameters['test_name'] == 'robocoptest':
@@ -333,27 +348,11 @@ class UnitTest(PhoneTest):
             # XXX: FIXME. When bug 792072 lands, change to have
             # installApp() push the file
 
-            try:
-                self.dm.pushFile(os.path.join(test_parameters['cache_build_dir'],
-                                              'robocop.apk'),
-                                 robocop_apk_path)
-            except:
-                self.logger.error('runtest: Error pushing robocop apk: %s' %
-                                  traceback.format_exc())
-                return
-
-            try:
-                self.dm.uninstallApp('org.mozilla.roboexample.test')
-            except:
-                self.logger.debug('runtest: Error uninstalling robocop apk: %s' %
-                                  traceback.format_exc())
-
-            try:
-                self.dm.installApp(robocop_apk_path)
-            except:
-                self.logger.error('runtest: Error installing robocop apk: %s' %
-                                  traceback.format_exc())
-                return
+            self.dm.pushFile(os.path.join(test_parameters['cache_build_dir'],
+                                          'robocop.apk'),
+                             robocop_apk_path)
+            self.dm.uninstallApp('org.mozilla.roboexample.test')
+            self.dm.installApp(robocop_apk_path)
             self.dm.removeFile(robocop_apk_path)
 
         test_parameters['port_manager'] = PortManager(test_parameters['host_ip_address'])
@@ -374,6 +373,10 @@ class UnitTest(PhoneTest):
                     test_parameters['cmdline'] = ' '.join(args)
                     self.logger.debug("cmdline = %s" %
                                       test_parameters['cmdline'])
+
+                    self.set_status(msg='Running test %s chunk %d of %d' %
+                                    (test_parameters['test_name'],
+                                     this_chunk, test_parameters['total_chunks']))
 
                     proc = subprocess.Popen(
                         args,
@@ -400,24 +403,19 @@ class UnitTest(PhoneTest):
                     if not socket_collision:
                         break
 
-                self.process_test_log(test_parameters, logfilehandle)
-
-                # Perform a simple reboot inbetween tests/chunks.
-                self.logger.info('Rebooting device after test.')
-                reboot_port = test_parameters['port_manager'].reserve()
-                self.dm.reboot(test_parameters['host_ip_address'],
-                               test_parameters['port_manager'].use(reboot_port))
-                self.logger.info('Reboot completed.')
-
+                self.set_status(msg='Completed test %s chunk %d of %d' %
+                                (test_parameters['test_name'],
+                                 this_chunk, test_parameters['total_chunks']))
             except:
-                self.logger.error(traceback.format_exc())
-                self.logger.info('Rebooting device after error.')
-                reboot_port = test_parameters['port_manager'].reserve()
-                self.dm.reboot(test_parameters['host_ip_address'],
-                               test_parameters['port_manager'].use(reboot_port))
-                self.logger.info('Reboot completed.')
+                error_message = ('Exception during test %s chunk %d of %d: %s' %
+                                 (test_parameters['test_name'],
+                                  this_chunk, test_parameters['total_chunks'],
+                                  traceback.format_exc()))
+                self.set_status(msg=error_message)
+                self.logger.error(error_message)
             finally:
                 logfilehandle.close()
+                self.process_test_log(test_parameters, logfilehandle)
                 if self.logger.getEffectiveLevel() == logging.DEBUG:
                     logfilehandle = open(logfilehandle.name)
                     self.logger.debug(40 * '*')
@@ -425,10 +423,15 @@ class UnitTest(PhoneTest):
                     self.logger.debug(40 * '-')
                     logfilehandle.close()
                 os.unlink(logfilehandle.name)
+                # wait for a minute to give the phone time to settle
+                time.sleep(60)
+                # Recover the phone in between tests/chunks.
+                self.logger.info('Rebooting device after test.')
+                self.worker_subprocess.recover_phone()
 
         self.logger.debug('runtestsremote.py runtest exit')
 
-        return True
+        return
 
 
 class PortManager(object):
