@@ -33,6 +33,9 @@ es_server = buildbot-es.metrics.scl3.mozilla.com:9200
 # For local development use http://localhost:8051
 rest_server = http://brasstacks.mozilla.com/autologserver/
 
+# Autolog ElasticSearch index
+index = autolog
+
 # Submit passing results to Autolog.  Note: Setting include_pass to
 # True will cause a failure until RESTfulAutologTestGroup.submit
 # supports submitting results via POST.

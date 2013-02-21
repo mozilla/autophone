@@ -140,6 +140,7 @@ class UnitTest(PhoneTest):
 
         test_parameters['es_server'] = cfg.get('autolog', 'es_server')
         test_parameters['rest_server'] = cfg.get('autolog', 'rest_server')
+        test_parameters['index'] = cfg.get('autolog', 'index')
         test_parameters['include_pass'] = cfg.getboolean('autolog', 'include_pass')
         test_parameters['submit_log'] = cfg.getboolean('autolog', 'submit_log')
         test_parameters['use_newparser'] = cfg.getboolean('autolog', 'use_newparser')
@@ -280,6 +281,7 @@ class UnitTest(PhoneTest):
         self.logger.debug('testgroup_name = %s' % testgroup_name)
 
         testgroup = RESTfulAutologTestGroup(
+            index=test_parameters['index'],
             testgroup=testgroup_name,
             os='android',
             platform=platform_name,
