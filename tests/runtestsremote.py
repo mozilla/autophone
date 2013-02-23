@@ -152,7 +152,7 @@ class UnitTest(PhoneTest):
 
             test_args = [
                 'mochitest/runtestsremote.py',
-                '--robocop=mochitest/robocop.ini',
+                '--robocop=mochitest/robocop_autophone.ini',
                 '--robocop-ids=%s/fennec_ids.txt' % test_parameters['cache_build_dir'],
                 '--certificate-path=certs',
                 '--close-when-done',
