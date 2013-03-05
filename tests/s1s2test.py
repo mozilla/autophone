@@ -87,14 +87,17 @@ class S1S2Test(PhoneTest):
                                      testname=testname)
 
     def prepare_phone(self, job):
+        telemetry_prompt = 999
+        if job['blddate'] < '2013-01-03':
+            telemetry_prompt = 2
         prefs = { 'browser.firstrun.show.localepicker': False,
                   'browser.sessionstore.resume_from_crash': False,
                   'browser.firstrun.show.uidiscovery': False,
                   'shell.checkDefaultClient': False,
                   'browser.warnOnQuit': False,
                   'browser.EULA.override': True,
-                  'toolkit.telemetry.prompted': 999,
-                  'toolkit.telemetry.notifiedOptOut': 999 }
+                  'toolkit.telemetry.prompted': telemetry_prompt,
+                  'toolkit.telemetry.notifiedOptOut': telemetry_prompt }
         profile = FirefoxProfile(preferences=prefs)
         self.install_profile(profile)
         self.dm.mkDir('/mnt/sdcard/s1test')
