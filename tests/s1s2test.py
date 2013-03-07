@@ -58,7 +58,7 @@ class S1S2Test(PhoneTest):
                     # Get results - do this now so we don't have as much to
                     # parse in logcat.
                     self.logger.debug('analyzing logcat')
-                    throbberstart, throbberstop, drawtime = self.analyze_logcat(job)
+                    throbberstart, throbberstop = self.analyze_logcat(job)
 
                     self.logger.debug('killing fennec')
                     # Get rid of the browser and session store files
@@ -68,8 +68,6 @@ class S1S2Test(PhoneTest):
                     self.remove_sessionstore_files()
 
                     # Ensure we succeeded - no 0's reported
-                    # - except drawtime, since enddrawing has been missing for
-                    #   some time.
                     if (throbberstart and
                         throbberstop and
                         starttime):
@@ -82,7 +80,6 @@ class S1S2Test(PhoneTest):
                 self.publish_results(starttime=int(starttime),
                                      tstrt=throbberstart,
                                      tstop=throbberstop,
-                                     drawing=drawtime,
                                      job=job,
                                      testname=testname)
 
@@ -136,25 +133,22 @@ class S1S2Test(PhoneTest):
         buf = [x.strip('\r\n') for x in self.dm.getLogcat()]
         throbberstartRE = re.compile('.*Throbber start$')
         throbberstopRE = re.compile('.*Throbber stop$')
-        endDrawingRE = re.compile('.*endDrawing$')
         throbstart = 0
         throbstop = 0
-        enddraw = 0
 
         for line in buf:
             line = line.strip()
-            # we want the first throbberstart and throbberstop but the *last*
-            # enddrawing
+            # we want the first throbberstart and throbberstop.
             if throbberstartRE.match(line) and not throbstart:
                 throbstart = line.split(' ')[-4]
             elif throbberstopRE.match(line) and not throbstop:
                 throbstop = line.split(' ')[-4]
-            elif endDrawingRE.match(line):
-                enddraw = line.split(' ')[-3]
-        return (int(throbstart), int(throbstop), int(enddraw))
+            if throbstart and throbstop:
+                break
+        return (int(throbstart), int(throbstop))
 
-    def publish_results(self, starttime=0, tstrt=0, tstop=0, drawing=0, job=None, testname = ''):
-        msg = 'Start Time: %s Throbber Start: %s Throbber Stop: %s EndDraw: %s' % (starttime, tstrt, tstop, drawing)
+    def publish_results(self, starttime=0, tstrt=0, tstop=0, job=None, testname = ''):
+        msg = 'Start Time: %s Throbber Start: %s Throbber Stop: %s' % (starttime, tstrt, tstop)
         print 'RESULTS %s %s:%s' % (self.phone_cfg['phoneid'], datetime.datetime.fromtimestamp(int(job['blddate'])), msg)
         self.logger.info('RESULTS: %s:%s' % (self.phone_cfg['phoneid'], msg))
 
@@ -165,7 +159,6 @@ class S1S2Test(PhoneTest):
         resultdata['starttime'] = starttime
         resultdata['throbberstart'] = tstrt
         resultdata['throbberstop'] = tstop
-        resultdata['enddrawing'] = drawing
         resultdata['blddate'] = job['blddate']
 
         resultdata['revision'] = job['revision']
