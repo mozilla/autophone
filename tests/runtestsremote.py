@@ -15,6 +15,7 @@ from logparser import LogParser
 from mozautolog import RESTfulAutologTestGroup
 import re
 import time
+from mozdevice import DMError
 
 import newlogparser
 
@@ -353,7 +354,12 @@ class UnitTest(PhoneTest):
             self.dm.pushFile(os.path.join(test_parameters['cache_build_dir'],
                                           'robocop.apk'),
                              robocop_apk_path)
-            self.dm.uninstallApp('org.mozilla.roboexample.test')
+            try:
+                self.dm.uninstallApp('org.mozilla.roboexample.test')
+            except DMError:
+                self.logger.info('runtestsremote.py:runtest: Exception running test: %s' %
+                                 traceback.format_exc())
+
             self.dm.installApp(robocop_apk_path)
             self.dm.removeFile(robocop_apk_path)
 
