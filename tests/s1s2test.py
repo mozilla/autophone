@@ -45,43 +45,50 @@ class S1S2Test(PhoneTest):
                     try:
                         starttime = self.dm.getInfo('uptimemillis')['uptimemillis'][0]
                     except IndexError:
+                        # uptimemillis is not supported in all implementations
+                        # therefore we can not exclude such cases.
                         starttime = 0
 
                     # Run test
                     self.logger.debug('running fennec')
                     self.run_fennec_with_profile(intent, url)
 
-                    # Let browser stabilize - this was 5s but that wasn't long
-                    # enough for the device to stabilize on slow devices
-                    sleep(10)
-
                     # Get results - do this now so we don't have as much to
                     # parse in logcat.
-                    self.logger.debug('analyzing logcat')
                     throbberstart, throbberstop = self.analyze_logcat(job)
 
                     self.logger.debug('killing fennec')
                     # Get rid of the browser and session store files
-                    self.dm.killProcess(job['androidprocname'])
+                    max_killattempts = 3
+                    for kill_attempt in range(max_killattempts):
+                        try:
+                            self.dm.killProcess(job['androidprocname'])
+                            break
+                        except DMError:
+                            self.logger.info('Attempt %d to kill fennec failed' % kill_attempt)
+                            if kill_attempt == max_killattempts - 1:
+                                raise
+                            sleep(20)
 
                     self.logger.debug('removing sessionstore files')
                     self.remove_sessionstore_files()
 
                     # Ensure we succeeded - no 0's reported
-                    if (throbberstart and
-                        throbberstop and
-                        starttime):
+                    if (throbberstart and throbberstop):
                         success = True
                     else:
                         attempt = attempt + 1
 
                 # Publish results
-                self.logger.debug('publishing results')
-                self.publish_results(starttime=int(starttime),
-                                     tstrt=throbberstart,
-                                     tstop=throbberstop,
-                                     job=job,
-                                     testname=testname)
+                self.logger.debug('%s throbbers after %d attempts' %
+                                  ('successfully got' if success else 'failed to get', attempt))
+                if success:
+                    self.logger.debug('publishing results')
+                    self.publish_results(starttime=int(starttime),
+                                         tstrt=throbberstart,
+                                         tstop=throbberstop,
+                                         job=job,
+                                         testname=testname)
 
     def prepare_phone(self, job):
         telemetry_prompt = 999
@@ -130,21 +137,37 @@ class S1S2Test(PhoneTest):
         self._resulturl = cfg.get('settings', 'resulturl')
 
     def analyze_logcat(self, job):
-        buf = [x.strip('\r\n') for x in self.dm.getLogcat()]
+        self.logger.debug('analyzing logcat')
         throbberstartRE = re.compile('.*Throbber start$')
         throbberstopRE = re.compile('.*Throbber stop$')
         throbstart = 0
         throbstop = 0
+        attempt = 0
+        max_time = 90 # maximum time to wait for throbbers
+        wait_time = 3 # time to wait between attempts
+        max_attempts = max_time / wait_time
 
-        for line in buf:
-            line = line.strip()
-            # we want the first throbberstart and throbberstop.
-            if throbberstartRE.match(line) and not throbstart:
-                throbstart = line.split(' ')[-4]
-            elif throbberstopRE.match(line) and not throbstop:
-                throbstop = line.split(' ')[-4]
-            if throbstart and throbstop:
+        fennec_crashed = False
+        while attempt < max_attempts and (throbstart == 0 or throbstop == 0):
+            if not self.dm.processExist(job['androidprocname']):
+                self.logger.info('analyze_logcat: fennec is no longer running...')
+                fennec_crashed = True
                 break
+            buf = [x.strip() for x in self.dm.getLogcat()]
+            for line in buf:
+                # we want the first throbberstart and throbberstop.
+                if throbberstartRE.match(line) and not throbstart:
+                    throbstart = line.split(' ')[-4]
+                elif throbberstopRE.match(line) and not throbstop:
+                    throbstop = line.split(' ')[-4]
+                if throbstart and throbstop:
+                    break
+            if throbstart == 0 or throbstop == 0:
+                sleep(wait_time)
+                attempt += 1
+        if not fennec_crashed and throbstart and throbstop == 0:
+            throbstop = int(throbstart) + max_time * 1000
+
         return (int(throbstart), int(throbstop))
 
     def publish_results(self, starttime=0, tstrt=0, tstop=0, job=None, testname = ''):
