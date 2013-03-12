@@ -197,9 +197,11 @@ class AutoPhone(object):
             self.stop()
 
     # Start the phones for testing
-    def start_tests(self, build_url):
+    def start_tests(self, build_url, devices=None):
         self.worker_lock.acquire()
         for p in self.phone_workers.values():
+            if devices and p.phone_cfg['phoneid'] not in devices:
+                continue
             logging.info('Notifying device %s of new build.' %
                          p.phone_cfg['phoneid'])
             p.new_build(build_url)
@@ -223,7 +225,7 @@ class AutoPhone(object):
         elif cmd == 'log':
             logging.info(params)
         elif cmd == 'triggerjobs':
-            self.trigger_jobs(params)
+            response = self.trigger_jobs(params)
         elif cmd == 'register':
             self.register_cmd(params)
         elif cmd == 'status':
@@ -372,7 +374,11 @@ class AutoPhone(object):
 
     def trigger_jobs(self, data):
         logging.info('Received user-specified job: %s' % data)
-        self.start_tests(data)
+        args = data.split(' ')
+        if not args:
+            return 'invalid args'
+        self.start_tests(args[0], args[1:])
+        return 'ok'
 
     def reset_phones(self):
         logging.info('Resetting phones...')

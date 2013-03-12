@@ -8,8 +8,6 @@ import json
 import socket
 import threading
 
-from builds import BuildCache
-
 DEFAULT_PORT = 28008
 
 class BuildCacheServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -81,4 +79,3 @@ class BuildCacheClient(object):
                 return None
             buf += data
         return json.loads(buf)
-

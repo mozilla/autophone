@@ -20,15 +20,22 @@ def from_iso_date_or_datetime(s):
     return d
 
 
+def command_str(build, devices):
+    s = 'triggerjobs %s' % build
+    if devices:
+        s += ' %s' % ' '.join(devices)
+    return s
+
+
 def main(args, options):
     logging.info('Looking for builds...')
+    build_urls = []
     if args[0] == 'latest':
-        cache_build_dir = (builds.BuildCache(options.repos,
-                                             options.buildtypes).
-                           find_latest_build(options.build_location))
-        if not cache_build_dir:
-            return 1
-        commands = ['triggerjobs %s' % cache_build_dir]
+        build_url = builds.BuildCache(
+            options.repos, options.buildtypes).find_latest_build(
+            options.build_location)
+        if build_url:
+            build_urls = [build_url]
     else:
         if re.match('\d{14}', args[0]):
             # build id
@@ -45,14 +52,13 @@ def main(args, options):
             start_time = start_time.replace(tzinfo=pytz.timezone('US/Pacific'))
         if not end_time.tzinfo:
             end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
-        cache_build_dir_list = (builds.BuildCache(options.repos,
-                                                  options.buildtypes).
-                                find_builds(start_time, end_time,
-                                            options.build_location))
-        if not cache_build_dir_list:
-            return 1
-        commands = ['triggerjobs %s' % cache_build_dir for cache_build_dir in
-                    cache_build_dir_list]
+        build_urls = builds.BuildCache(
+            options.repos, options.buildtypes).find_builds(
+            start_time, end_time, options.build_location)
+
+    if not build_urls:
+        return 1
+    commands = [command_str(b, options.devices) for b in build_urls]
     logging.info('Connecting to autophone server...')
     commands.append('exit')
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -64,7 +70,7 @@ def main(args, options):
         logging.info('- %s' % s.recv(1024).strip())
     return 0
 
-            
+
 if __name__ == '__main__':
     import errno
     import sys
@@ -116,6 +122,11 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       'One of opt or debug. To specify multiple build types, '
                       'specify them with additional --buildtype options. '
                       'Defaults to opt.')
+    parser.add_option('--device',
+                      dest='devices',
+                      action='append',
+                      help='Device on which to run the job.  Defaults to all '
+                      'if not specified. Can be specified multiple times.')
     (options, args) = parser.parse_args()
     if len(args) > 2:
         parser.print_help()
