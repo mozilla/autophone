@@ -2,15 +2,19 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import ConfigParser
 import base64
 import datetime
 import ftplib
+import json
 import logging
+import math
 import os
 import pytz
 import re
 import shutil
 import tempfile
+import time
 import urllib
 import urlparse
 import zipfile
@@ -216,16 +220,39 @@ class BuildCache(object):
             logging.error('bad URL "%s"' % url)
         return builddate
 
-    def get(self, buildurl, enable_unittests, force=False):
+    def get(self, buildurl, force=False):
+        """Returns info on a cached build, fetching it if necessary.
+        Returns a dict with a boolean 'success' item.
+        If 'success' is False, the dict also contains an 'error' item holding a
+        descriptive string.
+        If 'success' is True, the dict also contains a 'metadata' item, which is
+        a dict of build metadata.  The path to the build is the
+        'cache_build_dir' item, which is a directory containing build.apk,
+        symbols/, and, if self.enable_unittests is true, robocop.apk and tests/.
+        If not found, fetches them, assuming a standard file structure.
+        Cleans the cache before getting started.
+        If self.override_build_dir is set, 'cache_build_dir' is set to
+        that value without verifying the contents nor fetching anything (though
+        it will still try to open build.apk to read in the metadata).
+        See BuildCache.build_metadata() for the other metadata items.
+        """
         if self.override_build_dir:
-            return self.override_build_dir
+            return {'success': True,
+                    'metadata': self.build_metadata(self.override_build_dir)}
         build_dir = base64.b64encode(buildurl)
         self.clean_cache([build_dir])
         cache_build_dir = os.path.join(self.cache_dir, build_dir)
         build_path = os.path.join(cache_build_dir, 'build.apk')
         if not os.path.exists(cache_build_dir):
             os.makedirs(cache_build_dir)
-        if force or not os.path.exists(build_path):
+
+        # build
+        try:
+            download_build = (force or not os.path.exists(build_path) or
+                              zipfile.ZipFile(build_path).testzip() is not None)
+        except zipfile.BadZipFile:
+            download_build = True
+        if download_build:
             # retrieve to temporary file then move over, so we don't end
             # up with half a file if it aborts
             tmpf = tempfile.NamedTemporaryFile(delete=False)
@@ -234,11 +261,14 @@ class BuildCache(object):
                 urllib.urlretrieve(buildurl, tmpf.name)
             except IOError:
                 os.unlink(tmpf.name)
-                logging.error('IO Error retrieving build: %s.' % buildurl)
+                err = 'IO Error retrieving build: %s.' % buildurl
+                logging.error(err)
                 logging.error(traceback.format_exc())
-                return None
+                return {'success': False, 'error': err}
             shutil.move(tmpf.name, build_path)
         file(os.path.join(cache_build_dir, 'lastused'), 'w')
+
+        # symbols
         symbols_path = os.path.join(cache_build_dir, 'symbols')
         if force or not os.path.exists(symbols_path):
             tmpf = tempfile.NamedTemporaryFile(delete=False)
@@ -264,9 +294,11 @@ class BuildCache(object):
                 except:
                     pass
             os.unlink(tmpf.name)
-        if enable_unittests:
+
+        # tests
+        if self.enable_unittests:
             tests_path = os.path.join(cache_build_dir, 'tests')
-            if (force or not os.path.exists(tests_path)) and enable_unittests:
+            if force or not os.path.exists(tests_path):
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
                 tmpf.close()
                 # XXX: assumes fixed buildurl-> tests_url mapping
@@ -275,9 +307,10 @@ class BuildCache(object):
                     urllib.urlretrieve(tests_url, tmpf.name)
                 except IOError:
                     os.unlink(tmpf.name)
-                    logging.error('IO Error retrieving tests: %s.' % tests_url)
+                    err = 'IO Error retrieving tests: %s.' % tests_url
+                    logging.error(err)
                     logging.error(traceback.format_exc())
-                    return None
+                    return {'success': False, 'error': err}
                 tests_zipfile = zipfile.ZipFile(tmpf.name)
                 tests_zipfile.extractall(tests_path)
                 tests_zipfile.close()
@@ -291,10 +324,10 @@ class BuildCache(object):
                     urllib.urlretrieve(robocop_url, tmpf.name)
                 except IOError:
                     os.unlink(tmpf.name)
-                    logging.error('IO Error retrieving robocop.apk: %s.' %
-                                  robocop_url)
+                    err = 'IO Error retrieving robocop.apk: %s.' % robocop_url
+                    logging.error(err)
                     logging.error(traceback.format_exc())
-                    return None
+                    return {'success': False, 'error': err}
                 shutil.move(tmpf.name, robocop_path)
                 # XXX: assumes fixed buildurl-> fennec_ids.txt mapping
                 fennec_ids_url = urlparse.urljoin(buildurl, 'fennec_ids.txt')
@@ -305,12 +338,15 @@ class BuildCache(object):
                     urllib.urlretrieve(fennec_ids_url, tmpf.name)
                 except IOError:
                     os.unlink(tmpf.name)
-                    logging.error('IO Error retrieving fennec_ids.txt: %s.' %
-                                  fennec_ids_url)
+                    err = 'IO Error retrieving fennec_ids.txt: %s.' % \
+                        fennec_ids_url
+                    logging.error(err)
                     logging.error(traceback.format_exc())
-                    return None
+                    return {'success': False, 'error': err}
                 shutil.move(tmpf.name, fennec_ids_path)
-        return cache_build_dir
+
+        return {'success': True,
+                'metadata': self.build_metadata(cache_build_dir)}
 
     def clean_cache(self, preserve=[]):
         def lastused_path(d):
@@ -337,3 +373,55 @@ class BuildCache(object):
             b = builds.pop(0)[0]
             logging.info('Expiring %s' % b)
             shutil.rmtree(os.path.join(self.cache_dir, b))
+
+    def build_metadata(self, build_dir):
+        build_metadata_path = os.path.join(build_dir, 'metadata.json')
+        if os.path.exists(build_metadata_path):
+            try:
+                return json.loads(file(build_metadata_path).read())
+            except (ValueError, IOError):
+                pass
+        tmpdir = tempfile.mkdtemp()
+        try:
+            build_path = os.path.join(build_dir, 'build.apk')
+            apkfile = zipfile.ZipFile(build_path)
+            apkfile.extract('application.ini', tmpdir)
+        except zipfile.BadZipfile:
+            # we should have already tried to redownload bad zips, so treat
+            # this as fatal.
+            logging.error('%s is a bad apk; aborting job.' % build_path)
+            shutil.rmtree(tmpdir)
+            return None
+        cfg = ConfigParser.RawConfigParser()
+        cfg.read(os.path.join(tmpdir, 'application.ini'))
+        rev = cfg.get('App', 'SourceStamp')
+        ver = cfg.get('App', 'Version')
+        repo = cfg.get('App', 'SourceRepository')
+        buildid = cfg.get('App', 'BuildID')
+        blddate = datetime.datetime.strptime(buildid,
+                                             '%Y%m%d%H%M%S')
+        procname = ''
+        if repo == 'http://hg.mozilla.org/mozilla-central':
+            tree = 'mozilla-central'
+            procname = 'org.mozilla.fennec'
+        elif repo == 'http://hg.mozilla.org/integration/mozilla-inbound':
+            tree = 'mozilla-inbound'
+            procname = 'org.mozilla.fennec'
+        elif repo == 'http://hg.mozilla.org/releases/mozilla-aurora':
+            tree = 'mozilla-aurora'
+            procname = 'org.mozilla.fennec_aurora'
+        elif repo == 'http://hg.mozilla.org/releases/mozilla-beta':
+            tree = 'mozilla-beta'
+            procname = 'org.mozilla.firefox'
+
+        metadata = {'cache_build_dir': build_dir,
+                    'tree': tree,
+                    'blddate': math.trunc(time.mktime(blddate.timetuple())),
+                    'buildid': buildid,
+                    'revision': rev,
+                    'androidprocname': procname,
+                    'version': ver,
+                    'bldtype': 'opt'}
+        shutil.rmtree(tmpdir)
+        file(build_metadata_path, 'w').write(json.dumps(metadata))
+        return metadata

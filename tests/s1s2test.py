@@ -17,26 +17,28 @@ from phonetest import PhoneTest
 
 class S1S2Test(PhoneTest):
 
-    def runjob(self, job, worker_subprocess):
+    def runjob(self, build_metadata, worker_subprocess):
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
         for cache_enabled in (False, True):
-            self.runtest(job, worker_subprocess, cache_enabled)
+            self.runtest(build_metadata, worker_subprocess, cache_enabled)
 
-    def runtest(self, job, worker_subprocess, cache_enabled):
+    def runtest(self, build_metadata, worker_subprocess, cache_enabled):
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
-        self.prepare_phone(job, cache_enabled)
+        self.prepare_phone(build_metadata, cache_enabled)
 
-        intent = job['androidprocname'] + '/.App'
+        intent = build_metadata['androidprocname'] + '/.App'
 
         # Initialize profile
         self.logger.debug('initializing profile...')
         self.run_fennec_with_profile(intent, self._initialize_url)
-        if not self.wait_for_fennec(job):
+        if not self.wait_for_fennec(build_metadata):
             self.logger.info('%s: Failed to initialize profile for build %s' %
-                             (self.phone_cfg['phoneid'], job['buildid']))
-            self.set_status(msg='Failed to initialize profile for build %s' % job['buildid'])
+                             (self.phone_cfg['phoneid'],
+                              build_metadata['buildid']))
+            self.set_status(msg='Failed to initialize profile for build %s' %
+                            build_metadata['buildid'])
             return
 
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
@@ -70,9 +72,10 @@ class S1S2Test(PhoneTest):
 
                     # Get results - do this now so we don't have as much to
                     # parse in logcat.
-                    throbberstart, throbberstop = self.analyze_logcat(job)
+                    throbberstart, throbberstop = self.analyze_logcat(
+                        build_metadata)
 
-                    self.wait_for_fennec(job)
+                    self.wait_for_fennec(build_metadata)
 
                     # Get rid of the browser and session store files
                     self.logger.debug('removing sessionstore files')
@@ -86,17 +89,19 @@ class S1S2Test(PhoneTest):
 
                 # Publish results
                 self.logger.debug('%s throbbers after %d attempts' %
-                                  ('successfully got' if success else 'failed to get', attempt))
+                                  ('successfully got' if success else
+                                   'failed to get', attempt))
                 if success:
                     self.logger.debug('publishing results')
                     self.publish_results(starttime=int(starttime),
                                          tstrt=throbberstart,
                                          tstop=throbberstop,
-                                         job=job,
+                                         build_metadata=build_metadata,
                                          testname=testname,
                                          cache_enabled=cache_enabled)
 
-    def wait_for_fennec(self, job, max_wait_time=60, wait_time=5, kill_wait_time=20):
+    def wait_for_fennec(self, build_metadata, max_wait_time=60, wait_time=5,
+                        kill_wait_time=20):
         # Wait for up to a max_wait_time seconds for fennec to close
         # itself in response to the quitter request. Check that fennec
         # is still running every wait_time seconds. If fennec doesn't
@@ -106,14 +111,14 @@ class S1S2Test(PhoneTest):
         # Re-raise the last exception if fennec can not be killed.
         max_wait_attempts = max_wait_time / wait_time
         for wait_attempt in range(max_wait_attempts):
-            if not self.dm.processExist(job['androidprocname']):
+            if not self.dm.processExist(build_metadata['androidprocname']):
                 return True
             sleep(wait_time)
         self.logger.debug('killing fennec')
         max_killattempts = 3
         for kill_attempt in range(max_killattempts):
             try:
-                self.dm.killProcess(job['androidprocname'])
+                self.dm.killProcess(build_metadata['androidprocname'])
                 break
             except DMError:
                 self.logger.info('Attempt %d to kill fennec failed' % kill_attempt)
@@ -122,9 +127,9 @@ class S1S2Test(PhoneTest):
                 sleep(kill_wait_time)
         return False
 
-    def prepare_phone(self, job, cache_enabled):
+    def prepare_phone(self, build_metadata, cache_enabled):
         telemetry_prompt = 999
-        if job['blddate'] < '2013-01-03':
+        if build_metadata['blddate'] < '2013-01-03':
             telemetry_prompt = 2
         prefs = { 'browser.firstrun.show.localepicker': False,
                   'browser.sessionstore.resume_from_crash': False,
@@ -172,7 +177,7 @@ class S1S2Test(PhoneTest):
         self._resulturl = cfg.get('settings', 'resulturl')
         self._initialize_url = cfg.get('settings', 'initialize_url')
 
-    def analyze_logcat(self, job):
+    def analyze_logcat(self, build_metadata):
         self.logger.debug('analyzing logcat')
         throbberstartRE = re.compile('.*Throbber start$')
         throbberstopRE = re.compile('.*Throbber stop$')
@@ -189,7 +194,7 @@ class S1S2Test(PhoneTest):
         fennec_still_running = True
         while (fennec_still_running and
                attempt < max_attempts and (throbstart == 0 or throbstop == 0)):
-            if not self.dm.processExist(job['androidprocname']):
+            if not self.dm.processExist(build_metadata['androidprocname']):
                 fennec_still_running = False
             buf = [x.strip() for x in self.dm.getLogcat()]
             for line in buf:
@@ -213,14 +218,18 @@ class S1S2Test(PhoneTest):
 
         return (int(throbstart), int(throbstop))
 
-    def publish_results(self, starttime=0, tstrt=0, tstop=0, job=None, testname='', cache_enabled=True):
-        msg = 'Start Time: %s Throbber Start: %s Throbber Stop: %s' % (starttime, tstrt, tstop)
+    def publish_results(self, starttime=0, tstrt=0, tstop=0,
+                        build_metadata=None, testname='', cache_enabled=True):
+        msg = 'Start Time: %s Throbber Start: %s Throbber Stop: %s' % (
+            starttime, tstrt, tstop)
         cache_msg = 'cached' if cache_enabled else 'not cached'
-        print 'RESULTS (%s) %s %s:%s' % (cache_msg,
-                                         self.phone_cfg['phoneid'],
-                                         datetime.datetime.fromtimestamp(int(job['blddate'])),
-                                         msg)
-        self.logger.info('RESULTS (%s): %s:%s' % (cache_msg, self.phone_cfg['phoneid'], msg))
+        print 'RESULTS (%s) %s %s:%s' % (
+            cache_msg,
+            self.phone_cfg['phoneid'],
+            datetime.datetime.fromtimestamp(int(build_metadata['blddate'])),
+            msg)
+        self.logger.info('RESULTS (%s): %s:%s' %
+                         (cache_msg, self.phone_cfg['phoneid'], msg))
 
         # Create JSON to send to webserver
         resultdata = {}
@@ -229,14 +238,14 @@ class S1S2Test(PhoneTest):
         resultdata['starttime'] = starttime
         resultdata['throbberstart'] = tstrt
         resultdata['throbberstop'] = tstop
-        resultdata['blddate'] = job['blddate']
+        resultdata['blddate'] = build_metadata['blddate']
         resultdata['cached'] = cache_enabled
 
-        resultdata['revision'] = job['revision']
-        resultdata['productname'] = job['androidprocname']
-        resultdata['productversion'] = job['version']
+        resultdata['revision'] = build_metadata['revision']
+        resultdata['productname'] = build_metadata['androidprocname']
+        resultdata['productversion'] = build_metadata['version']
         resultdata['osver'] = self.phone_cfg['osver']
-        resultdata['bldtype'] = job['bldtype']
+        resultdata['bldtype'] = build_metadata['bldtype']
         resultdata['machineid'] = self.phone_cfg['machinetype']
 
         # Upload
@@ -246,12 +255,7 @@ class S1S2Test(PhoneTest):
         try:
             f = urllib2.urlopen(req)
         except urllib2.URLError, e:
-            try:
-                self.logger.error('Could not send results to server: %s' %
-                                  e.reason.strerror)
-            except:
-                self.logger.error('Could not send results to server: %s' %
-                                  e.reason)
+            self.logger.error('Could not send results to server: %s' % e)
         else:
             f.read()
             f.close()

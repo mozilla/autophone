@@ -96,7 +96,7 @@ class PhoneTest(object):
     def profile_path(self):
         return self.base_device_path + '/profile'
 
-    def runjob(self, job):
+    def runjob(self, build_metadata, worker_subprocess):
         raise NotImplementedError
 
     def set_dm_debug(self, level):

@@ -2,38 +2,28 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import ConfigParser
 import Queue
 import SocketServer
 import datetime
 import errno
 import inspect
+import json
 import logging
-import math
 import multiprocessing
 import os
-import shutil
 import signal
 import socket
 import sys
-import tempfile
 import threading
-import time
 import traceback
 import urlparse
-import zipfile
-
-try:
-    import json
-except ImportError:
-    # for python 2.5 compatibility
-    import simplejson as json
 
 from manifestparser import TestManifest
 from mozdevice.devicemanager import NetworkTools
 from pulsebuildmonitor import start_pulse_monitor
 
 import builds
+import buildserver
 import phonetest
 
 from mailer import Mailer
@@ -71,15 +61,13 @@ class AutoPhone(object):
                     if not line:
                         continue
                     if line == 'quit' or line == 'exit':
-                        self.request.close()
                         return
                     response = self.server.cmd_cb(line)
                     self.request.send(response + '\n')
 
     def __init__(self, clear_cache, reboot_phones, test_path, cachefile,
                  ipaddr, port, logfile, loglevel, emailcfg, enable_pulse,
-                 enable_unittests, cache_dir, override_build_dir,
-                 repos, buildtypes):
+                 repos, buildtypes, build_cache_port):
         self._test_path = test_path
         self._cache = cachefile
         if ipaddr:
@@ -93,10 +81,8 @@ class AutoPhone(object):
         self.logfile = logfile
         self.loglevel = loglevel
         self.mailer = Mailer(emailcfg, '[autophone] ')
-        self.build_cache = builds.BuildCache(repos, buildtypes,
-                                             cache_dir=cache_dir,
-                                             override_build_dir=override_build_dir,
-                                             enable_unittests=enable_unittests)
+        self.build_cache_port = build_cache_port
+
         self._stop = False
         self._next_worker_num = 0
         self.phone_workers = {}  # indexed by mac address
@@ -135,7 +121,6 @@ class AutoPhone(object):
         else:
             self.pulsemonitor = None
 
-        self.enable_unittests = enable_unittests
         self.restart_workers = {}
 
     @property
@@ -149,6 +134,7 @@ class AutoPhone(object):
                                         self.CmdTCPHandler)
         self.server.cmd_cb = self.route_cmd
         self.server_thread = threading.Thread(target=self.server.serve_forever)
+        self.server_thread.daemon = True
         self.server_thread.start()
         self.worker_msg_loop()
 
@@ -211,13 +197,12 @@ class AutoPhone(object):
             self.stop()
 
     # Start the phones for testing
-    def start_tests(self, job):
-        if not self.is_valid_job(job):
-            return
+    def start_tests(self, build_url):
         self.worker_lock.acquire()
         for p in self.phone_workers.values():
-            logging.info('Starting job on phone: %s' % p.phone_cfg['phoneid'])
-            p.add_job(job)
+            logging.info('Notifying device %s of new build.' %
+                         p.phone_cfg['phoneid'])
+            p.new_build(build_url)
         self.worker_lock.release()
 
     def route_cmd(self, data):
@@ -295,7 +280,7 @@ class AutoPhone(object):
         worker = PhoneWorker(self.next_worker_num, self.ipaddr,
                              tests, phone_cfg, user_cfg, self.worker_msg_queue,
                              '%s-%s' % (logfile_prefix, phone_cfg['phoneid']),
-                             self.loglevel, self.mailer)
+                             self.loglevel, self.mailer, self.build_cache_port)
         self.phone_workers[phone_cfg['phoneid']] = worker
         worker.start()
 
@@ -386,10 +371,8 @@ class AutoPhone(object):
             self._tests.extend(tests)
 
     def trigger_jobs(self, data):
-        logging.debug('trigger_jobs: data  %s' % data)
-        job = self.build_job(self.get_build(data))
-        logging.info('Received user-specified job: %s' % job)
-        self.start_tests(job)
+        logging.info('Received user-specified job: %s' % data)
+        self.start_tests(data)
 
     def reset_phones(self):
         logging.info('Resetting phones...')
@@ -406,100 +389,7 @@ class AutoPhone(object):
         # those, and only run the ones with real URLs
         # We create jobs for all the phones and push them into the queue
         if 'buildurl' in msg:
-            self.start_tests(self.build_job(self.get_build(msg['buildurl'])))
-
-    def get_build(self, buildurl):
-        cache_build_dir = self.build_cache.get(buildurl,
-                                               self.enable_unittests)
-        if not cache_build_dir:
-            logging.warn('Errors occured getting build %s.' % buildurl)
-            return None
-        try:
-            build_path = os.path.join(cache_build_dir, 'build.apk')
-            z = zipfile.ZipFile(build_path)
-            z.testzip()
-        except zipfile.BadZipfile:
-            logging.error('%s is a bad apk; redownloading...' % build_path)
-            cache_build_dir = self.build_cache.get(buildurl,
-                                                   self.enable_unittests,
-                                                   force=True)
-        return cache_build_dir
-
-    def build_job(self, cache_build_dir):
-        if not cache_build_dir:
-            logging.warn('No build available. Aborting job.')
-            return None
-        tmpdir = tempfile.mkdtemp()
-        try:
-            build_path = os.path.join(cache_build_dir, 'build.apk')
-            apkfile = zipfile.ZipFile(build_path)
-            apkfile.extract('application.ini', tmpdir)
-        except zipfile.BadZipfile:
-            # we should have already tried to redownload bad zips, so treat
-            # this as fatal.
-            logging.error('%s is a bad apk; aborting job.' % build_path)
-            shutil.rmtree(tmpdir)
-            return None
-        cfg = ConfigParser.RawConfigParser()
-        cfg.read(os.path.join(tmpdir, 'application.ini'))
-        rev = cfg.get('App', 'SourceStamp')
-        ver = cfg.get('App', 'Version')
-        repo = cfg.get('App', 'SourceRepository')
-        buildid = cfg.get('App', 'BuildID')
-        blddate = datetime.datetime.strptime(buildid,
-                                             '%Y%m%d%H%M%S')
-        procname = ''
-        if repo == 'http://hg.mozilla.org/mozilla-central':
-            tree = 'mozilla-central'
-            procname = 'org.mozilla.fennec'
-        elif repo == 'http://hg.mozilla.org/integration/mozilla-inbound':
-            tree = 'mozilla-inbound'
-            procname = 'org.mozilla.fennec'
-        elif repo == 'http://hg.mozilla.org/releases/mozilla-aurora':
-            tree = 'mozilla-aurora'
-            procname = 'org.mozilla.fennec_aurora'
-        elif repo == 'http://hg.mozilla.org/releases/mozilla-beta':
-            tree = 'mozilla-beta'
-            procname = 'org.mozilla.firefox'
-
-        job = {'cache_build_dir': cache_build_dir,
-               'tree': tree,
-               'blddate': math.trunc(time.mktime(blddate.timetuple())),
-               'buildid': buildid,
-               'revision': rev,
-               'androidprocname': procname,
-               'version': ver,
-               'bldtype': 'opt'}
-        shutil.rmtree(tmpdir)
-        return job
-
-    def is_valid_job(self, job):
-        if job is None:
-            return False
-
-        error_list = []
-
-        if 'androidprocname' not in job:
-            error_list.append('missing androidprocname')
-
-        if 'revision' not in job:
-            error_list.append('missing revision')
-
-        if 'blddate' not in job:
-            error_list.append('missing blddate')
-
-        if 'bldtype' not in job:
-            error_list.append('missing bldtype')
-
-        if 'version' not in job:
-            error_list.append('missing version')
-
-        if len(error_list) > 0:
-            error_message = 'ERROR: Invalid job configuration: %s ' % job + ', '.join(error_list)
-            self.logger.error(error_message)
-            raise NameError(error_message)
-
-        return True
+            self.start_tests(msg['buildurl'])
 
     def stop(self):
         self._stop = True
@@ -511,7 +401,7 @@ class AutoPhone(object):
 
 def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
          logfile, loglevel_name, emailcfg, enable_pulse, enable_unittests,
-         cache_dir, override_build_dir, repos, buildtypes):
+         cache_dir, override_build_dir, repos, buildtypes, build_cache_port):
 
     def sigterm_handler(signum, frame):
         autophone.stop()
@@ -531,14 +421,14 @@ def main(clear_cache, reboot_phones, test_path, cachefile, ipaddr, port,
                         level=loglevel,
                         format='%(asctime)s|%(levelname)s|%(message)s')
 
-    print '%s Starting server on port %d.' % \
-        (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), port)
+    print '%s Starting build-cache server on port %d.' % (
+        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        build_cache_port)
     try:
-        autophone = AutoPhone(clear_cache, reboot_phones, test_path, cachefile,
-                              ipaddr, port, logfile, loglevel, emailcfg,
-                              enable_pulse, enable_unittests,
-                              cache_dir, override_build_dir,
-                              repos, buildtypes)
+        build_cache = builds.BuildCache(
+            repos, buildtypes, cache_dir=cache_dir,
+            override_build_dir=override_build_dir,
+            enable_unittests=enable_unittests)
     except builds.BuildCacheException, e:
         print '''%s
 
@@ -553,9 +443,26 @@ unpacked tests package for the build.
         parser.print_help()
         return 1
 
+    build_cache_server = buildserver.BuildCacheServer(
+        ('127.0.0.1', build_cache_port), buildserver.BuildCacheHandler)
+    build_cache_server.build_cache = build_cache
+    build_cache_server_thread = threading.Thread(
+        target=build_cache_server.serve_forever)
+    build_cache_server_thread.daemon = True
+    build_cache_server_thread.start()
+
+    print '%s Starting server on port %d.' % (
+        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), port)
+    autophone = AutoPhone(clear_cache, reboot_phones, test_path, cachefile,
+                          ipaddr, port, logfile, loglevel, emailcfg,
+                          enable_pulse, repos, buildtypes, build_cache_port)
     signal.signal(signal.SIGTERM, sigterm_handler)
     autophone.run()
     print '%s AutoPhone terminated.' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print 'Shutting down build-cache server...'
+    build_cache_server.shutdown()
+    build_cache_server_thread.join()
+    print 'Done.'
     return 0
 
 
@@ -628,6 +535,15 @@ if __name__ == '__main__':
                       'One of opt or debug. To specify multiple build types, '
                       'specify them with additional --buildtype options. '
                       'Defaults to opt.')
+    parser.add_option('--build-cache-port',
+                      dest='build_cache_port',
+                      action='store',
+                      type='int',
+                      default=buildserver.DEFAULT_PORT,
+                      help='Port for build-cache server. If you are running '
+                      'multiple instances of autophone, this will have to be '
+                      'different in each. Defaults to %d.' %
+                      buildserver.DEFAULT_PORT)
 
     (options, args) = parser.parse_args()
     if not options.repos:
@@ -642,6 +558,7 @@ if __name__ == '__main__':
                      options.emailcfg, options.enable_pulse,
                      options.enable_unittests,
                      options.cache_dir, options.override_build_dir,
-                     options.repos, options.buildtypes)
+                     options.repos, options.buildtypes,
+                     options.build_cache_port)
 
     sys.exit(exit_code)

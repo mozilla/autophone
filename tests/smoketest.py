@@ -13,7 +13,7 @@ from phonetest import PhoneTest
 
 class SmokeTest(PhoneTest):
 
-    def runjob(self, job, worker_subprocess):
+    def runjob(self, build_metadata, worker_subprocess):
         try:
             os.unlink('smoketest_pass')
         except OSError:
@@ -25,9 +25,9 @@ class SmokeTest(PhoneTest):
 
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
-        self.prepare_phone(job)
+        self.prepare_phone(build_metadata)
 
-        intent = job['androidprocname'] + '/.App'
+        intent = build_metadata['androidprocname'] + '/.App'
 
         # Clear logcat
         self.dm.recordLogcat()
@@ -37,12 +37,12 @@ class SmokeTest(PhoneTest):
         self.run_fennec_with_profile(intent, 'about:fennec')
 
         self.logger.debug('analyzing logcat...')
-        fennec_launched = self.analyze_logcat(job)
+        fennec_launched = self.analyze_logcat(build_metadata)
         start = datetime.datetime.now()
         while (not fennec_launched and (datetime.datetime.now() - start
                                         <= datetime.timedelta(seconds=60))):
             sleep(3)
-            fennec_launched = self.analyze_logcat(job)
+            fennec_launched = self.analyze_logcat(build_metadata)
 
         if fennec_launched:
             self.logger.info('fennec successfully launched')
@@ -53,12 +53,12 @@ class SmokeTest(PhoneTest):
 
         self.logger.debug('killing fennec')
         # Get rid of the browser and session store files
-        self.dm.killProcess(job['androidprocname'])
+        self.dm.killProcess(build_metadata['androidprocname'])
 
         self.logger.debug('removing sessionstore files')
         self.remove_sessionstore_files()
 
-    def prepare_phone(self, job):
+    def prepare_phone(self, build_metadata):
         prefs = { 'browser.firstrun.show.localepicker': False,
                   'browser.sessionstore.resume_from_crash': False,
                   'browser.firstrun.show.uidiscovery': False,
@@ -69,8 +69,8 @@ class SmokeTest(PhoneTest):
                   'toolkit.telemetry.notifiedOptOut': 999 }
         profile = FirefoxProfile(preferences=prefs)
         self.install_profile(profile)
- 
-    def analyze_logcat(self, job):
+
+    def analyze_logcat(self, build_metadata):
         buf = self.dm.getLogcat()
         got_start = False
         got_end = False

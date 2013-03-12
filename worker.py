@@ -5,7 +5,6 @@
 from __future__ import with_statement
 
 import Queue
-import StringIO
 import datetime
 import logging
 import multiprocessing
@@ -17,6 +16,7 @@ import tempfile
 import time
 import traceback
 
+import buildserver
 import phonetest
 from mozdevice import DeviceManagerSUT, DMError
 
@@ -45,7 +45,8 @@ class PhoneWorker(object):
     process."""
 
     def __init__(self, worker_num, ipaddr, tests, phone_cfg, user_cfg,
-                 autophone_queue, logfile_prefix, loglevel, mailer):
+                 autophone_queue, logfile_prefix, loglevel, mailer,
+                 build_cache_port):
         self.phone_cfg = phone_cfg
         self.user_cfg = user_cfg
         self.worker_num = worker_num
@@ -54,13 +55,14 @@ class PhoneWorker(object):
         self.first_status_of_type = None
         self.last_status_of_previous_type = None
         self.crashes = Crashes()
-        self.job_queue = multiprocessing.Queue()
+        self.cmd_queue = multiprocessing.Queue()
         self.lock = multiprocessing.Lock()
         self.subprocess = PhoneWorkerSubProcess(self.worker_num, self.ipaddr,
                                                 tests, phone_cfg, user_cfg,
                                                 autophone_queue,
-                                                self.job_queue, logfile_prefix,
-                                                loglevel, mailer)
+                                                self.cmd_queue, logfile_prefix,
+                                                loglevel, mailer,
+                                                build_cache_port)
 
     def is_alive(self):
         return self.subprocess.is_alive()
@@ -71,17 +73,17 @@ class PhoneWorker(object):
     def stop(self):
         self.subprocess.stop()
 
-    def add_job(self, job):
-        self.job_queue.put_nowait(('job', job))
+    def new_build(self, build_url):
+        self.cmd_queue.put_nowait(('build', build_url))
 
     def reboot(self):
-        self.job_queue.put_nowait(('reboot', None))
+        self.cmd_queue.put_nowait(('reboot', None))
 
     def disable(self):
-        self.job_queue.put_nowait(('disable', None))
+        self.cmd_queue.put_nowait(('disable', None))
 
     def enable(self):
-        self.job_queue.put_nowait(('enable', None))
+        self.cmd_queue.put_nowait(('enable', None))
 
     def debug(self, level):
         try:
@@ -90,10 +92,10 @@ class PhoneWorker(object):
             logging.error('Invalid argument for debug: %s' % level)
         else:
             self.user_cfg['debug'] = level
-            self.job_queue.put_nowait(('debug', level))
+            self.cmd_queue.put_nowait(('debug', level))
 
     def ping(self):
-        self.job_queue.put_nowait(('ping', None))
+        self.cmd_queue.put_nowait(('ping', None))
 
     def process_msg(self, msg):
         """These are status messages routed back from the autophone_queue
@@ -119,21 +121,23 @@ class PhoneWorkerSubProcess(object):
     MAX_REBOOT_WAIT_SECONDS = 300
     MAX_REBOOT_ATTEMPTS = 3
     PING_SECONDS = 60*15
-    JOB_QUEUE_TIMEOUT_SECONDS = 10
+    CMD_QUEUE_TIMEOUT_SECONDS = 10
 
     def __init__(self, worker_num, ipaddr, tests, phone_cfg, user_cfg,
-                 autophone_queue, job_queue, logfile_prefix, loglevel, mailer):
+                 autophone_queue, cmd_queue, logfile_prefix, loglevel, mailer,
+                 build_cache_port):
         self.worker_num = worker_num
         self.ipaddr = ipaddr
         self.tests = tests
         self.phone_cfg = phone_cfg
         self.user_cfg = user_cfg
         self.autophone_queue = autophone_queue
-        self.job_queue = job_queue
+        self.cmd_queue = cmd_queue
         self.logfile = logfile_prefix + '.log'
         self.outfile = logfile_prefix + '.out'
         self.loglevel = loglevel
         self.mailer = mailer
+        self.build_cache_port = build_cache_port
         self.p = None
         self.skipped_job_queue = []
         self.current_build = None
@@ -171,8 +175,8 @@ class PhoneWorkerSubProcess(object):
     def stop(self):
         """Call from main process."""
         if self.is_alive():
-            self.job_queue.put_nowait(('stop', None))
-            self.p.join(self.JOB_QUEUE_TIMEOUT_SECONDS*2)
+            self.cmd_queue.put_nowait(('stop', None))
+            self.p.join(self.CMD_QUEUE_TIMEOUT_SECONDS*2)
 
     def has_error(self):
         return (self.status == phonetest.PhoneTestMessage.DISABLED or
@@ -334,7 +338,7 @@ the "enable" command.
         logging.error('Got empty device root!')
         return False
 
-    def do_job(self, job):
+    def run_tests(self, build_metadata):
         if not self.has_error():
             logging.info('Rebooting...')
             self.reboot()
@@ -351,14 +355,15 @@ the "enable" command.
         self.status_update(phonetest.PhoneTestMessage(
                 self.phone_cfg['phoneid'],
                 phonetest.PhoneTestMessage.INSTALLING,
-                job['blddate']))
-        logging.info('Installing build %s.' %
-                     datetime.datetime.fromtimestamp(float(job['blddate'])))
+                build_metadata['blddate']))
+        logging.info(
+            'Installing build %s.' % datetime.datetime.fromtimestamp(
+                float(build_metadata['blddate'])))
 
         try:
             pathOnDevice = posixpath.join(self.dm.getDeviceRoot(),
                                           'build.apk')
-            self.dm.pushFile(os.path.join(job['cache_build_dir'],
+            self.dm.pushFile(os.path.join(build_metadata['cache_build_dir'],
                                           'build.apk'), pathOnDevice)
             self.dm.installApp(pathOnDevice)
             self.dm.removeFile(pathOnDevice)
@@ -367,18 +372,18 @@ the "enable" command.
             logging.error(exc)
             self.phone_disconnected(exc)
             return False
-        self.current_build = job['blddate']
+        self.current_build = build_metadata['blddate']
 
         logging.info('Running tests...')
         for t in self.tests:
             if self.has_error():
                 break
-            t.current_build = job['blddate']
+            t.current_build = build_metadata['blddate']
             # TODO: Attempt to see if pausing between jobs helps with
             # our reconnection issues
             time.sleep(30)
             try:
-                t.runjob(job, self)
+                t.runjob(build_metadata, self)
             except DMError:
                 exc = 'Uncaught device error while running test!\n\n%s' % \
                     traceback.format_exc()
@@ -423,8 +428,8 @@ the "enable" command.
         while True:
             request = None
             try:
-                request = self.job_queue.get(
-                    timeout=self.JOB_QUEUE_TIMEOUT_SECONDS)
+                request = self.cmd_queue.get(
+                    timeout=self.CMD_QUEUE_TIMEOUT_SECONDS)
             except Queue.Empty:
                 if (self.status != phonetest.PhoneTestMessage.DISABLED and
                     (not last_ping or
@@ -453,12 +458,19 @@ the "enable" command.
                 continue
             if request[0] == 'stop':
                 return
-            if request[0] == 'job':
-                job = request[1]
-                if not job:
+            if request[0] == 'build':
+                build_url = request[1]
+                logging.info('Got notification of build %s.' % build_url)
+                client = buildserver.BuildCacheClient(
+                    port=self.build_cache_port)
+                logging.info('Fetching build...')
+                cache_response = client.get(build_url)
+                client.close()
+                if not cache_response['success']:
+                    logging.warn('Errors occured getting build %s: %s' %
+                                 (build_url, cache_response['error']))
                     continue
-                logging.info('Got job.')
-                if self.do_job(job):
+                if self.run_tests(cache_response['metadata']):
                     logging.info('Job completed.')
                     self.status_update(phonetest.PhoneTestMessage(
                             self.phone_cfg['phoneid'],
@@ -466,7 +478,7 @@ the "enable" command.
                             self.current_build))
                 else:
                     logging.error('Job failed; queuing it for later.')
-                    self.skipped_job_queue.append(job)
+                    self.skipped_job_queue.append(cache_response['metadata'])
             elif request[0] == 'reboot':
                 logging.info('Rebooting at user\'s request...')
                 self.reboot()
@@ -481,7 +493,7 @@ the "enable" command.
                             self.current_build))
                     last_ping = None
                 for j in self.skipped_job_queue:
-                    self.job_queue.put(('job', j))
+                    self.cmd_queue.put(('job', j))
             elif request[0] == 'debug':
                 self.user_cfg['debug'] = request[1]
                 DeviceManagerSUT.debug = self.user_cfg['debug']

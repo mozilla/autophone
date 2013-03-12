@@ -28,7 +28,7 @@ except ImportError:
 
 class UnitTest(PhoneTest):
 
-    def runjob(self, job, worker_subprocess):
+    def runjob(self, build_metadata, worker_subprocess):
 
         self.logger.debug('runtestsremote.py runjob start')
         self.set_status(msg='runtestsremote.py runjob start')
@@ -40,15 +40,15 @@ class UnitTest(PhoneTest):
         phone_ip_address = self.phone_cfg['ip']
         device_port = self.phone_cfg['sutcmdport']
 
-        cache_build_dir = os.path.abspath(job["cache_build_dir"])
+        cache_build_dir = os.path.abspath(build_metadata["cache_build_dir"])
         symbols_path = os.path.join(cache_build_dir, 'symbols')
         if not os.path.exists(symbols_path):
             symbols_path = None
 
-        androidprocname = job['androidprocname']
-        revision = job['revision']
-        buildid = job['buildid']
-        tree = job['tree']
+        androidprocname = build_metadata['androidprocname']
+        revision = build_metadata['revision']
+        buildid = build_metadata['buildid']
+        tree = build_metadata['tree']
 
         if self.logger.getEffectiveLevel() == logging.DEBUG:
             for prop in self.phone_cfg:
