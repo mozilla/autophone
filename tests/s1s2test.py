@@ -20,7 +20,13 @@ class S1S2Test(PhoneTest):
     def runjob(self, job, worker_subprocess):
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
-        self.prepare_phone(job)
+        for cache_enabled in (False, True):
+            self.runtest(job, worker_subprocess, cache_enabled)
+
+    def runtest(self, job, worker_subprocess, cache_enabled):
+        # Read our config file which gives us our number of
+        # iterations and urls that we will be testing
+        self.prepare_phone(job, cache_enabled)
 
         intent = job['androidprocname'] + '/.App'
 
@@ -87,7 +93,8 @@ class S1S2Test(PhoneTest):
                                          tstrt=throbberstart,
                                          tstop=throbberstop,
                                          job=job,
-                                         testname=testname)
+                                         testname=testname,
+                                         cache_enabled=cache_enabled)
 
     def wait_for_fennec(self, job, max_wait_time=60, wait_time=5, kill_wait_time=20):
         # Wait for up to a max_wait_time seconds for fennec to close
@@ -115,7 +122,7 @@ class S1S2Test(PhoneTest):
                 sleep(kill_wait_time)
         return False
 
-    def prepare_phone(self, job):
+    def prepare_phone(self, job, cache_enabled):
         telemetry_prompt = 999
         if job['blddate'] < '2013-01-03':
             telemetry_prompt = 2
@@ -126,7 +133,9 @@ class S1S2Test(PhoneTest):
                   'browser.warnOnQuit': False,
                   'browser.EULA.override': True,
                   'toolkit.telemetry.prompted': telemetry_prompt,
-                  'toolkit.telemetry.notifiedOptOut': telemetry_prompt }
+                  'toolkit.telemetry.notifiedOptOut': telemetry_prompt,
+                  'browser.cache.disk.enable': cache_enabled,
+                  'browser.cache.memory.enable': cache_enabled}
         profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
                                  os.getcwd())
         self.install_profile(profile)
@@ -204,10 +213,14 @@ class S1S2Test(PhoneTest):
 
         return (int(throbstart), int(throbstop))
 
-    def publish_results(self, starttime=0, tstrt=0, tstop=0, job=None, testname = ''):
+    def publish_results(self, starttime=0, tstrt=0, tstop=0, job=None, testname='', cache_enabled=True):
         msg = 'Start Time: %s Throbber Start: %s Throbber Stop: %s' % (starttime, tstrt, tstop)
-        print 'RESULTS %s %s:%s' % (self.phone_cfg['phoneid'], datetime.datetime.fromtimestamp(int(job['blddate'])), msg)
-        self.logger.info('RESULTS: %s:%s' % (self.phone_cfg['phoneid'], msg))
+        cache_msg = 'cached' if cache_enabled else 'not cached'
+        print 'RESULTS (%s) %s %s:%s' % (cache_msg,
+                                         self.phone_cfg['phoneid'],
+                                         datetime.datetime.fromtimestamp(int(job['blddate'])),
+                                         msg)
+        self.logger.info('RESULTS (%s): %s:%s' % (cache_msg, self.phone_cfg['phoneid'], msg))
 
         # Create JSON to send to webserver
         resultdata = {}
@@ -217,6 +230,7 @@ class S1S2Test(PhoneTest):
         resultdata['throbberstart'] = tstrt
         resultdata['throbberstop'] = tstop
         resultdata['blddate'] = job['blddate']
+        resultdata['cached'] = cache_enabled
 
         resultdata['revision'] = job['revision']
         resultdata['productname'] = job['androidprocname']
