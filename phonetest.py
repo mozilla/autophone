@@ -126,10 +126,11 @@ class PhoneTest(object):
 
     def run_fennec_with_profile(self, intent, url):
         output = StringIO.StringIO()
+        env = {'MOZ_CRASHREPORTER_NO_REPORT': '1'}
         args = ['am', 'start', '-a', 'android.intent.action.VIEW', '-n',
                 intent, '--es', 'args', '--profile %s' % self.profile_path,
                 '-d', url]
-        self.dm.shell(args, output)
+        self.dm.shell(args, output, env=env)
         logging.debug(output.getvalue())
 
     def remove_sessionstore_files(self):

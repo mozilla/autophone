@@ -133,6 +133,7 @@ class S1S2Test(PhoneTest):
             telemetry_prompt = 2
         prefs = { 'browser.firstrun.show.localepicker': False,
                   'browser.sessionstore.resume_from_crash': False,
+                  'dom.ipc.plugins.flash.subprocess.crashreporter.enabled': False,
                   'browser.firstrun.show.uidiscovery': False,
                   'shell.checkDefaultClient': False,
                   'browser.warnOnQuit': False,
