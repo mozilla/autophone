@@ -41,6 +41,7 @@ The s1s2 test is configured in the file configs/s1s2_settings.ini:
     file3 = configs/Twitter_files
     file1 = configs/startup6.html
     file2 = configs/Twitter2.html
+    file4 = configs/initialize_profile.html
     
     [urls]
     # These must resolve, so ensure this matches what is in the code for
@@ -53,6 +54,9 @@ The s1s2 test is configured in the file configs/s1s2_settings.ini:
     [settings]
     iterations = 20
     resulturl = http://192.168.1.133:8100/api/s1s2_add/
+    # initialize_url is loaded prior to the other urls in order to
+    # initialize the profile.
+    initialize_url = file://mnt/sdcard/s1test/initialize_profile.html
 
 [htmlfiles] contains the paths of files to transfer to the phone. [urls]
 lists local and remote URLs (FIXME: we could make this less redundant).

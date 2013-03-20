@@ -24,6 +24,15 @@ class S1S2Test(PhoneTest):
 
         intent = job['androidprocname'] + '/.App'
 
+        # Initialize profile
+        self.logger.debug('initializing profile...')
+        self.run_fennec_with_profile(intent, self._initialize_url)
+        if not self.wait_for_fennec(job):
+            self.logger.info('%s: Failed to initialize profile for build %s' %
+                             (self.phone_cfg['phoneid'], job['buildid']))
+            self.set_status(msg='Failed to initialize profile for build %s' % job['buildid'])
+            return
+
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
             self.logger.info('%s: Running test %s (%d/%d) for %s iterations' %
                              (self.phone_cfg['phoneid'], testname, testnum,
@@ -57,19 +66,9 @@ class S1S2Test(PhoneTest):
                     # parse in logcat.
                     throbberstart, throbberstop = self.analyze_logcat(job)
 
-                    self.logger.debug('killing fennec')
-                    # Get rid of the browser and session store files
-                    max_killattempts = 3
-                    for kill_attempt in range(max_killattempts):
-                        try:
-                            self.dm.killProcess(job['androidprocname'])
-                            break
-                        except DMError:
-                            self.logger.info('Attempt %d to kill fennec failed' % kill_attempt)
-                            if kill_attempt == max_killattempts - 1:
-                                raise
-                            sleep(20)
+                    self.wait_for_fennec(job)
 
+                    # Get rid of the browser and session store files
                     self.logger.debug('removing sessionstore files')
                     self.remove_sessionstore_files()
 
@@ -90,6 +89,32 @@ class S1S2Test(PhoneTest):
                                          job=job,
                                          testname=testname)
 
+    def wait_for_fennec(self, job, max_wait_time=60, wait_time=5, kill_wait_time=20):
+        # Wait for up to a max_wait_time seconds for fennec to close
+        # itself in response to the quitter request. Check that fennec
+        # is still running every wait_time seconds. If fennec doesn't
+        # close on its own, attempt up to 3 times to kill fennec, waiting
+        # kill_wait_time seconds between attempts.
+        # Return True if fennec exits on its own, False if it needs to be killed.
+        # Re-raise the last exception if fennec can not be killed.
+        max_wait_attempts = max_wait_time / wait_time
+        for wait_attempt in range(max_wait_attempts):
+            if not self.dm.processExist(job['androidprocname']):
+                return True
+            sleep(wait_time)
+        self.logger.debug('killing fennec')
+        max_killattempts = 3
+        for kill_attempt in range(max_killattempts):
+            try:
+                self.dm.killProcess(job['androidprocname'])
+                break
+            except DMError:
+                self.logger.info('Attempt %d to kill fennec failed' % kill_attempt)
+                if kill_attempt == max_killattempts - 1:
+                    raise
+                sleep(kill_wait_time)
+        return False
+
     def prepare_phone(self, job):
         telemetry_prompt = 999
         if job['blddate'] < '2013-01-03':
@@ -102,7 +127,8 @@ class S1S2Test(PhoneTest):
                   'browser.EULA.override': True,
                   'toolkit.telemetry.prompted': telemetry_prompt,
                   'toolkit.telemetry.notifiedOptOut': telemetry_prompt }
-        profile = FirefoxProfile(preferences=prefs)
+        profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
+                                 os.getcwd())
         self.install_profile(profile)
         self.dm.mkDir('/mnt/sdcard/s1test')
 
@@ -135,6 +161,7 @@ class S1S2Test(PhoneTest):
 
         self._iterations = cfg.getint('settings', 'iterations')
         self._resulturl = cfg.get('settings', 'resulturl')
+        self._initialize_url = cfg.get('settings', 'initialize_url')
 
     def analyze_logcat(self, job):
         self.logger.debug('analyzing logcat')
@@ -147,12 +174,14 @@ class S1S2Test(PhoneTest):
         wait_time = 3 # time to wait between attempts
         max_attempts = max_time / wait_time
 
-        fennec_crashed = False
-        while attempt < max_attempts and (throbstart == 0 or throbstop == 0):
+        # Always do at least one analysis of the logcat output
+        # after fennec stops running to make sure we have not missed
+        # throbberstop.
+        fennec_still_running = True
+        while (fennec_still_running and
+               attempt < max_attempts and (throbstart == 0 or throbstop == 0)):
             if not self.dm.processExist(job['androidprocname']):
-                self.logger.info('analyze_logcat: fennec is no longer running...')
-                fennec_crashed = True
-                break
+                fennec_still_running = False
             buf = [x.strip() for x in self.dm.getLogcat()]
             for line in buf:
                 # we want the first throbberstart and throbberstop.
@@ -162,10 +191,15 @@ class S1S2Test(PhoneTest):
                     throbstop = line.split(' ')[-4]
                 if throbstart and throbstop:
                     break
-            if throbstart == 0 or throbstop == 0:
+            if fennec_still_running and (throbstart == 0 or throbstop == 0):
                 sleep(wait_time)
                 attempt += 1
-        if not fennec_crashed and throbstart and throbstop == 0:
+        if self.check_for_crashes():
+            self.logger.info('fennec crashed')
+            fennec_crashed = True
+        else:
+            fennec_crashed = False
+        if throbstart and throbstop == 0 and not fennec_crashed:
             throbstop = int(throbstart) + max_time * 1000
 
         return (int(throbstart), int(throbstop))

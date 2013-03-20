@@ -2,6 +2,7 @@
 file3 = configs/Twitter_files
 file1 = configs/startup6.html
 file2 = configs/Twitter2.html
+file4 = configs/initialize_profile.html
 
 [urls]
 # These must resolve, so ensure this matches what is in the code for 
@@ -14,3 +15,6 @@ remote-blank = http://10.250.50.162/startup6.html
 [settings]
 iterations = 20
 resulturl = http://10.250.2.223:8100/api/s1s2_add/
+# initialize_url is loaded prior to the other urls in order to
+# initialize the profile.
+initialize_url = file://mnt/sdcard/s1test/initialize_profile.html

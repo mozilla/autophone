@@ -3,8 +3,10 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
+import glob
 import json
 import logging
+import os
 import StringIO
 
 from mozdevice import DeviceManagerSUT
@@ -133,3 +135,15 @@ class PhoneTest(object):
     def remove_sessionstore_files(self):
         self.dm.removeFile(self.profile_path + '/sessionstore.js')
         self.dm.removeFile(self.profile_path + '/sessionstore.bak')
+
+    def check_for_crashes(self):
+        """
+        Perform a quick check for crashes by checking
+        self.profile_path/minidumps for dump files.
+
+        TODO: Should use mozbase/mozcrash with symbols and minidump_stackwalk
+        to process and report crashes.
+        """
+        if glob.glob(os.path.join(self.profile_path, 'minidumps', '*.dmp')):
+            return True
+        return False
