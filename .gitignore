@@ -3,3 +3,4 @@
 *.log
 *~
 configs/unittest_defaults.ini
+jobs.sqlite

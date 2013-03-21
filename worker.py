@@ -6,6 +6,7 @@ from __future__ import with_statement
 
 import Queue
 import datetime
+import jobs
 import logging
 import multiprocessing
 import os
@@ -73,8 +74,8 @@ class PhoneWorker(object):
     def stop(self):
         self.subprocess.stop()
 
-    def new_build(self, build_url):
-        self.cmd_queue.put_nowait(('build', build_url))
+    def new_job(self):
+        self.cmd_queue.put_nowait(('job', None))
 
     def reboot(self):
         self.cmd_queue.put_nowait(('reboot', None))
@@ -138,9 +139,11 @@ class PhoneWorkerSubProcess(object):
         self.loglevel = loglevel
         self.mailer = mailer
         self.build_cache_port = build_cache_port
+        self._stop = False
         self.p = None
-        self.skipped_job_queue = []
+        self.jobs = jobs.Jobs(self.phone_cfg['phoneid'])
         self.current_build = None
+        self.last_ping = None
         self._dm = None
         self.status = None
 
@@ -169,7 +172,7 @@ class PhoneWorkerSubProcess(object):
                 return
             del self.p
         self.status = status
-        self.p = multiprocessing.Process(target=self.loop)
+        self.p = multiprocessing.Process(target=self.run)
         self.p.start()
 
     def stop(self):
@@ -345,11 +348,7 @@ the "enable" command.
 
         # may have gotten an error trying to reboot, so test again
         if self.has_error():
-            logging.info('Phone is in error state; queuing job '
-                         'for later.')
-            # FIXME: Write these to a file to resume eventually.
-            # We'll need a way (command, cli option) to automatically
-            # clear these as well.
+            logging.info('Phone is in error state; not running test.')
             return False
 
         self.status_update(phonetest.PhoneTestMessage(
@@ -388,13 +387,116 @@ the "enable" command.
                 exc = 'Uncaught device error while running test!\n\n%s' % \
                     traceback.format_exc()
                 logging.error(exc)
-                # FIXME: We should retry the whole thing; as it is, we
-                # actually skip this job.
                 self.phone_disconnected(exc)
                 return False
         return True
 
-    def loop(self):
+    def handle_timeout(self):
+        if (self.status != phonetest.PhoneTestMessage.DISABLED and
+            (not self.last_ping or
+             (datetime.datetime.now() - self.last_ping >
+              datetime.timedelta(seconds=self.PING_SECONDS)))):
+            self.last_ping = datetime.datetime.now()
+            if self.ping():
+                if self.status == phonetest.PhoneTestMessage.DISCONNECTED:
+                    self.recover_phone()
+                if not self.has_error():
+                    self.status_update(phonetest.PhoneTestMessage(
+                            self.phone_cfg['phoneid'],
+                            phonetest.PhoneTestMessage.IDLE,
+                            self.current_build))
+            else:
+                logging.info('Ping unanswered.')
+                # No point in trying to recover, since we couldn't
+                # even perform a simple action.
+                if not self.has_error():
+                    self.phone_disconnected('No response to ping.')
+
+    def handle_job(self, job):
+        logging.info('Starting job %s.' % job['build_url'])
+        client = buildserver.BuildCacheClient(port=self.build_cache_port)
+        logging.info('Fetching build...')
+        cache_response = client.get(job['build_url'])
+        client.close()
+        if not cache_response['success']:
+            logging.warn('Errors occured getting build %s: %s' %
+                         (job['build_url'], cache_response['error']))
+            return
+        if self.run_tests(cache_response['metadata']):
+            logging.info('Job completed.')
+            self.jobs.job_completed(job['id'])
+            self.status_update(phonetest.PhoneTestMessage(
+                    self.phone_cfg['phoneid'],
+                    phonetest.PhoneTestMessage.IDLE,
+                    self.current_build))
+        else:
+            logging.error('Job failed.')
+
+    def handle_cmd(self, request):
+        if not request:
+            pass
+        elif request[0] == 'stop':
+            self._stop = True
+        elif request[0] == 'job':
+            # This is just a notification that breaks us from waiting on the
+            # command queue; it's not essential, since jobs are stored in
+            # a db, but it allows the worker to react quickly to a request if
+            # it isn't doing anything else.
+            pass
+        elif request[0] == 'reboot':
+            logging.info('Rebooting at user\'s request...')
+            self.reboot()
+        elif request[0] == 'disable':
+            self.disable_phone('Disabled at user\'s request', False)
+        elif request[0] == 'enable':
+            logging.info('Enabling phone at user\'s request...')
+            if self.has_error():
+                self.status_update(phonetest.PhoneTestMessage(
+                        self.phone_cfg['phoneid'],
+                        phonetest.PhoneTestMessage.IDLE,
+                        self.current_build))
+                self.last_ping = None
+        elif request[0] == 'debug':
+            self.user_cfg['debug'] = request[1]
+            DeviceManagerSUT.debug = self.user_cfg['debug']
+            # update any existing DeviceManagerSUT objects
+            if self._dm:
+                self._dm.debug = self.user_cfg['debug']
+            for t in self.tests:
+                t.set_dm_debug(self.user_cfg['debug'])
+        elif request[0] == 'ping':
+            self.ping()
+
+    def main_loop(self):
+        # Commands take higher priority than jobs, so we deal with all
+        # immediately available commands, then start the next job, if there is
+        # one.  If neither a job nor a command is currently available,
+        # block on the command queue for CMD_QUEUE_TIMEOUT_SECONDS.
+        while True:
+            request = None
+            while ((self.has_error() or not self.jobs.jobs_pending()) and
+                   not request and self.cmd_queue.empty()):
+                try:
+                    request = self.cmd_queue.get(
+                        timeout=self.CMD_QUEUE_TIMEOUT_SECONDS)
+                except Queue.Empty:
+                    request = None
+                    self.handle_timeout()
+            while request:
+                self.handle_cmd(request)
+                if self._stop:
+                    return
+                try:
+                    request = self.cmd_queue.get_nowait()
+                except Queue.Empty:
+                    request = None
+            if self.has_error():
+                continue
+            job = self.jobs.get_next_job()
+            if job:
+                self.handle_job(job)
+
+    def run(self):
         sys.stdout = file(self.outfile, 'a', 0)
         sys.stderr = sys.stdout
         print '%s Worker starting up.' % \
@@ -414,8 +516,6 @@ the "enable" command.
         for t in self.tests:
             t.status_cb = self.status_update
 
-        last_ping = None
-
         self.status_update(phonetest.PhoneTestMessage(
                 self.phone_cfg['phoneid'], self.status))
 
@@ -425,82 +525,4 @@ the "enable" command.
             if self.has_error():
                 logging.error('Initial SD card check failed.')
 
-        while True:
-            request = None
-            try:
-                request = self.cmd_queue.get(
-                    timeout=self.CMD_QUEUE_TIMEOUT_SECONDS)
-            except Queue.Empty:
-                if (self.status != phonetest.PhoneTestMessage.DISABLED and
-                    (not last_ping or
-                     (datetime.datetime.now() - last_ping >
-                      datetime.timedelta(seconds=self.PING_SECONDS)))):
-                    last_ping = datetime.datetime.now()
-                    if self.ping():
-                        if (self.status ==
-                            phonetest.PhoneTestMessage.DISCONNECTED):
-                            self.recover_phone()
-                        if not self.has_error():
-                            self.status_update(phonetest.PhoneTestMessage(
-                                    self.phone_cfg['phoneid'],
-                                    phonetest.PhoneTestMessage.IDLE,
-                                    self.current_build))
-                    else:
-                        logging.info('Ping unanswered.')
-                        # No point in trying to recover, since we couldn't
-                        # even perform a simple action.
-                        if not self.has_error():
-                            self.phone_disconnected('No response to ping.')
-            except KeyboardInterrupt:
-                return
-
-            if not request:
-                continue
-            if request[0] == 'stop':
-                return
-            if request[0] == 'build':
-                build_url = request[1]
-                logging.info('Got notification of build %s.' % build_url)
-                client = buildserver.BuildCacheClient(
-                    port=self.build_cache_port)
-                logging.info('Fetching build...')
-                cache_response = client.get(build_url)
-                client.close()
-                if not cache_response['success']:
-                    logging.warn('Errors occured getting build %s: %s' %
-                                 (build_url, cache_response['error']))
-                    continue
-                if self.run_tests(cache_response['metadata']):
-                    logging.info('Job completed.')
-                    self.status_update(phonetest.PhoneTestMessage(
-                            self.phone_cfg['phoneid'],
-                            phonetest.PhoneTestMessage.IDLE,
-                            self.current_build))
-                else:
-                    logging.error('Job failed; queuing it for later.')
-                    self.skipped_job_queue.append(cache_response['metadata'])
-            elif request[0] == 'reboot':
-                logging.info('Rebooting at user\'s request...')
-                self.reboot()
-            elif request[0] == 'disable':
-                self.disable_phone('Disabled at user\'s request', False)
-            elif request[0] == 'enable':
-                logging.info('Enabling phone at user\'s request...')
-                if self.has_error():
-                    self.status_update(phonetest.PhoneTestMessage(
-                            self.phone_cfg['phoneid'],
-                            phonetest.PhoneTestMessage.IDLE,
-                            self.current_build))
-                    last_ping = None
-                for j in self.skipped_job_queue:
-                    self.cmd_queue.put(('job', j))
-            elif request[0] == 'debug':
-                self.user_cfg['debug'] = request[1]
-                DeviceManagerSUT.debug = self.user_cfg['debug']
-                # update any existing DeviceManagerSUT objects
-                if self._dm:
-                    self._dm.debug = self.user_cfg['debug']
-                for t in self.tests:
-                    t.set_dm_debug(self.user_cfg['debug'])
-            elif request[0] == 'ping':
-                self.ping()
+        self.main_loop()
