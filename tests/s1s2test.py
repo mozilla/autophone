@@ -20,6 +20,14 @@ class S1S2Test(PhoneTest):
     def runjob(self, build_metadata, worker_subprocess):
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
+        cfg = ConfigParser.RawConfigParser()
+        cfg.read(self.config_file)
+        self._iterations = cfg.getint('settings', 'iterations')
+        self._resulturl = cfg.get('settings', 'resulturl')
+        if self._resulturl[-1] != '/':
+            self._resulturl += '/'
+        self._initialize_url = cfg.get('settings', 'initialize_url')
+        self.clear_results(build_metadata)
         for cache_enabled in (False, True):
             self.runtest(build_metadata, worker_subprocess, cache_enabled)
 
@@ -174,10 +182,6 @@ class S1S2Test(PhoneTest):
                 self.dm.pushFile(h[1], posixpath.join(testroot,
                                                       os.path.basename(h[1])))
 
-        self._iterations = cfg.getint('settings', 'iterations')
-        self._resulturl = cfg.get('settings', 'resulturl')
-        self._initialize_url = cfg.get('settings', 'initialize_url')
-
     def analyze_logcat(self, build_metadata):
         self.logger.debug('analyzing logcat')
         throbberstartRE = re.compile('.*Throbber start$')
@@ -219,6 +223,18 @@ class S1S2Test(PhoneTest):
 
         return (int(throbstart), int(throbstop))
 
+    def clear_results(self, build_metadata):
+        data = json.dumps({'revision': build_metadata['revision'],
+                           'bldtype': build_metadata['bldtype'],
+                           'phoneid': self.phone_cfg['phoneid']})
+        req = urllib2.Request(self._resulturl + 'delete/', data,
+                              {'Content-Type': 'application/json'})
+        try:
+            urllib2.urlopen(req)
+        except urllib2.URLError, e:
+            self.logger.error('Could not clear previous results on server: %s'
+                              % e)
+
     def publish_results(self, starttime=0, tstrt=0, tstop=0,
                         build_metadata=None, testname='', cache_enabled=True):
         msg = 'Start Time: %s Throbber Start: %s Throbber Stop: %s' % (
@@ -251,7 +267,7 @@ class S1S2Test(PhoneTest):
 
         # Upload
         result = json.dumps({'data': resultdata})
-        req = urllib2.Request(self._resulturl, result,
+        req = urllib2.Request(self._resulturl + 'add/', result,
                               {'Content-Type': 'application/json'})
         try:
             f = urllib2.urlopen(req)

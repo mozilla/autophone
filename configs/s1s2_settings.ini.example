@@ -1,7 +1,7 @@
 [htmlfiles]
-file3 = configs/Twitter_files
 file1 = configs/startup6.html
 file2 = configs/Twitter2.html
+file3 = configs/Twitter_files
 file4 = configs/initialize_profile.html
 
 [urls]
@@ -9,12 +9,12 @@ file4 = configs/initialize_profile.html
 # the testroot
 local-twitter = file://mnt/sdcard/s1test/Twitter2.html
 local-blank = file://mnt/sdcard/s1test/startup6.html
-remote-twitter = http://10.250.50.162/Twitter2.html
-remote-blank = http://10.250.50.162/startup6.html
+remote-twitter = http://static_server/Twitter2.html
+remote-blank = http://static_server/startup6.html
 
 [settings]
-iterations = 20
-resulturl = http://10.250.2.223:8100/api/s1s2_add/
+iterations = 5
+resulturl = http://phonedash_server/api/s1s2/
 # initialize_url is loaded prior to the other urls in order to
 # initialize the profile.
 initialize_url = file://mnt/sdcard/s1test/initialize_profile.html
