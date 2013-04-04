@@ -22,7 +22,6 @@ import urlparse
 from manifestparser import TestManifest
 from mozdevice.devicemanager import NetworkTools
 from pulsebuildmonitor import start_pulse_monitor
-from multiprocessinghandlers import MultiprocessingStreamHandler, MultiprocessingTimedRotatingFileHandler
 
 import builds
 import buildserver
