@@ -442,7 +442,6 @@ the "enable" command.
             self.loggerdeco.error('Job failed.')
 
     def handle_cmd(self, request):
-        self.loggerdeco.debug('handle_cmd: %s' % request)
         if not request:
             self.loggerdeco.debug('handle_cmd: No request')
             pass
