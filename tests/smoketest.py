@@ -45,14 +45,14 @@ class SmokeTest(PhoneTest):
         # iterations and urls that we will be testing
         self.prepare_phone(build_metadata)
 
-        intent = build_metadata['androidprocname'] + '/.App'
+        appname = build_metadata['androidprocname']
 
         # Clear logcat
         self.dm.recordLogcat()
 
         # Run test
         self.loggerdeco.debug('running fennec')
-        self.run_fennec_with_profile(intent, 'about:fennec')
+        self.run_fennec_with_profile(appname, 'about:fennec')
 
         self.loggerdeco.debug('analyzing logcat...')
         fennec_launched = self.analyze_logcat(build_metadata)

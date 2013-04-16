@@ -71,11 +71,11 @@ class S1S2Test(PhoneTest):
         # iterations and urls that we will be testing
         self.prepare_phone(build_metadata, cache_enabled)
 
-        intent = build_metadata['androidprocname'] + '/.App'
+        appname = build_metadata['androidprocname']
 
         # Initialize profile
         self.loggerdeco.debug('initializing profile...')
-        self.run_fennec_with_profile(intent, self._initialize_url)
+        self.run_fennec_with_profile(appname, self._initialize_url)
         if not self.wait_for_fennec(build_metadata):
             self.loggerdeco.info('%s: Failed to initialize profile for build %s' %
                                  (self.phone_cfg['phoneid'],
@@ -121,7 +121,7 @@ class S1S2Test(PhoneTest):
 
                     # Run test
                     self.loggerdeco.debug('running fennec')
-                    self.run_fennec_with_profile(intent, url)
+                    self.run_fennec_with_profile(appname, url)
 
                     # Get results - do this now so we don't have as much to
                     # parse in logcat.

@@ -10,7 +10,7 @@ import os
 import StringIO
 
 from logdecorator import LogDecorator
-from mozdevice import DeviceManagerSUT
+from mozdevice import DroidSUT
 from mozprofile import FirefoxProfile
 
 class PhoneTestMessage(object):
@@ -85,8 +85,9 @@ class PhoneTest(object):
     @property
     def dm(self):
         if not self._dm:
-            self._dm = DeviceManagerSUT(self.phone_cfg['ip'],
-                                        self.phone_cfg['sutcmdport'])
+            self._dm = DroidSUT(self.phone_cfg['ip'],
+                                self.phone_cfg['sutcmdport'],
+                                self.user_cfg['debug'])
         return self._dm
 
     @property
@@ -130,15 +131,20 @@ class PhoneTest(object):
         self.dm.mkDir(self.profile_path)
         self.dm.pushDir(profile.profile, self.profile_path)
 
-    def run_fennec_with_profile(self, intent, url):
-        output = StringIO.StringIO()
-        env = {'MOZ_CRASHREPORTER_NO_REPORT': '1'}
-        args = ['am', 'start', '-a', 'android.intent.action.VIEW', '-n',
-                intent, '--es', 'args', '--profile %s' % self.profile_path,
-                '-d', url]
-        self.dm.shell(args, output, env=env)
-        self.loggerdeco.debug('phonetest.py.run_fennec_with_profile: output:%s ' %
-                              output.getvalue())
+    def run_fennec_with_profile(self, appname, url):
+        self.loggerdeco.debug('run_fennec_with_profile: %s %s' % (appname, url))
+        try:
+            self.dm.killProcess(appname)
+            self.dm.launchFennec(appname,
+                                 intent="android.intent.action.VIEW",
+                                 mozEnv={'MOZ_CRASHREPORTER_NO_REPORT': '1'},
+                                 extraArgs=['--profile', self.profile_path],
+                                 url=url,
+                                 wait=False)
+            self.loggerdeco.debug('run_fennec_with_profile: success.')
+        except:
+            self.loggerdeco.exception('run_fennec_with_profile: Exception:')
+            raise
 
     def remove_sessionstore_files(self):
         self.dm.removeFile(self.profile_path + '/sessionstore.js')
