@@ -121,7 +121,9 @@ class AutoPhone(object):
         if enable_pulse:
             self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
                                                     trees=repos,
-                                                    platforms=['android'],
+                                                    platforms=['android',
+                                                               'android-armv6',
+                                                               'android-x86'],
                                                     buildtypes=buildtypes,
                                                     logger=self.logger)
         else:
@@ -202,8 +204,25 @@ class AutoPhone(object):
                 phoneid = p.phone_cfg['phoneid']
                 if devices and phoneid not in devices:
                     continue
+                abi = p.phone_cfg['abi']
+                incompatible_job = False
+                if abi == 'x86':
+                    if 'x86' not in build_url:
+                        incompatible_job = True
+                elif abi == 'armeabi-v6':
+                    if 'armv6' in build_url:
+                        incompatible_job = True
+                else:
+                    if 'x86' in build_url or 'armv6' in build_url:
+                        incompatible_job = True
+                if incompatible_job:
+                    self.logger.debug('Ignoring incompatible job %s '
+                                      'for phone %s abi %s' %
+                                      (build_url, phoneid, abi))
+                    continue
                 self.jobs.new_job(build_url, phoneid)
-                self.logger.info('Notifying device %s of new job.' % phoneid)
+                self.logger.info('Notifying device %s of new job %s.' %
+                                 (phoneid, build_url))
                 p.new_job()
         finally:
             self.worker_lock.release()
@@ -305,7 +324,10 @@ class AutoPhone(object):
                 sutcmdport=int(data['cmdport'][0]),
                 machinetype=data['hardware'][0],
                 osver=data['os'][0],
+                abi=data['abi'][0],
                 ipaddr=self.ipaddr)
+            if self.logger.getEffectiveLevel() == logging.DEBUG:
+                self.logger.debug('register_cmd: phone_cfg: %s' % phone_cfg)
             if phoneid in self.phone_workers:
                 self.logger.debug('Received registration message for known phone '
                                   '%s.' % phoneid)

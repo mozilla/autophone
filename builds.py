@@ -26,7 +26,7 @@ class Nightly(object):
     def __init__(self, repos, buildtypes):
         self.repos = repos
         self.buildtypes = buildtypes
-        self.nightly_dirnames = [(re.compile('(.*)-%s-android$'
+        self.nightly_dirnames = [(re.compile('(.*)-%s-android(-armv6|-x86)?$'
                                              % repo)) for repo in repos]
 
     def nightly_ftpdir(self, year, month):
@@ -65,7 +65,7 @@ class Nightly(object):
     def build_date_from_url(self, url):
         # nightly urls are of the form
         #  ftp://ftp.mozilla.org/pub/mobile/nightly/<year>/<month>/<year>-
-        #    <month>-<day>-<hour>-<minute>-<second>-<repo>-android(-armv6)?/
+        #    <month>-<day>-<hour>-<minute>-<second>-<repo>-android(-armv6|-x86)?/
         #    <buildfile>
         m = re.search('nightly\/[\d]{4}\/[\d]{2}\/([\d]{4}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2})-', url)
         if not m:
@@ -84,7 +84,10 @@ class Tinderbox(object):
     def ftpdirs(self, start_time, end_time):
         # FIXME: Can we be certain that there's only one buildID (unique
         # timestamp) regardless of repo (at least m-i vs m-c)?
-        dirnames = [('%s%s-android/' % (self.main_ftp_url, repo)) for repo in self.repos]
+        dirnames = []
+        for repo in self.repos:
+            for arch in ('', '-armv6', '-x86'):
+                dirnames.append('%s%s-android%s/' % (self.main_ftp_url, repo, arch))
 
         return dirnames
 
@@ -96,8 +99,8 @@ class Tinderbox(object):
     def build_date_from_url(self, url):
         # tinderbox urls are of the form
         #   ftp://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/
-        #     <repo>-android/<build timestamp>/<buildfile>
-        m = re.search('tinderbox-builds\/.*-android\/([\d]+)\/', url)
+        #     <repo>-android(-armv6|-x86)?/<build timestamp>/<buildfile>
+        m = re.search('tinderbox-builds\/.*-android(-armv6|-x86)?\/([\d]+)\/', url)
         logger.debug('build_date_from_url: url: %s, match: %s' % (url, m))
         if not m:
             return None
@@ -153,7 +156,7 @@ class BuildCache(object):
             return Tinderbox(self.repos, self.buildtypes)
         return None
 
-    def find_latest_build(self, build_location_name='nightly'):
+    def find_latest_builds(self, build_location_name='nightly'):
         window = datetime.timedelta(days=3)
         now = datetime.datetime.now()
         builds = self.find_builds(now - window, now, build_location_name)
@@ -162,7 +165,18 @@ class BuildCache(object):
                          '%d days!' % window.days)
             return None
         builds.sort()
-        return builds[-1]
+        # Return the most recent builds for each of the architectures.
+        # The phones will weed out the unnecessary architectures.
+        builds.reverse()
+        multiarch_builds = []
+        for arch in ('armv6', 'i386', 'arm'):
+            for build in builds:
+                if arch in build:
+                    multiarch_builds.append(build)
+                    break
+            builds = [build for build in builds if arch not in build]
+
+        return multiarch_builds
 
     def find_builds(self, start_time, end_time, build_location_name='nightly'):
         logger.debug('Finding most recent build between %s and %s...' %
@@ -178,7 +192,7 @@ class BuildCache(object):
             end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
 
         builds = []
-        fennecregex = re.compile("fennec.*\.android-arm\.apk")
+        fennecregex = re.compile("fennec.*\.android-(arm|arm-armv6|i386)\.apk")
 
         for d in build_location.ftpdirs(start_time, end_time):
             url = urlparse.urlparse(d)

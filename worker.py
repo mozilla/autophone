@@ -422,14 +422,33 @@ the "enable" command.
                     self.phone_disconnected('No response to ping.')
 
     def handle_job(self, job):
-        self.loggerdeco.info('Starting job %s.' % job['build_url'])
+        abi = self.phone_cfg['abi']
+        build_url = job['build_url']
+        self.loggerdeco.debug('handle_job: job: %s, abi: %s' % (job, abi))
+        incompatible_job = False
+        if abi == 'x86':
+            if 'x86' not in build_url:
+                incompatible_job = True
+        elif abi == 'armeabi-v6':
+            if 'armv6' not in build_url:
+                incompatible_job = True
+        else:
+            if 'x86' in build_url or 'armv6' in build_url:
+                incompatible_job = True
+        if incompatible_job:
+            self.loggerdeco.debug('Ignoring incompatible job %s '
+                                  'for phone abi %s' %
+                                  (build_url, abi))
+            self.jobs.job_completed(job['id'])
+            return
+        self.loggerdeco.info('Starting job %s.' % build_url)
         client = buildserver.BuildCacheClient(port=self.build_cache_port)
         self.loggerdeco.info('Fetching build...')
-        cache_response = client.get(job['build_url'])
+        cache_response = client.get(build_url)
         client.close()
         if not cache_response['success']:
             self.loggerdeco.warn('Errors occured getting build %s: %s' %
-                                 (job['build_url'], cache_response['error']))
+                                 (build_url, cache_response['error']))
             return
         if self.run_tests(cache_response['metadata']):
             self.loggerdeco.info('Job completed.')

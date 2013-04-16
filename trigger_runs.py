@@ -10,6 +10,8 @@ import socket
 
 import builds
 
+from multiprocessinghandlers import MultiprocessingStreamHandler, MultiprocessingTimedRotatingFileHandler
+
 def from_iso_date_or_datetime(s):
     datefmt = '%Y-%m-%d'
     datetimefmt = datefmt + 'T%H:%M:%S'
@@ -28,14 +30,33 @@ def command_str(build, devices):
 
 
 def main(args, options):
-    logging.info('Looking for builds...')
+    loglevel = e = None
+    try:
+        loglevel = getattr(logging, options.loglevel_name)
+    except AttributeError, e:
+        pass
+    finally:
+        if e or logging.getLevelName(loglevel) != options.loglevel_name:
+            print 'Invalid log level %s' % options.loglevel_name
+            return errno.EINVAL
+
+    logger = logging.getLogger('autophone.builds')
+    logger.setLevel(loglevel)
+    filehandler = MultiprocessingTimedRotatingFileHandler(options.logfile,
+                                                          when='midnight',
+                                                          backupCount=7)
+    fileformatstring = ('%(asctime)s|%(levelname)s'
+                        '|builds|%(message)s')
+    fileformatter = logging.Formatter(fileformatstring)
+    filehandler.setFormatter(fileformatter)
+    logger.addHandler(filehandler)
+
+    logger.info('Looking for builds...')
     build_urls = []
     if args[0] == 'latest':
-        build_url = builds.BuildCache(
-            options.repos, options.buildtypes).find_latest_build(
+        build_urls = builds.BuildCache(
+            options.repos, options.buildtypes).find_latest_builds(
             options.build_location)
-        if build_url:
-            build_urls = [build_url]
     else:
         if re.match('\d{14}', args[0]):
             # build id
@@ -59,15 +80,19 @@ def main(args, options):
     if not build_urls:
         return 1
     commands = [command_str(b, options.devices) for b in build_urls]
-    logging.info('Connecting to autophone server...')
+    logger.info('Connecting to autophone server...')
     commands.append('exit')
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((options.ip, options.port))
-    logging.info('- %s' % s.recv(1024).strip())
+    logger.info('- %s' % s.recv(1024).strip())
     for c in commands:
-        logging.info('%s' % c)
+        sc = '%s' % c
+        logger.info(sc)
+        print(sc)
         s.sendall(c + '\n')
-        logging.info('- %s' % s.recv(1024).strip())
+        sr = '- %s' % s.recv(1024).strip()
+        logger.info(sr)
+        print(sr)
     return 0
 
 
@@ -106,8 +131,14 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       dest='build_location', default='nightly',
                       help='build location to search for builds, defaults to nightly;'
                       ' can be "tinderbox" for both m-c and m-i')
-    parser.add_option('-v', '--verbose', action='store_true', dest='verbose',
-                      default=False, help='verbose output')
+    parser.add_option('--logfile', action='store', type='string',
+                      dest='logfile', default='autophone.log',
+                      help='Log file to store build system logs, '
+                      'defaults to autophone.log')
+    parser.add_option('--loglevel', action='store', type='string',
+                      dest='loglevel_name', default='DEBUG',
+                      help='Log level - ERROR, WARNING, DEBUG, or INFO, '
+                      'defaults to DEBUG')
     parser.add_option('--repo',
                       dest='repos',
                       action='append',
@@ -137,12 +168,5 @@ If "latest" is given, test runs are initiated for the most recent build.'''
 
     if not options.buildtypes:
         options.buildtypes = ['opt']
-
-    if options.verbose:
-        log_level = logging.DEBUG
-    else:
-        log_level = logging.INFO
-
-    logging.basicConfig(level=log_level)
 
     sys.exit(main(args, options))
