@@ -197,16 +197,27 @@ class AutoPhone(object):
     # Start the phones for testing
     def new_job(self, build_url, devices=None):
         self.worker_lock.acquire()
-        for p in self.phone_workers.values():
-            phoneid = p.phone_cfg['phoneid']
-            if devices and phoneid not in devices:
-                continue
-            self.jobs.new_job(build_url, phoneid)
-            self.logger.info('Notifying device %s of new job.' % phoneid)
-            p.new_job()
-        self.worker_lock.release()
+        try:
+            for p in self.phone_workers.values():
+                phoneid = p.phone_cfg['phoneid']
+                if devices and phoneid not in devices:
+                    continue
+                self.jobs.new_job(build_url, phoneid)
+                self.logger.info('Notifying device %s of new job.' % phoneid)
+                p.new_job()
+        finally:
+            self.worker_lock.release()
 
     def route_cmd(self, data):
+        response = ''
+        self.cmd_lock.acquire()
+        try:
+            response = self._route_cmd(data)
+        finally:
+            self.cmd_lock.release()
+        return response
+
+    def _route_cmd(self, data):
         # There is not currently any way to get proper responses for commands
         # that interact with workers, since communication between the main
         # process and the worker processes is asynchronous.
@@ -214,7 +225,6 @@ class AutoPhone(object):
         # onto a queue and have them routed to the proper connection by using
         # request IDs or something like that.
         self.logger.debug('route_cmd: %s' % data)
-        self.cmd_lock.acquire()
         data = data.strip()
         cmd, space, params = data.partition(' ')
         cmd = cmd.lower()
@@ -265,7 +275,6 @@ class AutoPhone(object):
                     self.update_phone_cache()
         else:
             response = 'Unknown command "%s"\n' % cmd
-        self.cmd_lock.release()
         return response
 
     def create_worker(self, phone_cfg, user_cfg):
