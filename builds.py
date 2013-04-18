@@ -250,7 +250,7 @@ class BuildCache(object):
         try:
             download_build = (force or not os.path.exists(build_path) or
                               zipfile.ZipFile(build_path).testzip() is not None)
-        except zipfile.BadZipFile:
+        except zipfile.BadZipfile:
             download_build = True
         if download_build:
             # retrieve to temporary file then move over, so we don't end
@@ -285,7 +285,7 @@ class BuildCache(object):
                 else:
                     logger.exception('IO Error retrieving symbols: %s.' % symbols_url)
             except zipfile.BadZipfile:
-                logger.info('Ignoring zipfile.BadZipFile Error retrieving symbols: %s.' % symbols_url)
+                logger.info('Ignoring zipfile.BadZipfile Error retrieving symbols: %s.' % symbols_url)
                 try:
                     with open(tmpf.name, 'r') as badzipfile:
                         logger.debug(badzipfile.read())
