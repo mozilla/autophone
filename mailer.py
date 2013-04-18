@@ -8,6 +8,8 @@ from sendemail import sendemail
 
 class Mailer(object):
 
+    logger = logging.getLogger('autophone.mailer')
+
     def __init__(self, cfgfile, subject_prefix=''):
         self.cfgfile = cfgfile
         self.subject_prefix = subject_prefix
@@ -18,7 +20,7 @@ class Mailer(object):
         try:
             from_address = cfg.get('report', 'from')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            logging.error('No "from" option defined in "report" section of file "%s".\n' % self.cfgfile)
+            self.logger.error('No "from" option defined in "report" section of file "%s".\n' % self.cfgfile)
             return
 
         try:

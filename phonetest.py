@@ -9,6 +9,7 @@ import logging
 import os
 import StringIO
 
+from logdecorator import LogDecorator
 from mozdevice import DeviceManagerSUT
 from mozprofile import FirefoxProfile
 
@@ -72,7 +73,12 @@ class PhoneTest(object):
         self.phone_cfg = phone_cfg
         self.user_cfg = user_cfg
         self.status = None
-        self.logger = logging.getLogger('phonetest')
+        self.logger = logging.getLogger('autophone.phonetest')
+        self.loggerdeco = LogDecorator(self.logger,
+                                       {'phoneid': self.phone_cfg['phoneid'],
+                                        'phoneip': self.phone_cfg['ip']},
+                                       '%(phoneid)s|%(phoneip)s|%(message)s')
+        self.loggerdeco.info('init autophone.phonetest')
         self._base_device_path = ''
         self._dm = None
 
@@ -131,7 +137,8 @@ class PhoneTest(object):
                 intent, '--es', 'args', '--profile %s' % self.profile_path,
                 '-d', url]
         self.dm.shell(args, output, env=env)
-        logging.debug(output.getvalue())
+        self.loggerdeco.debug('phonetest.py.run_fennec_with_profile: output:%s ' %
+                              output.getvalue())
 
     def remove_sessionstore_files(self):
         self.dm.removeFile(self.profile_path + '/sessionstore.js')

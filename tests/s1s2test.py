@@ -5,33 +5,55 @@
 import ConfigParser
 import datetime
 import json
+import logging
 import os
 import posixpath
 import re
 import urllib2
 from time import sleep
 
+from logdecorator import LogDecorator
 from mozprofile import FirefoxProfile
-
 from phonetest import PhoneTest
 
 class S1S2Test(PhoneTest):
 
     def runjob(self, build_metadata, worker_subprocess):
-        # Read our config file which gives us our number of
-        # iterations and urls that we will be testing
-        cfg = ConfigParser.RawConfigParser()
-        cfg.read(self.config_file)
-        self._iterations = cfg.getint('settings', 'iterations')
-        self._resulturl = cfg.get('settings', 'resulturl')
-        if self._resulturl[-1] != '/':
-            self._resulturl += '/'
-        self._initialize_url = cfg.get('settings', 'initialize_url')
-        self.clear_results(build_metadata)
-        for cache_enabled in (False, True):
-            self.runtest(build_metadata, worker_subprocess, cache_enabled)
+        logger = self.logger
+        loggerdeco = self.loggerdeco
+        self.logger = logging.getLogger('autophone.worker.subprocess.test')
+        self.loggerdeco = LogDecorator(self.logger,
+                                       {'phoneid': self.phone_cfg['phoneid'],
+                                        'phoneip': self.phone_cfg['ip'],
+                                        'buildid': build_metadata['buildid']},
+                                       '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                       '%(message)s')
+
+        try:
+            # Read our config file which gives us our number of
+            # iterations and urls that we will be testing
+            cfg = ConfigParser.RawConfigParser()
+            cfg.read(self.config_file)
+            self._iterations = cfg.getint('settings', 'iterations')
+            self._resulturl = cfg.get('settings', 'resulturl')
+            if self._resulturl[-1] != '/':
+                self._resulturl += '/'
+            self._initialize_url = cfg.get('settings', 'initialize_url')
+            self.clear_results(build_metadata)
+            for cache_enabled in (False, True):
+                self.runtest(build_metadata, worker_subprocess, cache_enabled)
+        finally:
+            self.logger = logger
+            self.loggerdeco = loggerdeco
 
     def runtest(self, build_metadata, worker_subprocess, cache_enabled):
+        self.loggerdeco = LogDecorator(self.logger,
+                                       {'phoneid': self.phone_cfg['phoneid'],
+                                        'phoneip': self.phone_cfg['ip'],
+                                        'buildid': build_metadata['buildid'],
+                                        'cache_enabled': cache_enabled},
+                                       '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                       'Cache: %(cache_enabled)s|%(message)s')
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
         self.prepare_phone(build_metadata, cache_enabled)
@@ -39,32 +61,42 @@ class S1S2Test(PhoneTest):
         intent = build_metadata['androidprocname'] + '/.App'
 
         # Initialize profile
-        self.logger.debug('initializing profile...')
+        self.loggerdeco.debug('initializing profile...')
         self.run_fennec_with_profile(intent, self._initialize_url)
         if not self.wait_for_fennec(build_metadata):
-            self.logger.info('%s: Failed to initialize profile for build %s' %
-                             (self.phone_cfg['phoneid'],
-                              build_metadata['buildid']))
+            self.loggerdeco.info('%s: Failed to initialize profile for build %s' %
+                                 (self.phone_cfg['phoneid'],
+                                  build_metadata['buildid']))
             self.set_status(msg='Failed to initialize profile for build %s' %
                             build_metadata['buildid'])
             return
 
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
-            self.logger.info('%s: Running test %s (%d/%d) for %s iterations' %
-                             (self.phone_cfg['phoneid'], testname, testnum,
-                              len(self._urls.keys()), self._iterations))
+            self.loggerdeco = LogDecorator(self.logger,
+                                           {'phoneid': self.phone_cfg['phoneid'],
+                                            'phoneip': self.phone_cfg['ip'],
+                                            'buildid': build_metadata['buildid'],
+                                            'cache_enabled': cache_enabled,
+                                            'testname': testname},
+                                           '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                           'Cache: %(cache_enabled)s|'
+                                           '%(testname)s|%(message)s')
+            self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
+                                 (testnum, len(self._urls.keys()),
+                                  self._iterations))
             for i in range(self._iterations):
                 success = False
                 attempt = 0
                 while not success and attempt < 3:
                     # Set status
-                    self.set_status(msg='Test %d/%d, run %s, attempt %s for url %s' %
-                            (testnum, len(self._urls.keys()), i, attempt, url))
+                    self.set_status(msg='Test %d/%d, run %d, attempt %d for url %s' %
+                                    (testnum, len(self._urls.keys()), i, attempt,
+                                     url))
 
                     # Clear logcat
-                    self.logger.debug('clearing logcat')
+                    self.loggerdeco.debug('clearing logcat')
                     self.dm.recordLogcat()
-                    self.logger.debug('logcat cleared')
+                    self.loggerdeco.debug('logcat cleared')
 
                     # Get start time
                     try:
@@ -75,7 +107,7 @@ class S1S2Test(PhoneTest):
                         starttime = 0
 
                     # Run test
-                    self.logger.debug('running fennec')
+                    self.loggerdeco.debug('running fennec')
                     self.run_fennec_with_profile(intent, url)
 
                     # Get results - do this now so we don't have as much to
@@ -86,7 +118,7 @@ class S1S2Test(PhoneTest):
                     self.wait_for_fennec(build_metadata)
 
                     # Get rid of the browser and session store files
-                    self.logger.debug('removing sessionstore files')
+                    self.loggerdeco.debug('removing sessionstore files')
                     self.remove_sessionstore_files()
 
                     # Ensure we succeeded - no 0's reported
@@ -96,11 +128,11 @@ class S1S2Test(PhoneTest):
                         attempt = attempt + 1
 
                 # Publish results
-                self.logger.debug('%s throbbers after %d attempts' %
-                                  ('successfully got' if success else
-                                   'failed to get', attempt))
+                self.loggerdeco.debug('%s throbbers after %d attempts' %
+                                      ('successfully got' if success else
+                                       'failed to get', attempt))
                 if success:
-                    self.logger.debug('publishing results')
+                    self.loggerdeco.debug('publishing results')
                     self.publish_results(starttime=int(starttime),
                                          tstrt=throbberstart,
                                          tstop=throbberstop,
@@ -122,14 +154,15 @@ class S1S2Test(PhoneTest):
             if not self.dm.processExist(build_metadata['androidprocname']):
                 return True
             sleep(wait_time)
-        self.logger.debug('killing fennec')
+        self.loggerdeco.debug('killing fennec')
         max_killattempts = 3
         for kill_attempt in range(max_killattempts):
             try:
                 self.dm.killProcess(build_metadata['androidprocname'])
                 break
             except DMError:
-                self.logger.info('Attempt %d to kill fennec failed' % kill_attempt)
+                self.loggerdeco.info('Attempt %d to kill fennec failed' %
+                                     kill_attempt)
                 if kill_attempt == max_killattempts - 1:
                     raise
                 sleep(kill_wait_time)
@@ -158,7 +191,7 @@ class S1S2Test(PhoneTest):
         testroot = '/mnt/sdcard/s1test'
 
         if not os.path.exists(self.config_file):
-            self.logger.error('Cannot find config file: %s' % self.config_file)
+            self.loggerdeco.error('Cannot find config file: %s' % self.config_file)
             raise NameError('Cannot find config file: %s' % self.config_file)
 
         cfg = ConfigParser.RawConfigParser()
@@ -183,7 +216,7 @@ class S1S2Test(PhoneTest):
                                                       os.path.basename(h[1])))
 
     def analyze_logcat(self, build_metadata):
-        self.logger.debug('analyzing logcat')
+        self.loggerdeco.debug('analyzing logcat')
         throbberstartRE = re.compile('.*Throbber start$')
         throbberstopRE = re.compile('.*Throbber stop$')
         throbstart = 0
@@ -214,7 +247,7 @@ class S1S2Test(PhoneTest):
                 sleep(wait_time)
                 attempt += 1
         if self.check_for_crashes():
-            self.logger.info('fennec crashed')
+            self.loggerdeco.info('fennec crashed')
             fennec_crashed = True
         else:
             fennec_crashed = False
@@ -232,21 +265,15 @@ class S1S2Test(PhoneTest):
         try:
             urllib2.urlopen(req)
         except urllib2.URLError, e:
-            self.logger.error('Could not clear previous results on server: %s'
-                              % e)
+            self.loggerdeco.error('Could not clear previous results on server: %s'
+                                  % e)
 
     def publish_results(self, starttime=0, tstrt=0, tstop=0,
                         build_metadata=None, testname='', cache_enabled=True):
-        msg = 'Start Time: %s Throbber Start: %s Throbber Stop: %s' % (
-            starttime, tstrt, tstop)
-        cache_msg = 'cached' if cache_enabled else 'not cached'
-        print 'RESULTS (%s) %s %s:%s' % (
-            cache_msg,
-            self.phone_cfg['phoneid'],
-            datetime.datetime.fromtimestamp(int(build_metadata['blddate'])),
-            msg)
-        self.logger.info('RESULTS (%s): %s:%s' %
-                         (cache_msg, self.phone_cfg['phoneid'], msg))
+        msg = ('Start Time: %s Throbber Start: %s Throbber Stop: %s '
+               'Total Throbber Time %s' % (
+                starttime, tstrt, tstop, tstop - tstrt))
+        self.loggerdeco.info('RESULTS: %s' % msg)
 
         # Create JSON to send to webserver
         resultdata = {}
@@ -272,7 +299,7 @@ class S1S2Test(PhoneTest):
         try:
             f = urllib2.urlopen(req)
         except urllib2.URLError, e:
-            self.logger.error('Could not send results to server: %s' % e)
+            self.loggerdeco.error('Could not send results to server: %s' % e)
         else:
             f.read()
             f.close()

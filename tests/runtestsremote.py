@@ -11,6 +11,7 @@ import os
 import tempfile
 import traceback
 import logging
+from logdecorator import LogDecorator
 from logparser import LogParser
 from mozautolog import RESTfulAutologTestGroup
 import re
@@ -29,8 +30,23 @@ except ImportError:
 class UnitTest(PhoneTest):
 
     def runjob(self, build_metadata, worker_subprocess):
+        logger = self.logger
+        loggerdeco = self.loggerdeco
+        self.logger = logging.getLogger('autophone.worker.subprocess.test')
+        self.loggerdeco = LogDecorator(self.logger,
+                                       {'phoneid': self.phone_cfg['phoneid'],
+                                        'phoneip': self.phone_cfg['ip'],
+                                        'buildid': build_metadata['buildid']},
+                                       '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                       '%(message)s')
+        try:
+            self.setup_and_runtest(build_metadata, worker_subprocess)
+        finally:
+            self.logger = logger
+            self.loggerdeco = loggerdeco
 
-        self.logger.debug('runtestsremote.py runjob start')
+    def setup_and_runtest(self, build_metadata, worker_subprocess):
+        self.loggerdeco.debug('runtestsremote.py runjob start')
         self.set_status(msg='runtestsremote.py runjob start')
 
         self.worker_subprocess = worker_subprocess
@@ -52,8 +68,8 @@ class UnitTest(PhoneTest):
 
         if self.logger.getEffectiveLevel() == logging.DEBUG:
             for prop in self.phone_cfg:
-                self.logger.debug('phone_cfg[%s] = %s' %
-                                  (prop, self.phone_cfg[prop]))
+                self.loggerdeco.debug('phone_cfg[%s] = %s' %
+                                      (prop, self.phone_cfg[prop]))
 
         job_cfg = ConfigParser.RawConfigParser()
         job_cfg.read(self.config_file)
@@ -89,15 +105,15 @@ class UnitTest(PhoneTest):
                 # This exception handler deals with exceptions which occur outside
                 # of the actual test runner. Exceptions from the test runner
                 # are handled locally in runtest.
-                error_message = ('runtestsremote.py:runjob: Exception running test: %s' %
-                                 traceback.format_exc())
-                self.logger.error(error_message)
-                self.set_status(msg=error_message)
+                self.loggerdeco.exception('runtestsremote.py:runjob: Exception '
+                                          'running test')
+                self.set_status(msg='runtestsremote.py:runjob: Exception '
+                                'running test')
                 # give the phone a minute to recover
                 time.sleep(60)
                 self.worker_subprocess.recover_phone()
 
-        self.logger.debug('runtestsremote.py runjob exit')
+        self.loggerdeco.debug('runtestsremote.py runjob exit')
         self.set_status(msg='runtestsremote.py runjob exit')
 
     def load_test_parameters(self, test_parameters, config_file):
@@ -110,8 +126,8 @@ class UnitTest(PhoneTest):
         unittest_config_file = cfg.get('runtests', 'unittest_defaults')
         cfg.read(unittest_config_file)
 
-        self.logger.info('config_file = %s, unittest_config_file = %s' %
-                         (config_file, unittest_config_file))
+        self.loggerdeco.info('config_file = %s, unittest_config_file = %s' %
+                             (config_file, unittest_config_file))
 
         test_parameters['xre_path'] = cfg.get('runtests', 'xre_path')
         test_parameters['utility_path'] = cfg.get('runtests', 'utility_path')
@@ -199,7 +215,7 @@ class UnitTest(PhoneTest):
                 'reftest/tests/testing/crashtest/crashtests.list',
                 ]
         else:
-            self.logger.error('Unknown test_name %s' % test_parameters['test_name'])
+            self.loggerdeco.error('Unknown test_name %s' % test_parameters['test_name'])
             raise Exception('Unknown test_name %s' % test_parameters['test_name'])
 
         test_parameters['http_port'] = test_parameters['port_manager'].reserve()
@@ -279,7 +295,7 @@ class UnitTest(PhoneTest):
 
         platform_name = self.phone_cfg['machinetype']
 
-        self.logger.debug('testgroup_name = %s' % testgroup_name)
+        self.loggerdeco.debug('testgroup_name = %s' % testgroup_name)
 
         testgroup = RESTfulAutologTestGroup(
             index=test_parameters['index'],
@@ -300,9 +316,10 @@ class UnitTest(PhoneTest):
 
         for testdata in test_runs:
 
-            self.logger.debug('Begin testdata')
-            self.logger.debug(json.dumps(testdata, indent=4))
-            self.logger.debug('End testdata')
+            if self.logger.getEffectiveLevel() == logging.DEBUG:
+                self.loggerdeco.debug('Begin testdata')
+                self.loggerdeco.debug(json.dumps(testdata, indent=4))
+                self.loggerdeco.debug('End testdata')
 
             testgroup.add_test_suite(
                 testsuite=testgroup_name,
@@ -334,11 +351,19 @@ class UnitTest(PhoneTest):
 
     def runtest(self, test_parameters):
 
+        self.logger = LogDecorator(self._logger,
+                                   {'phoneid': self.phone_cfg['phoneid'],
+                                    'phoneip': self.phone_cfg['ip'],
+                                    'buildid': build_metadata['buildid'],
+                                    'testname': test_parameters['test_name']},
+                                   '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                   '%(testname)s|%(message)s')
+
         if self.logger.getEffectiveLevel() == logging.DEBUG:
-            self.logger.debug('runtestsremote.py runtest start')
+            self.loggerdeco.debug('runtestsremote.py runtest start')
             for key in test_parameters.keys():
-                self.logger.debug('test parameters: %s = %s' %
-                                  (key, test_parameters[key]))
+                self.loggerdeco.debug('test parameters: %s = %s' %
+                                      (key, test_parameters[key]))
 
         self.set_status(msg='Starting test %s' % test_parameters['test_name'])
 
@@ -357,8 +382,7 @@ class UnitTest(PhoneTest):
             try:
                 self.dm.uninstallApp('org.mozilla.roboexample.test')
             except DMError:
-                self.logger.info('runtestsremote.py:runtest: Exception running test: %s' %
-                                 traceback.format_exc())
+                self.loggerdeco.exception('runtestsremote.py:runtest: Exception running test.')
 
             self.dm.installApp(robocop_apk_path)
             self.dm.removeFile(robocop_apk_path)
@@ -374,13 +398,13 @@ class UnitTest(PhoneTest):
                     socket_collision = False
 
                     logfilehandle = tempfile.NamedTemporaryFile(delete=False)
-                    self.logger.debug('logging to %s' % logfilehandle.name)
+                    self.loggerdeco.debug('logging to %s' % logfilehandle.name)
 
                     args = self.create_test_args(test_parameters)
 
                     test_parameters['cmdline'] = ' '.join(args)
-                    self.logger.debug("cmdline = %s" %
-                                      test_parameters['cmdline'])
+                    self.loggerdeco.debug("cmdline = %s" %
+                                          test_parameters['cmdline'])
 
                     self.set_status(msg='Running test %s chunk %d of %d' %
                                     (test_parameters['test_name'],
@@ -396,8 +420,8 @@ class UnitTest(PhoneTest):
                         close_fds=True
                     )
                     proc.wait()
-                    self.logger.debug('runtestsremote.py return code %d' %
-                                      proc.returncode)
+                    self.loggerdeco.debug('runtestsremote.py return code %d' %
+                                          proc.returncode)
 
                     logfilehandle.close()
                     reSocketError = re.compile('socket\.error:')
@@ -420,24 +444,24 @@ class UnitTest(PhoneTest):
                                   this_chunk, test_parameters['total_chunks'],
                                   traceback.format_exc()))
                 self.set_status(msg=error_message)
-                self.logger.error(error_message)
+                self.loggerdeco.error(error_message)
             finally:
                 logfilehandle.close()
                 self.process_test_log(test_parameters, logfilehandle)
                 if self.logger.getEffectiveLevel() == logging.DEBUG:
                     logfilehandle = open(logfilehandle.name)
-                    self.logger.debug(40 * '*')
-                    self.logger.debug(logfilehandle.read())
-                    self.logger.debug(40 * '-')
+                    self.loggerdeco.debug(40 * '*')
+                    self.loggerdeco.debug(logfilehandle.read())
+                    self.loggerdeco.debug(40 * '-')
                     logfilehandle.close()
                 os.unlink(logfilehandle.name)
                 # wait for a minute to give the phone time to settle
                 time.sleep(60)
                 # Recover the phone in between tests/chunks.
-                self.logger.info('Rebooting device after test.')
+                self.loggerdeco.info('Rebooting device after test.')
                 self.worker_subprocess.recover_phone()
 
-        self.logger.debug('runtestsremote.py runtest exit')
+        self.loggerdeco.debug('runtestsremote.py runtest exit')
 
         return
 

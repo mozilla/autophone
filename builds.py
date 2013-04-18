@@ -18,8 +18,8 @@ import time
 import urllib
 import urlparse
 import zipfile
-import traceback
 
+logger = logging.getLogger('autophone.builds')
 
 class Nightly(object):
 
@@ -34,7 +34,7 @@ class Nightly(object):
                                                                       month)
 
     def ftpdirs(self, start_time, end_time):
-        logging.debug('Getting ftp dirs...')
+        logger.debug('Getting ftp dirs...')
         dirs = []
         y = start_time.year
         m = start_time.month
@@ -45,7 +45,7 @@ class Nightly(object):
                 m = 1
             else:
                 m += 1
-        logging.debug('Searching these ftp dirs: %s' % ', '.join(dirs))
+        logger.debug('Searching these ftp dirs: %s' % ', '.join(dirs))
         return dirs
 
     def build_info_from_ftp(self, ftpline):
@@ -98,10 +98,10 @@ class Tinderbox(object):
         #   ftp://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/
         #     <repo>-android/<build timestamp>/<buildfile>
         m = re.search('tinderbox-builds\/.*-android\/([\d]+)\/', url)
-        logging.debug('build_date_from_url: url: %s, match: %s' % (url, m))
+        logger.debug('build_date_from_url: url: %s, match: %s' % (url, m))
         if not m:
             return None
-        logging.debug('build_date_from_url: match.group(1): %s' % m.group(1))
+        logger.debug('build_date_from_url: match.group(1): %s' % m.group(1))
         return datetime.datetime.fromtimestamp(int(m.group(1)),
                                                pytz.timezone('US/Pacific'))
 
@@ -158,18 +158,18 @@ class BuildCache(object):
         now = datetime.datetime.now()
         builds = self.find_builds(now - window, now, build_location_name)
         if not builds:
-            logging.error('Could not find any nightly builds in the last '
-                          '%d days!' % window.days)
+            logger.error('Could not find any nightly builds in the last '
+                         '%d days!' % window.days)
             return None
         builds.sort()
         return builds[-1]
 
     def find_builds(self, start_time, end_time, build_location_name='nightly'):
-        logging.debug('Finding most recent build between %s and %s...' %
-                      (start_time, end_time))
+        logger.debug('Finding most recent build between %s and %s...' %
+                     (start_time, end_time))
         build_location = self.build_location(build_location_name)
         if not build_location:
-            logging.error('unsupported build_location "%s"' % build_location_name)
+            logger.error('unsupported build_location "%s"' % build_location_name)
             return []
 
         if not start_time.tzinfo:
@@ -182,10 +182,10 @@ class BuildCache(object):
 
         for d in build_location.ftpdirs(start_time, end_time):
             url = urlparse.urlparse(d)
-            logging.debug('Logging into %s...' % url.netloc)
+            logger.debug('Logging into %s...' % url.netloc)
             f = ftplib.FTP(url.netloc)
             f.login()
-            logging.debug('Looking for builds in %s...' % url.path)
+            logger.debug('Looking for builds in %s...' % url.path)
             lines = self.FtpLineCache()
             f.dir(url.path, lines)
             file('lines.out', 'w').write('\n'.join(lines.lines))
@@ -208,7 +208,7 @@ class BuildCache(object):
                         buildurl = url.scheme + '://' + url.netloc + newpath + "/" + filename
                         builds.append(buildurl)
         if not builds:
-            logging.error('No builds found.')
+            logger.error('No builds found.')
         return builds
 
     def build_date(self, url):
@@ -217,7 +217,7 @@ class BuildCache(object):
         if build_location:
             builddate = build_location.build_date_from_url(url)
         if not builddate:
-            logging.error('bad URL "%s"' % url)
+            logger.error('bad URL "%s"' % url)
         return builddate
 
     def get(self, buildurl, force=False):
@@ -262,8 +262,7 @@ class BuildCache(object):
             except IOError:
                 os.unlink(tmpf.name)
                 err = 'IO Error retrieving build: %s.' % buildurl
-                logging.error(err)
-                logging.error(traceback.format_exc())
+                logger.exception(err)
                 return {'success': False, 'error': err}
             shutil.move(tmpf.name, build_path)
         file(os.path.join(cache_build_dir, 'lastused'), 'w')
@@ -282,15 +281,14 @@ class BuildCache(object):
                 symbols_zipfile.close()
             except IOError, ioerror:
                 if '550 Failed to change directory' in ioerror.strerror.strerror.message:
-                    logging.info('No symbols found: %s.' % symbols_url)
+                    logger.info('No symbols found: %s.' % symbols_url)
                 else:
-                    logging.error('IO Error retrieving symbols: %s.' % symbols_url)
-                    logging.error(traceback.format_exc())
+                    logger.exception('IO Error retrieving symbols: %s.' % symbols_url)
             except zipfile.BadZipfile:
-                logging.info('Ignoring zipfile.BadZipFile Error retrieving symbols: %s.' % symbols_url)
+                logger.info('Ignoring zipfile.BadZipFile Error retrieving symbols: %s.' % symbols_url)
                 try:
                     with open(tmpf.name, 'r') as badzipfile:
-                        logging.debug(badzipfile.read())
+                        logger.debug(badzipfile.read())
                 except:
                     pass
             os.unlink(tmpf.name)
@@ -308,8 +306,7 @@ class BuildCache(object):
                 except IOError:
                     os.unlink(tmpf.name)
                     err = 'IO Error retrieving tests: %s.' % tests_url
-                    logging.error(err)
-                    logging.error(traceback.format_exc())
+                    logger.exception(err)
                     return {'success': False, 'error': err}
                 tests_zipfile = zipfile.ZipFile(tmpf.name)
                 tests_zipfile.extractall(tests_path)
@@ -325,8 +322,7 @@ class BuildCache(object):
                 except IOError:
                     os.unlink(tmpf.name)
                     err = 'IO Error retrieving robocop.apk: %s.' % robocop_url
-                    logging.error(err)
-                    logging.error(traceback.format_exc())
+                    logger.exception(err)
                     return {'success': False, 'error': err}
                 shutil.move(tmpf.name, robocop_path)
                 # XXX: assumes fixed buildurl-> fennec_ids.txt mapping
@@ -340,8 +336,7 @@ class BuildCache(object):
                     os.unlink(tmpf.name)
                     err = 'IO Error retrieving fennec_ids.txt: %s.' % \
                         fennec_ids_url
-                    logging.error(err)
-                    logging.error(traceback.format_exc())
+                    logger.exception(err)
                     return {'success': False, 'error': err}
                 shutil.move(tmpf.name, fennec_ids_path)
 
@@ -371,7 +366,7 @@ class BuildCache(object):
         builds.sort(key=lambda x: x[1])
         while len(builds) > self.MAX_NUM_BUILDS:
             b = builds.pop(0)[0]
-            logging.info('Expiring %s' % b)
+            logger.info('Expiring %s' % b)
             shutil.rmtree(os.path.join(self.cache_dir, b))
 
     def build_metadata(self, build_dir):
@@ -389,7 +384,7 @@ class BuildCache(object):
         except zipfile.BadZipfile:
             # we should have already tried to redownload bad zips, so treat
             # this as fatal.
-            logging.error('%s is a bad apk; aborting job.' % build_path)
+            logger.error('%s is a bad apk; aborting job.' % build_path)
             shutil.rmtree(tmpdir)
             return None
         cfg = ConfigParser.RawConfigParser()
