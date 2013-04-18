@@ -280,7 +280,7 @@ class BuildCache(object):
                 symbols_zipfile.extractall(symbols_path)
                 symbols_zipfile.close()
             except IOError, ioerror:
-                if '550 Failed to change directory' in ioerror.strerror.strerror.message:
+                if '550 Failed to change directory' in str(ioerror):
                     logger.info('No symbols found: %s.' % symbols_url)
                 else:
                     logger.exception('IO Error retrieving symbols: %s.' % symbols_url)
