@@ -13,6 +13,7 @@ import urllib2
 from time import sleep
 
 from logdecorator import LogDecorator
+from mozdevice import DMError
 from mozprofile import FirefoxProfile
 from phonetest import PhoneTest
 
