@@ -219,7 +219,7 @@ class S1S2Test(PhoneTest):
         else:
             fennec_crashed = False
         if throbstart and throbstop == 0 and not fennec_crashed:
-            throbstop = int(throbstart) + max_time * 1000
+            self.loggerdeco.info('Unable to find Throbber stop')
 
         return (int(throbstart), int(throbstop))
 
