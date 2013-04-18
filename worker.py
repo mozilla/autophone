@@ -157,7 +157,7 @@ class PhoneWorkerSubProcess(object):
             # default retrylimit.
             self._dm = DeviceManagerSUT(self.phone_cfg['ip'],
                                         self.phone_cfg['sutcmdport'],
-                                        retrylimit=8)
+                                        retryLimit=8)
             logging.info('Connected.')
         return self._dm
 
