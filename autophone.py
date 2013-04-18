@@ -89,7 +89,7 @@ class AutoPhone(object):
 
         self._stop = False
         self._next_worker_num = 0
-        self.jobs = jobs.Jobs()
+        self.jobs = jobs.Jobs(self.mailer)
         self.phone_workers = {}  # indexed by mac address
         self.worker_lock = threading.Lock()
         self.cmd_lock = threading.Lock()

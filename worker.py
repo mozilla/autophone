@@ -147,7 +147,7 @@ class PhoneWorkerSubProcess(object):
         self.build_cache_port = build_cache_port
         self._stop = False
         self.p = None
-        self.jobs = jobs.Jobs(self.phone_cfg['phoneid'])
+        self.jobs = jobs.Jobs(self.mailer, self.phone_cfg['phoneid'])
         self.current_build = None
         self.last_ping = None
         self._dm = None
