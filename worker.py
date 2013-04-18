@@ -401,6 +401,7 @@ the "enable" command.
         return True
 
     def handle_timeout(self):
+        self.loggerdeco.debug('handle_timeout')
         if (self.status != phonetest.PhoneTestMessage.DISABLED and
             (not self.last_ping or
              (datetime.datetime.now() - self.last_ping >
@@ -443,14 +444,17 @@ the "enable" command.
 
     def handle_cmd(self, request):
         if not request:
+            self.loggerdeco.debug('handle_cmd: No request')
             pass
         elif request[0] == 'stop':
+            self.loggerdeco.info('Stopping at user\'s request...')
             self._stop = True
         elif request[0] == 'job':
             # This is just a notification that breaks us from waiting on the
             # command queue; it's not essential, since jobs are stored in
             # a db, but it allows the worker to react quickly to a request if
             # it isn't doing anything else.
+            self.loggerdeco.debug('Received job command request...')
             pass
         elif request[0] == 'reboot':
             self.loggerdeco.info('Rebooting at user\'s request...')
@@ -466,6 +470,7 @@ the "enable" command.
                         self.current_build))
                 self.last_ping = None
         elif request[0] == 'debug':
+            self.loggerdeco.info('Setting debug level %d at user\'s request...' % request[1])
             self.user_cfg['debug'] = request[1]
             DeviceManagerSUT.debug = self.user_cfg['debug']
             # update any existing DeviceManagerSUT objects
@@ -474,36 +479,40 @@ the "enable" command.
             for t in self.tests:
                 t.set_dm_debug(self.user_cfg['debug'])
         elif request[0] == 'ping':
+            self.loggerdeco.info('Pinging at user\'s request...')
             self.ping()
+        else:
+            self.loggerdeco.debug('handle_cmd: Unknown request %s' % request[0])
 
     def main_loop(self):
         # Commands take higher priority than jobs, so we deal with all
         # immediately available commands, then start the next job, if there is
         # one.  If neither a job nor a command is currently available,
         # block on the command queue for CMD_QUEUE_TIMEOUT_SECONDS.
+        request = None
         while True:
-            request = None
-            while ((self.has_error() or not self.jobs.jobs_pending()) and
-                   not request and self.cmd_queue.empty()):
-                try:
-                    request = self.cmd_queue.get(
-                        timeout=self.CMD_QUEUE_TIMEOUT_SECONDS)
-                except Queue.Empty:
-                    request = None
-                    self.handle_timeout()
-            while request:
+            try:
+                if not request:
+                    request = self.cmd_queue.get_nowait()
                 self.handle_cmd(request)
+                request = None
                 if self._stop:
                     return
-                try:
-                    request = self.cmd_queue.get_nowait()
-                except Queue.Empty:
-                    request = None
-            if self.has_error():
-                continue
-            job = self.jobs.get_next_job()
-            if job:
-                self.handle_job(job)
+            except Queue.Empty:
+                request = None
+                if self.has_error():
+                    self.recover_phone()
+                if not self.has_error():
+                    job = self.jobs.get_next_job()
+                    if job:
+                        self.handle_job(job)
+                    else:
+                        try:
+                            request = self.cmd_queue.get(
+                                timeout=self.CMD_QUEUE_TIMEOUT_SECONDS)
+                        except Queue.Empty:
+                            request = None
+                            self.handle_timeout()
 
     def run(self):
         sys.stdout = file(self.outfile, 'a', 0)
