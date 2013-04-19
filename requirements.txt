@@ -1,3 +1,4 @@
+-e git://github.com/markrcote/jwt.git#egg=jwt
 logparser
 mozautolog
 mozdevice

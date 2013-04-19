@@ -3,8 +3,8 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
-import datetime
 import json
+import jwt
 import logging
 import os
 import posixpath
@@ -35,6 +35,18 @@ class S1S2Test(PhoneTest):
             # iterations and urls that we will be testing
             cfg = ConfigParser.RawConfigParser()
             cfg.read(self.config_file)
+            self._signer = None
+            self._jwt = {'id': '', 'key': None}
+            for opt in self._jwt.keys():
+                try:
+                    self._jwt[opt] = cfg.get('signature', opt)
+                except (ConfigParser.NoSectionError,
+                        ConfigParser.NoOptionError):
+                    break
+            # phonedash requires both an id and a key.
+            if self._jwt['id'] and self._jwt['key']:
+                self._signer = jwt.jws.HmacSha(key=self._jwt['key'],
+                                               key_id=self._jwt['id'])
             self._iterations = cfg.getint('settings', 'iterations')
             self._resulturl = cfg.get('settings', 'resulturl')
             if self._resulturl[-1] != '/':
@@ -293,10 +305,16 @@ class S1S2Test(PhoneTest):
         resultdata['bldtype'] = build_metadata['bldtype']
         resultdata['machineid'] = self.phone_cfg['machinetype']
 
+        result = {'data': resultdata}
         # Upload
-        result = json.dumps({'data': resultdata})
-        req = urllib2.Request(self._resulturl + 'add/', result,
-                              {'Content-Type': 'application/json'})
+        if self._signer:
+            encoded_result = jwt.encode(result, signer=self._signer)
+            content_type = 'application/jwt'
+        else:
+            encoded_result = json.dumps(result)
+            content_type = 'application/json; charset=utf-8'
+        req = urllib2.Request(self._resulturl + 'add/', encoded_result,
+                              {'Content-Type': content_type})
         try:
             f = urllib2.urlopen(req)
         except urllib2.URLError, e:

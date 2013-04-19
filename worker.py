@@ -21,7 +21,7 @@ import buildserver
 import phonetest
 from logdecorator import LogDecorator
 from mozdevice import DeviceManagerSUT, DMError
-from multiprocessinghandlers import MultiprocessingStreamHandler, MultiprocessingTimedRotatingFileHandler
+from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
 
 
 class Crashes(object):
@@ -401,7 +401,6 @@ the "enable" command.
         return True
 
     def handle_timeout(self):
-        self.loggerdeco.debug('handle_timeout')
         if (self.status != phonetest.PhoneTestMessage.DISABLED and
             (not self.last_ping or
              (datetime.datetime.now() - self.last_ping >
