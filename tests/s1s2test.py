@@ -10,12 +10,48 @@ import os
 import posixpath
 import re
 import urllib2
+from math import sqrt
 from time import sleep
 
 from logdecorator import LogDecorator
 from mozdevice import DMError
 from mozprofile import FirefoxProfile
 from phonetest import PhoneTest
+
+# STDERRP_THRESHOLD is the target maximum percentage standard error of
+# the mean. We will continue to collect results until all of the
+# measurement's percentage standard errors of the mean are below this
+# value.
+STDERRP_THRESHOLD = 1.0
+
+def get_stats(values):
+    """Calculate and return an object containing the count, mean,
+    standard deviation, standard error of the mean and percentage
+    standard error of the mean of the values list."""
+    r = {'count': len(values)}
+    if r['count'] == 1:
+        r['mean'] = values[0]
+        r['stddev'] = 0
+        r['stderr'] = 0
+        r['stderrp'] = 0
+    else:
+        r['mean'] = sum(values) / float(r['count'])
+        r['stddev'] = sqrt(sum([(value - r['mean'])**2 for value in values])/float(r['count']-1))
+        r['stderr'] = r['stddev']/sqrt(r['count'])
+        r['stderrp'] = 100.0*r['stderr']/float(r['mean'])
+    return r
+
+def is_stderr_acceptible(dataset):
+    """Return True if all of the measurements in the dataset have
+    standard errors of the mean below the threshold."""
+
+    for cachekey in ('uncached', 'cached'):
+        for measurement in ('throbberstart', 'throbberstop', 'throbbertime'):
+            stats = get_stats(dataset[cachekey][measurement])
+            print 'is_stderr_acceptible:  %s %s: %s' % (cachekey, measurement, stats)
+            if stats['count'] == 1 or stats['stderrp'] >= STDERRP_THRESHOLD:
+                return False
+    return True
 
 class S1S2Test(PhoneTest):
 
@@ -53,105 +89,182 @@ class S1S2Test(PhoneTest):
                 self._resulturl += '/'
             self._initialize_url = cfg.get('settings', 'initialize_url')
             self.clear_results(build_metadata)
-            for cache_enabled in (False, True):
-                self.runtest(build_metadata, worker_subprocess, cache_enabled)
+            self.runtests(build_metadata, worker_subprocess)
         finally:
             self.logger = logger
             self.loggerdeco = loggerdeco
 
-    def runtest(self, build_metadata, worker_subprocess, cache_enabled):
+    def runtests(self, build_metadata, worker_subprocess):
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone_cfg['phoneid'],
                                         'phoneip': self.phone_cfg['ip'],
-                                        'buildid': build_metadata['buildid'],
-                                        'cache_enabled': cache_enabled},
+                                        'buildid': build_metadata['buildid']},
                                        '%(phoneid)s|%(phoneip)s|%(buildid)s|'
-                                       'Cache: %(cache_enabled)s|%(message)s')
-        # Read our config file which gives us our number of
-        # iterations and urls that we will be testing
-        self.prepare_phone(build_metadata, cache_enabled)
-
+                                       '%(message)s')
         appname = build_metadata['androidprocname']
 
-        # Initialize profile
-        self.loggerdeco.debug('initializing profile...')
-        self.run_fennec_with_profile(appname, self._initialize_url)
-        if not self.wait_for_fennec(build_metadata):
-            self.loggerdeco.info('%s: Failed to initialize profile for build %s' %
+        # Attempt to launch fennec and load the initialize url
+        # to see if we can actually test this build. Try up to
+        # 2 times, otherwise abort the test.
+        success = False
+        self.prepare_phone(build_metadata)
+        for attempt in range(2):
+            self.loggerdeco.debug('Checking if fennec is runnable...')
+            self.run_fennec_with_profile(appname, self._initialize_url)
+            if self.wait_for_fennec(build_metadata):
+                success = True
+                break
+            self.loggerdeco.info('%s: Attempt %d failed to run fennec for build %s' %
+                                 (self.phone_cfg['phoneid'],
+                                  attempt,
+                                  build_metadata['buildid']))
+            self.set_status(msg='Attempt %d failed to run fennec for build %s' %
+                            (attempt,
+                             build_metadata['buildid']))
+        if not success:
+            self.loggerdeco.info('%s: Could not run Fennec. Aborting test for '
+                                 'build %s' %
                                  (self.phone_cfg['phoneid'],
                                   build_metadata['buildid']))
-            self.set_status(msg='Failed to initialize profile for build %s' %
-                            build_metadata['buildid'])
+            self.set_status(msg='Could not run Fennec. Aborting test for '
+                            'build %s' %
+                            (attempt,
+                             build_metadata['buildid']))
             return
 
+        testcount = len(self._urls.keys())
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
             self.loggerdeco = LogDecorator(self.logger,
                                            {'phoneid': self.phone_cfg['phoneid'],
                                             'phoneip': self.phone_cfg['ip'],
                                             'buildid': build_metadata['buildid'],
-                                            'cache_enabled': cache_enabled,
                                             'testname': testname},
                                            '%(phoneid)s|%(phoneip)s|%(buildid)s|'
-                                           'Cache: %(cache_enabled)s|'
                                            '%(testname)s|%(message)s')
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
                                  (testnum, len(self._urls.keys()),
                                   self._iterations))
-            for i in range(self._iterations):
+
+            self.loggerdeco.debug('Rebooting phone before test...')
+            worker_subprocess.recover_phone()
+            if worker_subprocess.has_error():
+                return
+
+            # Collect up to self._iterations measurements. Terminate
+            # measurements early if the percentage error of the mean
+            # of all measurements is below the threshold.
+            dataset = {
+                'uncached': {
+                    'throbberstart' : [],
+                    'throbberstop' : [],
+                    'throbbertime' : []
+                    },
+                'cached': {
+                    'throbberstart' : [],
+                    'throbberstop' : [],
+                    'throbbertime' : []
+                    }
+                }
+            iteration = 1
+            attempt = 0
+            while iteration <= self._iterations:
+                attempt += 1
+                data = {
+                    'uncached': {
+                        'starttime' : 0, 'throbberstart' : 0, 'throbberstop' : 0
+                        },
+                    'cached': {
+                        'starttime' : 0, 'throbberstart' : 0, 'throbberstop' : 0
+                        }
+                    }
+                self.prepare_phone(build_metadata)
+
+                # Initialize profile
                 success = False
-                attempt = 0
-                while not success and attempt < 3:
-                    # Set status
-                    self.set_status(msg='Test %d/%d, run %d, attempt %d for url %s' %
-                                    (testnum, len(self._urls.keys()), i, attempt,
-                                     url))
-
-                    # Clear logcat
-                    self.loggerdeco.debug('clearing logcat')
-                    self.dm.recordLogcat()
-                    self.loggerdeco.debug('logcat cleared')
-
-                    # Get start time
-                    try:
-                        starttime = self.dm.getInfo('uptimemillis')['uptimemillis'][0]
-                    except IndexError:
-                        # uptimemillis is not supported in all implementations
-                        # therefore we can not exclude such cases.
-                        starttime = 0
-
-                    # Run test
-                    self.loggerdeco.debug('running fennec')
-                    self.run_fennec_with_profile(appname, url)
-
-                    # Get results - do this now so we don't have as much to
-                    # parse in logcat.
-                    throbberstart, throbberstop = self.analyze_logcat(
-                        build_metadata)
-
-                    self.wait_for_fennec(build_metadata)
-
-                    # Get rid of the browser and session store files
-                    self.loggerdeco.debug('removing sessionstore files')
-                    self.remove_sessionstore_files()
-
-                    # Ensure we succeeded - no 0's reported
-                    if (throbberstart and throbberstop):
+                for initialize_attempt in range(2):
+                    self.loggerdeco.debug('initializing profile...')
+                    self.run_fennec_with_profile(appname, self._initialize_url)
+                    if self.wait_for_fennec(build_metadata):
                         success = True
-                    else:
-                        attempt = attempt + 1
+                        break
+                    sleep(5)
+                if not success:
+                    self.loggerdeco.info('%s: Failed to initialize profile for build %s' %
+                                         (self.phone_cfg['phoneid'],
+                                          build_metadata['buildid']))
+                    self.set_status(msg='Failed to initialize profile for build %s' %
+                                    build_metadata['buildid'])
+                    return
 
-                # Publish results
-                self.loggerdeco.debug('%s throbbers after %d attempts' %
-                                      ('successfully got' if success else
-                                       'failed to get', attempt))
-                if success:
+                if not self.runtest(build_metadata, appname, data, 'uncached',
+                                    testname, testnum, testcount, iteration,
+                                    attempt, url):
+                    continue
+                if self.runtest(build_metadata, appname, data, 'cached',
+                                testname, testnum, testcount, iteration,
+                                attempt, url):
                     self.loggerdeco.debug('publishing results')
-                    self.publish_results(starttime=int(starttime),
-                                         tstrt=throbberstart,
-                                         tstop=throbberstop,
-                                         build_metadata=build_metadata,
-                                         testname=testname,
-                                         cache_enabled=cache_enabled)
+                    for cachekey in ('uncached', 'cached'):
+                        self.publish_results(starttime=data[cachekey]['starttime'],
+                                             tstrt=data[cachekey]['throbberstart'],
+                                             tstop=data[cachekey]['throbberstop'],
+                                             build_metadata=build_metadata,
+                                             testname=testname,
+                                             cache_enabled=(cachekey=='cached'))
+                        for measurement in ('throbberstart', 'throbberstop'):
+                            dataset[cachekey][measurement].append(
+                                data[cachekey][measurement] - data[cachekey]['starttime'])
+                        dataset[cachekey]['throbbertime'].append(data[cachekey]['throbberstop'] -
+                                                                 data[cachekey]['throbberstart'])
+                    if is_stderr_acceptible(dataset):
+                        break
+                    iteration += 1
+                    attempt = 0
+
+    def runtest(self, build_metadata, appname, data, cachekey, testname, testnum,
+                testcount, iteration, attempt, url):
+        # Set status
+        self.set_status(msg='Test %d/%d, %s run %d, attempt %d for url %s' %
+                        (testnum, testcount, cachekey, iteration, attempt, url))
+
+        # Clear logcat
+        self.loggerdeco.debug('clearing logcat')
+        self.dm.recordLogcat()
+        self.loggerdeco.debug('logcat cleared')
+        self.loggerdeco.debug('running fennec')
+
+        # Get start time
+        try:
+            starttime = int(self.dm.getInfo('uptimemillis')['uptimemillis'][0])
+        except IndexError:
+            # uptimemillis is not supported in all implementations
+            # therefore we can not exclude such cases.
+            starttime = 0
+
+        # Run test
+        self.run_fennec_with_profile(appname, url)
+
+        # Get results - do this now so we don't have as much to
+        # parse in logcat.
+        throbberstart, throbberstop = self.analyze_logcat(
+            build_metadata)
+
+        self.wait_for_fennec(build_metadata)
+
+        # Get rid of the browser and session store files
+        self.loggerdeco.debug('removing sessionstore files')
+        self.remove_sessionstore_files()
+
+        # Ensure we succeeded - no 0's reported
+        if (throbberstart and throbberstop):
+            self.loggerdeco.debug('Successful %s throbber '
+                                  'measurement run %d attempt %d' %
+                                  (cachekey, iteration, attempt))
+            data[cachekey]['starttime'] = int(starttime)
+            data[cachekey]['throbberstart'] = throbberstart
+            data[cachekey]['throbberstop'] = throbberstop
+            return True
+        return False
 
     def wait_for_fennec(self, build_metadata, max_wait_time=60, wait_time=5,
                         kill_wait_time=20):
@@ -181,21 +294,22 @@ class S1S2Test(PhoneTest):
                 sleep(kill_wait_time)
         return False
 
-    def prepare_phone(self, build_metadata, cache_enabled):
+    def prepare_phone(self, build_metadata, custom_prefs=None):
         telemetry_prompt = 999
         if build_metadata['blddate'] < '2013-01-03':
             telemetry_prompt = 2
-        prefs = { 'browser.firstrun.show.localepicker': False,
-                  'browser.sessionstore.resume_from_crash': False,
-                  'dom.ipc.plugins.flash.subprocess.crashreporter.enabled': False,
-                  'browser.firstrun.show.uidiscovery': False,
-                  'shell.checkDefaultClient': False,
-                  'browser.warnOnQuit': False,
-                  'browser.EULA.override': True,
-                  'toolkit.telemetry.prompted': telemetry_prompt,
-                  'toolkit.telemetry.notifiedOptOut': telemetry_prompt,
-                  'browser.cache.disk.enable': cache_enabled,
-                  'browser.cache.memory.enable': cache_enabled}
+        prefs = {
+            'browser.firstrun.show.localepicker': False,
+            'browser.sessionstore.resume_from_crash': False,
+            'dom.ipc.plugins.flash.subprocess.crashreporter.enabled': False,
+            'browser.firstrun.show.uidiscovery': False,
+            'shell.checkDefaultClient': False,
+            'browser.warnOnQuit': False,
+            'browser.EULA.override': True,
+            'toolkit.telemetry.prompted': telemetry_prompt,
+            'toolkit.telemetry.notifiedOptOut': telemetry_prompt}
+        if isinstance(custom_prefs, dict):
+            prefs = dict(prefs.items() + custom_prefs.items())
         profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
                                  os.getcwd())
         self.install_profile(profile)
@@ -283,9 +397,9 @@ class S1S2Test(PhoneTest):
 
     def publish_results(self, starttime=0, tstrt=0, tstop=0,
                         build_metadata=None, testname='', cache_enabled=True):
-        msg = ('Start Time: %s Throbber Start: %s Throbber Stop: %s '
+        msg = ('Cached: %s Start Time: %s Throbber Start: %s Throbber Stop: %s '
                'Total Throbber Time %s' % (
-                starttime, tstrt, tstop, tstop - tstrt))
+                cache_enabled, starttime, tstrt, tstop, tstop - tstrt))
         self.loggerdeco.info('RESULTS: %s' % msg)
 
         # Create JSON to send to webserver
