@@ -386,9 +386,6 @@ the "enable" command.
             if self.has_error():
                 break
             t.current_build = build_metadata['blddate']
-            # TODO: Attempt to see if pausing between jobs helps with
-            # our reconnection issues
-            #time.sleep(30)
             try:
                 t.runjob(build_metadata, self)
             except DMError:

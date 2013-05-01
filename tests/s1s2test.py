@@ -21,7 +21,7 @@ from phonetest import PhoneTest
 # STDERRP_THRESHOLD is the target maximum percentage standard error of
 # the mean. We will continue to collect results until all of the
 # measurement's percentage standard errors of the mean are below this
-# value.
+# value or until the number of iterations has been exceeded.
 STDERRP_THRESHOLD = 1.0
 
 def get_stats(values):
@@ -41,14 +41,13 @@ def get_stats(values):
         r['stderrp'] = 100.0*r['stderr']/float(r['mean'])
     return r
 
-def is_stderr_acceptible(dataset):
+def is_stderr_acceptable(dataset):
     """Return True if all of the measurements in the dataset have
     standard errors of the mean below the threshold."""
 
     for cachekey in ('uncached', 'cached'):
         for measurement in ('throbberstart', 'throbberstop', 'throbbertime'):
             stats = get_stats(dataset[cachekey][measurement])
-            print 'is_stderr_acceptible:  %s %s: %s' % (cachekey, measurement, stats)
             if stats['count'] == 1 or stats['stderrp'] >= STDERRP_THRESHOLD:
                 return False
     return True
@@ -127,9 +126,7 @@ class S1S2Test(PhoneTest):
                                  (self.phone_cfg['phoneid'],
                                   build_metadata['buildid']))
             self.set_status(msg='Could not run Fennec. Aborting test for '
-                            'build %s' %
-                            (attempt,
-                             build_metadata['buildid']))
+                            'build %s' % build_metadata['buildid'])
             return
 
         testcount = len(self._urls.keys())
@@ -216,7 +213,7 @@ class S1S2Test(PhoneTest):
                                 data[cachekey][measurement] - data[cachekey]['starttime'])
                         dataset[cachekey]['throbbertime'].append(data[cachekey]['throbberstop'] -
                                                                  data[cachekey]['throbberstart'])
-                    if is_stderr_acceptible(dataset):
+                    if is_stderr_acceptable(dataset):
                         break
                     iteration += 1
                     attempt = 0
@@ -307,7 +304,8 @@ class S1S2Test(PhoneTest):
             'browser.warnOnQuit': False,
             'browser.EULA.override': True,
             'toolkit.telemetry.prompted': telemetry_prompt,
-            'toolkit.telemetry.notifiedOptOut': telemetry_prompt}
+            'toolkit.telemetry.notifiedOptOut': telemetry_prompt
+            }
         if isinstance(custom_prefs, dict):
             prefs = dict(prefs.items() + custom_prefs.items())
         profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
