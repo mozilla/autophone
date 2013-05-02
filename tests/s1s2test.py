@@ -142,11 +142,6 @@ class S1S2Test(PhoneTest):
                                  (testnum, len(self._urls.keys()),
                                   self._iterations))
 
-            self.loggerdeco.debug('Rebooting phone before test...')
-            worker_subprocess.recover_phone()
-            if worker_subprocess.has_error():
-                return
-
             # Collect up to self._iterations measurements. Terminate
             # measurements early if the percentage error of the mean
             # of all measurements is below the threshold.
@@ -230,16 +225,8 @@ class S1S2Test(PhoneTest):
         self.loggerdeco.debug('logcat cleared')
         self.loggerdeco.debug('running fennec')
 
-        # Get start time
-        try:
-            starttime = int(self.dm.getInfo('uptimemillis')['uptimemillis'][0])
-        except IndexError:
-            # uptimemillis is not supported in all implementations
-            # therefore we can not exclude such cases.
-            starttime = 0
-
         # Run test
-        self.run_fennec_with_profile(appname, url)
+        starttime = self.run_fennec_with_profile(appname, url)
 
         # Get results - do this now so we don't have as much to
         # parse in logcat.
@@ -247,10 +234,6 @@ class S1S2Test(PhoneTest):
             build_metadata)
 
         self.wait_for_fennec(build_metadata)
-
-        # Get rid of the browser and session store files
-        self.loggerdeco.debug('removing sessionstore files')
-        self.remove_sessionstore_files()
 
         # Ensure we succeeded - no 0's reported
         if (throbberstart and throbberstop):

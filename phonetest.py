@@ -135,16 +135,25 @@ class PhoneTest(object):
         self.loggerdeco.debug('run_fennec_with_profile: %s %s' % (appname, url))
         try:
             self.dm.killProcess(appname)
+            # Get starttime just before we call launchFennec to
+            # minimize the delay between when the process is actually
+            # started and when we first measure the starttime. Since
+            # we have already killed the fennec process if it existed,
+            # we pass failIfRunning=False to prevent launchApplication
+            # from calling processExist which otherwise would have
+            # added overhead to times measured relative to starttime.
+            starttime = int(self.dm.getInfo('uptimemillis')['uptimemillis'][0])
             self.dm.launchFennec(appname,
                                  intent="android.intent.action.VIEW",
                                  mozEnv={'MOZ_CRASHREPORTER_NO_REPORT': '1'},
                                  extraArgs=['--profile', self.profile_path],
                                  url=url,
-                                 wait=False)
-            self.loggerdeco.debug('run_fennec_with_profile: success.')
+                                 wait=False,
+                                 failIfRunning=False)
         except:
             self.loggerdeco.exception('run_fennec_with_profile: Exception:')
             raise
+        return starttime
 
     def remove_sessionstore_files(self):
         self.dm.removeFile(self.profile_path + '/sessionstore.js')
