@@ -135,7 +135,7 @@ class Jobs(object):
                      'attempts': job[4]}
                     for job in c.execute(
                     'select ROWID as id,created,last_attempt,build_url,attempts'
-                    ' from jobs where device=? order by created', (device,))]
+                    ' from jobs where device=? order by created desc', (device,))]
             if not jobs:
                 return None
             next_job = jobs[0]
