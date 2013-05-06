@@ -413,19 +413,19 @@ class TestRun(object):
             self.logger.error('COUNT ERROR passed: detected: %d, counted during conversion: %d, test run id: %s' % (self.passed, passed, converted_test_run['id']))
 
         if self.passed != self.parsedcounts['passed']:
-            self.logger.warn('Passed counts differ from Passed: value in log: detected: %d, parsed from log: %d, test run id: %s' % (self.passed, self.parsedcounts['passed'], converted_test_run['id']))
+            self.logger.warning('Passed counts differ from Passed: value in log: detected: %d, parsed from log: %d, test run id: %s' % (self.passed, self.parsedcounts['passed'], converted_test_run['id']))
 
         if self.failed != failed:
             self.logger.error('COUNT ERROR failed: detected: %d, counted during conversion: %d, test run id: %s' % (self.failed, failed, converted_test_run['id']))
 
         if self.failed != self.parsedcounts['failed']:
-            self.logger.warn('Failed counts differ from Failed: value in log: detected: %d, parsed from log: %d, test run id: %s' % (self.failed, self.parsedcounts['failed'], converted_test_run['id']))
+            self.logger.warning('Failed counts differ from Failed: value in log: detected: %d, parsed from log: %d, test run id: %s' % (self.failed, self.parsedcounts['failed'], converted_test_run['id']))
 
         if include_passing_tests and self.todo != todo:
             self.logger.error('COUNT ERROR todo: detected: %d, counted during conversion: %d, test run id: %s' % (self.todo, todo, converted_test_run['id']))
 
         if self.todo != self.parsedcounts['todo']:
-            self.logger.warn('Todo counts differ from Todo: value in log: detected: %d, parsed from log: %d, test run id: %s' % (self.todo, self.parsedcounts['todo'], converted_test_run['id']))
+            self.logger.warning('Todo counts differ from Todo: value in log: detected: %d, parsed from log: %d, test run id: %s' % (self.todo, self.parsedcounts['todo'], converted_test_run['id']))
 
         return converted_test_run
 
@@ -629,7 +629,7 @@ def parse_log(fh):
 
                 if test_run.state not in valid_states:
                     message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     error_message = TestMessage(testpath)
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -649,7 +649,7 @@ def parse_log(fh):
 
                 if test_run.state not in valid_states:
                     message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     error_message = TestMessage(testpath)
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -671,7 +671,7 @@ def parse_log(fh):
 
                 if test_run.state not in valid_states:
                     message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     xpcshell_message = TestMessage(testpath)
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -683,7 +683,7 @@ def parse_log(fh):
                 elif prev_xpcshell_message is not None and testpath != prev_xpcshell_message.testpath:
                     # mismatched testpath
                     message_text = 'line: %d: MALFORMED TEST RESULTS: %s %s: expected testpath %s, found testpath %s, test run id: %s' % (test_log.line_no, reason, text, prev_xpcshell_message.testpath, testpath, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     xpcshell_message = TestMessage(prev_xpcshell_message.testpath)
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -719,7 +719,7 @@ def parse_log(fh):
             if test_run.state not in valid_states:
                 # Missing shutdown
                 message_text = 'line: %d: MALFORMED TEST LOG - missing test run shutdown: %s expected state %s, found state %s, test run id: %s' % (test_log.line_no, line, valid_states, test_run.state, test_run.id)
-                logger.warn(message_text)
+                logger.warning(message_text)
                 error_message = TestMessage('unknown')
                 error_result = TestResult('ERROR', 'ERROR',
                                           message_text, True)
@@ -736,7 +736,7 @@ def parse_log(fh):
             if test_run.state not in valid_states:
                 # Missing shutdown
                 message_text = 'line: %d: MALFORMED TEST LOG - missing test run shutdown: %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, line, valid_states, test_run.state, test_run.id)
-                logger.warn(message_text)
+                logger.warning(message_text)
                 error_message = TestMessage('unknown')
                 error_result = TestResult('ERROR', 'ERROR',
                                           message_text, True)
@@ -763,7 +763,7 @@ def parse_log(fh):
             valid_states = 'TESTSUITE-SHUTDOWN,FRAMEWORK-RUNNING'
             if test_run.state not in valid_states:
                 message_text = 'line: %d: MALFORMED TEST LOG - previous test run not properly shutdown: %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, line, valid_states, test_run.state, test_run.id)
-                logger.warn(message_text)
+                logger.warning(message_text)
                 error_message = TestMessage('unknown')
                 error_result = TestResult('ERROR', 'ERROR',
                                           message_text, True)
@@ -778,7 +778,7 @@ def parse_log(fh):
 
             if test_run.suitename != 'BrowserChrome':
                 message_text = 'line: %d: MALFORMED TEST LOG - previous test run not properly shutdown: %s: expected test run BrowserChrome, found test run %s, test run id: %s' % (test_log.line_no, line, test_run.suitetype, test_run.id)
-                logger.warn(message_text)
+                logger.warning(message_text)
                 error_message = TestMessage('unknown')
                 error_result = TestResult('ERROR', 'ERROR',
                                           message_text, True)
@@ -790,7 +790,7 @@ def parse_log(fh):
             if test_run.state not in valid_states:
                 # Missing shutdown
                 message_text = 'line: %d: MALFORMED TEST LOG - previous test run not properly shutdown: %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, line, valid_states, test_run.state, test_run.id)
-                logger.warn(message_text)
+                logger.warning(message_text)
                 error_message = TestMessage('unknown')
                 error_result = TestResult('ERROR', 'ERROR',
                                           message_text, True)
@@ -804,7 +804,7 @@ def parse_log(fh):
 
             if test_run.suitename != 'BrowserChrome':
                 message_text = 'line: %d: MALFORMED TEST LOG - previous test run not properly shutdown: %s: expected test run BrowserChrome, found test run %s, test run id: %s' % (test_log.line_no, line, test_run.suitetype, test_run.id)
-                logger.warn(message_text)
+                logger.warning(message_text)
                 error_message = TestMessage('unknown')
                 error_result = TestResult('ERROR', 'ERROR',
                                           message_text, True)
@@ -815,7 +815,7 @@ def parse_log(fh):
 
             if test_run.state not in valid_states:
                 message_text = 'line: %d: MALFORMED TEST LOG - previous test run not properly shutdown: %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, line, valid_states, test_run.state, test_run.id)
-                logger.warn(message_text)
+                logger.warning(message_text)
                 error_message = TestMessage('unknown')
                 error_result = TestResult('ERROR', 'ERROR',
                                           message_text, True)
@@ -830,7 +830,7 @@ def parse_log(fh):
 
             if test_run.suitename != 'BrowserChrome':
                 message_text = 'line: %d: MALFORMED TEST LOG - previous test run not properly shutdown: %s: expected test run BrowserChrome, found test run %s, test run id: %s' % (test_log.line_no, line, test_run.suitetype, test_run.id)
-                logger.warn(message_text)
+                logger.warning(message_text)
                 error_message = TestMessage('unknown')
                 error_result = TestResult('ERROR', 'ERROR',
                                           message_text, True)
@@ -852,7 +852,7 @@ def parse_log(fh):
             if test_run.state not in valid_states:
                 # Missing shutdown
                 message_text = 'line: %d: MALFORMED TEST LOG - previous test run not properly shutdown: %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, line, valid_states, test_run.state, test_run.id)
-                logger.warn(message_text)
+                logger.warning(message_text)
                 error_message = TestMessage('unknown')
                 error_result = TestResult('ERROR', 'ERROR',
                                           message_text, True)
@@ -913,7 +913,7 @@ def parse_log(fh):
 
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -933,7 +933,7 @@ def parse_log(fh):
 
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -948,7 +948,7 @@ def parse_log(fh):
                     elif prev_browserchrome_message is not None and testpath != prev_browserchrome_message.testpath:
                         # mismatched testpath
                         message_text = 'line: %d: MALFORMED TEST RESULTS: %s %s: expected testpath %s, found testpath %s, test run id: %s' % (test_log.line_no, reason, text, prev_browserchrome_message.testpath, testpath, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage(prev_browserchrome_message.testpath)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -986,7 +986,7 @@ def parse_log(fh):
 
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage(testpath)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1001,7 +1001,7 @@ def parse_log(fh):
                     elif testpath != prev_browserchrome_message.testpath:
                         # mismatched testpath
                         message_text = 'line: %d: MALFORMED TEST RESULTS: %s %s: expected testpath %s, found testpath %s, test run id: %s' % (test_log.line_no, reason, text, prev_browserchrome_message.testpath, testpath, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage(prev_browserchrome_message.testpath)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1023,7 +1023,7 @@ def parse_log(fh):
                 else:
                     if not reason.startswith('TEST-'):
                         message_text = 'line: %d: Unknown reason: %s, text: %s, test run id: %s' % (test_log.line_no, reason, text, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
 
         elif line.startswith(('INFO | ',
                               'WARNING | ',
@@ -1083,7 +1083,7 @@ def parse_log(fh):
                         test_run.addTestMessage(framework_message)
                     else:
                         message_text = 'Previous test run not completed, test run id: %s' % test_run.id
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
                         test_run.failed += 1
@@ -1105,7 +1105,7 @@ def parse_log(fh):
                     # Terminate previous test run and start a new one.
                     if prev_framework_message is None:
                         message_text = 'line: %d: MALFORMED TEST LOG: terminate test run and start a new one: %s %s: found state %s, test run id: %s' % (test_log.line_no, reason, text, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         framework_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1114,7 +1114,7 @@ def parse_log(fh):
                         test_run.addTestMessage(framework_message)
                     else:
                         message_text = 'line: %d: MALFORMED TEST LOG: previous test run not completed. start a new one: %s %s: found state %s, test run id: %s' % (test_log.line_no, reason, text, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
                         test_run.failed += 1
@@ -1130,7 +1130,7 @@ def parse_log(fh):
                     # Should we see framework test messages after the framework end?
                     # Yes: can see Automation Error messages after Running tests: end.
                     message_text = 'line: %d: MALFORMED TEST LOG: previous test run already completed. start a new one: %s %s: found state %s, test run id: %s' % (test_log.line_no, reason, text, test_run.state, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     framework_message = TestMessage(testpath)
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -1143,7 +1143,7 @@ def parse_log(fh):
                     # TEST-UNEXPECTED-FAIL application ran for longer than allowed maximum time
                     # when not in a framework state. Remove this error?
                     message_text = 'line: %d: MALFORMED TEST LOG: unexpected framework message: %s %s: found state %s, test run id: %s' % (test_log.line_no, reason, text, test_run.state, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     framework_message = TestMessage(testpath)
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -1171,7 +1171,7 @@ def parse_log(fh):
 
                 if test_run.state not in valid_states:
                     message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     framework_message = TestMessage(testpath)
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -1191,7 +1191,7 @@ def parse_log(fh):
 
                 if test_run.state not in valid_states:
                     message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     framework_message = TestMessage('end')
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -1206,7 +1206,7 @@ def parse_log(fh):
 
                 if test_run.state not in valid_states:
                     message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     framework_message = TestMessage('end')
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -1221,7 +1221,7 @@ def parse_log(fh):
 
                 if test_run.state not in valid_states:
                     message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                    logger.warn(message_text)
+                    logger.warning(message_text)
                     framework_message = TestMessage('end')
                     error_result = TestResult('ERROR', 'ERROR',
                                               message_text, True)
@@ -1287,7 +1287,7 @@ def parse_log(fh):
                     valid_states = 'TESTSUITE-SHUTDOWN,FRAMEWORK-RUNNING,FRAMEWORK-SUMMARY'
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1313,7 +1313,7 @@ def parse_log(fh):
 
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1336,7 +1336,7 @@ def parse_log(fh):
                     valid_states = 'TESTCASE-START,TESTCASE-RUNNING'
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1351,7 +1351,7 @@ def parse_log(fh):
                     elif prev_mochitest_message is not None and testpath != prev_mochitest_message.testpath:
                         # mismatched testpath
                         message_text = 'line: %d: MALFORMED TEST RESULTS: %s %s: expected testpath %s, found testpath %s, test run id: %s' % (test_log.line_no, reason, text, prev_mochitest_message.testpath, testpath, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage(prev_mochitest_message.testpath)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1384,7 +1384,7 @@ def parse_log(fh):
                     valid_states = 'TESTCASE-RUNNING'
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: REFTEST   IMAGE 1 (TEST): %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_result = TestResult('ERROR', 'TEST-UNEXPECTED-FAIL',
                                                   message_text, True)
                         prev_mochitest_message.addTestResult(error_result)
@@ -1401,7 +1401,7 @@ def parse_log(fh):
                     valid_states = 'TESTCASE-IMG1'
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: REFTEST   IMAGE 2 (REFERENCE): %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_result = TestResult('ERROR', 'TEST-UNEXPECTED-FAIL',
                                                   message_text, True)
                         prev_mochitest_message.addTestResult(error_result)
@@ -1424,7 +1424,7 @@ def parse_log(fh):
 
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1439,7 +1439,7 @@ def parse_log(fh):
                     elif testpath != prev_mochitest_message.testpath:
                         # mismatched testpath
                         message_text = 'line: %d: MALFORMED TEST RESULTS: %s %s: expected testpath %s, found testpath %s, test run id: %s' % (test_log.line_no, reason, text, prev_mochitest_message.testpath, testpath, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage(prev_mochitest_message.testpath)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1475,7 +1475,7 @@ def parse_log(fh):
                     if test_run.state not in valid_states:
                         # Missing shutdown
                         message_text = 'line: %d: MALFORMED TEST LOG - missing test run shutdown: %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, line, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1492,7 +1492,7 @@ def parse_log(fh):
                     if test_run.state not in valid_states:
                         # Missing shutdown
                         message_text = 'line: %d: MALFORMED TEST LOG - missing test run shutdown: %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, line, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1560,7 +1560,7 @@ def parse_log(fh):
 
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage(testpath)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1590,7 +1590,7 @@ def parse_log(fh):
                             pass
                         else:
                             message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                            logger.warn(message_text)
+                            logger.warning(message_text)
                             error_message = TestMessage(testpath)
                             error_result = TestResult('ERROR', 'ERROR',
                                                       message_text, True)
@@ -1625,7 +1625,7 @@ def parse_log(fh):
                     valid_states = 'TESTCASE-RUNNING'
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: REFTEST   IMAGE 1 (TEST): %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
                         prev_reftest_message.addTestResult(error_result)
@@ -1648,7 +1648,7 @@ def parse_log(fh):
                     valid_states = 'TESTCASE-IMG1'
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: REFTEST   IMAGE 2 (REFERENCE): %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
                         prev_reftest_message.addTestResult(error_result)
@@ -1667,7 +1667,7 @@ def parse_log(fh):
                     valid_states = 'TESTCASE-RUNNING'
                     if test_run.state not in valid_states:
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1683,7 +1683,7 @@ def parse_log(fh):
                     if test_run.state not in valid_states:
                         # Missing shutdown
                         message_text = 'Counters Expected state %s, found state %s, test run id: %s' % (valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)
@@ -1700,7 +1700,7 @@ def parse_log(fh):
                     if test_run.state not in valid_states:
                         # Missing shutdown
                         message_text = 'line: %d: MALFORMED TEST LOG: %s %s: expected state %s, found state %s, test run id: %s' % (test_log.line_no, reason, text, valid_states, test_run.state, test_run.id)
-                        logger.warn(message_text)
+                        logger.warning(message_text)
                         error_message = TestMessage('unknown')
                         error_result = TestResult('ERROR', 'ERROR',
                                                   message_text, True)

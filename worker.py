@@ -206,7 +206,7 @@ class PhoneWorkerSubProcess(object):
         try:
             self.autophone_queue.put_nowait(msg)
         except Queue.Full:
-            self.loggerdeco.warn('Autophone queue is full!')
+            self.loggerdeco.warning('Autophone queue is full!')
 
     def check_sdcard(self):
         self.loggerdeco.info('Checking SD card.')
@@ -444,8 +444,8 @@ the "enable" command.
         cache_response = client.get(build_url)
         client.close()
         if not cache_response['success']:
-            self.loggerdeco.warn('Errors occured getting build %s: %s' %
-                                 (build_url, cache_response['error']))
+            self.loggerdeco.warning('Errors occured getting build %s: %s' %
+                                    (build_url, cache_response['error']))
             return
         if self.run_tests(cache_response['metadata']):
             self.loggerdeco.info('Job completed.')
