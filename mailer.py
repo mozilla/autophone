@@ -15,6 +15,10 @@ class Mailer(object):
         self.subject_prefix = subject_prefix
 
     def send(self, subject, body):
+        # encode string as ascii ignoring encoding errors
+        subject = subject.encode('ascii', errors='ignore')
+        body = body.encode('ascii', errors='ignore')
+
         cfg = ConfigParser.ConfigParser()
         cfg.read(self.cfgfile)
         try:
