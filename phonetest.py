@@ -85,9 +85,13 @@ class PhoneTest(object):
     @property
     def dm(self):
         if not self._dm:
+            # Droids and other slow phones can take a while to come back
+            # after a SUT crash or spontaneous reboot, so we up the
+            # default retrylimit to match that used in worker.py.
             self._dm = DroidSUT(self.phone_cfg['ip'],
                                 self.phone_cfg['sutcmdport'],
-                                self.user_cfg['debug'])
+                                retryLimit=8)
+            self._dm.loglevel = self.user_cfg['debug']
         return self._dm
 
     @property
@@ -109,7 +113,7 @@ class PhoneTest(object):
     def set_dm_debug(self, level):
         self.user_cfg['debug'] = level
         if self._dm:
-            self._dm.debug = level
+            self._dm.loglevel = level
 
     """
     sets the status

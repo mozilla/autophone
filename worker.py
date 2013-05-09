@@ -20,7 +20,7 @@ import traceback
 import buildserver
 import phonetest
 from logdecorator import LogDecorator
-from mozdevice import DeviceManagerSUT, DMError
+from mozdevice import DroidSUT, DMError
 from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
 
 
@@ -167,9 +167,9 @@ class PhoneWorkerSubProcess(object):
             # Droids and other slow phones can take a while to come back
             # after a SUT crash or spontaneous reboot, so we up the
             # default retrylimit.
-            self._dm = DeviceManagerSUT(self.phone_cfg['ip'],
-                                        self.phone_cfg['sutcmdport'],
-                                        retryLimit=8)
+            self._dm = DroidSUT(self.phone_cfg['ip'],
+                                self.phone_cfg['sutcmdport'],
+                                retryLimit=8)
             self.loggerdeco.info('Connected.')
         return self._dm
 
@@ -487,10 +487,10 @@ the "enable" command.
         elif request[0] == 'debug':
             self.loggerdeco.info('Setting debug level %d at user\'s request...' % request[1])
             self.user_cfg['debug'] = request[1]
-            DeviceManagerSUT.debug = self.user_cfg['debug']
-            # update any existing DeviceManagerSUT objects
+            DroidSUT.debug = self.user_cfg['debug']
+            # update any existing DroidSUT objects
             if self._dm:
-                self._dm.debug = self.user_cfg['debug']
+                self._dm.loglevel = self.user_cfg['debug']
             for t in self.tests:
                 t.set_dm_debug(self.user_cfg['debug'])
         elif request[0] == 'ping':
@@ -543,7 +543,7 @@ the "enable" command.
 
         self.loggerdeco.info('PhoneWorker starting up.')
 
-        DeviceManagerSUT.debug = self.user_cfg.get('debug', 3)
+        DroidSUT.loglevel = self.user_cfg.get('debug', 3)
 
         for t in self.tests:
             t.status_cb = self.status_update
