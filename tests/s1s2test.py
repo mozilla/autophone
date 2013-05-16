@@ -102,11 +102,32 @@ class S1S2Test(PhoneTest):
                                        '%(message)s')
         appname = build_metadata['androidprocname']
 
+        # Attempt to install the local html pages required for
+        # the test. Try up to 2 times, otherwise abort the test.
+        success = False
+        for attempt in range(2):
+            self.loggerdeco.debug('Installing local pages...')
+            try:
+                self.install_local_pages()
+                success = True
+                break
+            except:
+                self.loggerdeco.exception('Exception installing local pages:')
+        if not success:
+            self.loggerdeco.info('%s: Could not install local pages on phone. '
+                                 'Aborting test for build %s' %
+                                 (self.phone_cfg['phoneid'],
+                                  build_metadata['buildid']))
+            self.set_status(msg='Could not install local pages on phone. '
+                            'Aborting test for '
+                            'build %s' % build_metadata['buildid'])
+            return
+
         # Attempt to launch fennec and load the initialize url
         # to see if we can actually test this build. Try up to
         # 2 times, otherwise abort the test.
         success = False
-        self.prepare_phone(build_metadata)
+        self.create_profile(build_metadata)
         for attempt in range(2):
             self.loggerdeco.debug('Checking if fennec is runnable...')
             self.run_fennec_with_profile(appname, self._initialize_url)
@@ -169,7 +190,7 @@ class S1S2Test(PhoneTest):
                         'starttime' : 0, 'throbberstart' : 0, 'throbberstop' : 0
                         }
                     }
-                self.prepare_phone(build_metadata)
+                self.create_profile(build_metadata)
 
                 # Initialize profile
                 success = False
@@ -274,7 +295,7 @@ class S1S2Test(PhoneTest):
                 sleep(kill_wait_time)
         return False
 
-    def prepare_phone(self, build_metadata, custom_prefs=None):
+    def create_profile(self, build_metadata, custom_prefs=None):
         telemetry_prompt = 999
         if build_metadata['blddate'] < '2013-01-03':
             telemetry_prompt = 2
@@ -294,13 +315,14 @@ class S1S2Test(PhoneTest):
         profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
                                  os.getcwd())
         self.install_profile(profile)
-        self.dm.mkDir('/mnt/sdcard/s1test')
 
-        testroot = '/mnt/sdcard/s1test'
-
+    def install_local_pages(self):
         if not os.path.exists(self.config_file):
             self.loggerdeco.error('Cannot find config file: %s' % self.config_file)
             raise NameError('Cannot find config file: %s' % self.config_file)
+
+        testroot = '/mnt/sdcard/s1test'
+        self.dm.mkDir(testroot)
 
         cfg = ConfigParser.RawConfigParser()
         cfg.read(self.config_file)
