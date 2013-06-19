@@ -170,6 +170,8 @@ class PhoneWorkerSubProcess(object):
             self._dm = DroidSUT(self.phone_cfg['ip'],
                                 self.phone_cfg['sutcmdport'],
                                 retryLimit=8)
+            # Give slow devices change to mount all devices.
+            self._dm.reboot_settling_time = 120
             self.loggerdeco.info('Connected.')
         return self._dm
 
