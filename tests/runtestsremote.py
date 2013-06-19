@@ -351,13 +351,13 @@ class UnitTest(PhoneTest):
 
     def runtest(self, test_parameters):
 
-        self.logger = LogDecorator(self._logger,
-                                   {'phoneid': self.phone_cfg['phoneid'],
-                                    'phoneip': self.phone_cfg['ip'],
-                                    'buildid': build_metadata['buildid'],
-                                    'testname': test_parameters['test_name']},
-                                   '%(phoneid)s|%(phoneip)s|%(buildid)s|'
-                                   '%(testname)s|%(message)s')
+        self.loggerdeco = LogDecorator(self.logger,
+                                       {'phoneid': self.phone_cfg['phoneid'],
+                                        'phoneip': self.phone_cfg['ip'],
+                                        'buildid': test_parameters['buildid'],
+                                        'testname': test_parameters['test_name']},
+                                       '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                       '%(testname)s|%(message)s')
 
         if self.logger.getEffectiveLevel() == logging.DEBUG:
             self.loggerdeco.debug('runtestsremote.py runtest start')
@@ -409,7 +409,9 @@ class UnitTest(PhoneTest):
                     self.set_status(msg='Running test %s chunk %d of %d' %
                                     (test_parameters['test_name'],
                                      this_chunk, test_parameters['total_chunks']))
-
+                    # needed on droid?
+                    if self.dm.processExist(test_parameters['androidprocname']):
+                        self.dm.killProcess(test_parameters['androidprocname'])
                     proc = subprocess.Popen(
                         args,
                         cwd=os.path.join(test_parameters['cache_build_dir'],
