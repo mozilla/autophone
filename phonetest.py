@@ -92,7 +92,7 @@ class PhoneTest(object):
                                 self.phone_cfg['sutcmdport'],
                                 retryLimit=8)
             self._dm.loglevel = self.user_cfg['debug']
-            # Give slow devices change to mount all devices.
+            # Give slow devices chance to mount all devices.
             self._dm.reboot_settling_time = 120
         return self._dm
 

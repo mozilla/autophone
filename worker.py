@@ -170,7 +170,7 @@ class PhoneWorkerSubProcess(object):
             self._dm = DroidSUT(self.phone_cfg['ip'],
                                 self.phone_cfg['sutcmdport'],
                                 retryLimit=8)
-            # Give slow devices change to mount all devices.
+            # Give slow devices chance to mount all devices.
             self._dm.reboot_settling_time = 120
             self.loggerdeco.info('Connected.')
         return self._dm
@@ -204,7 +204,7 @@ class PhoneWorkerSubProcess(object):
 
     def status_update(self, msg):
         self.status = msg.status
-        self.loggerdeco.info(msg)
+        self.loggerdeco.info(str(msg))
         try:
             self.autophone_queue.put_nowait(msg)
         except Queue.Full:

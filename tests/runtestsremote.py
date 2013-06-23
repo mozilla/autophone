@@ -81,8 +81,15 @@ class UnitTest(PhoneTest):
             # job contains a single unittest
             config_files = [self.config_file]
         else:
-            raise Exception('Job configuration does not specify a test')
-
+            raise Exception('Job configuration %s does not specify a test' %
+                            self.config_file)
+        missing_config_files = []
+        for config_file in config_files:
+            if not os.path.exists(config_file):
+                missing_config_files.append(config_file)
+        if missing_config_files:
+            raise Exception("Can not run tests with missing config files: %s" %
+                            ', '.join(missing_config_files))
         for config_file in config_files:
             try:
                 test_parameters = {
@@ -122,6 +129,11 @@ class UnitTest(PhoneTest):
         cfg.read(config_file)
 
         test_parameters['test_name'] = cfg.get('runtests', 'test_name')
+        test_parameters['test_manifest'] = cfg.get('runtests', 'test_manifest')
+        try:
+            test_parameters['test_path'] = cfg.get('runtests', 'test_path')
+        except ConfigParser.NoOptionError:
+            test_parameters['test_path'] = None
 
         unittest_config_file = cfg.get('runtests', 'unittest_defaults')
         cfg.read(unittest_config_file)
@@ -155,6 +167,11 @@ class UnitTest(PhoneTest):
         else:
             test_parameters['total_chunks'] = 1
 
+        if cfg.has_option('runtests', 'prefs'):
+            test_parameters['prefs'] = cfg.get('runtests', 'prefs').split(',')
+        else:
+            test_parameters['prefs'] = []
+
         test_parameters['es_server'] = cfg.get('autolog', 'es_server')
         test_parameters['rest_server'] = cfg.get('autolog', 'rest_server')
         test_parameters['index'] = cfg.get('autolog', 'index')
@@ -165,11 +182,12 @@ class UnitTest(PhoneTest):
     def create_test_args(self, test_parameters):
         args = ['python']
 
-        if test_parameters['test_name'] == 'robocoptest':
+        test_name_lower = test_parameters['test_name'].lower()
 
+        if test_name_lower.startswith('robocoptest'):
             test_args = [
                 'mochitest/runtestsremote.py',
-                '--robocop=mochitest/robocop_autophone.ini',
+                '--robocop=%s' % test_parameters['test_manifest'],
                 '--robocop-ids=%s/fennec_ids.txt' % test_parameters['cache_build_dir'],
                 '--certificate-path=certs',
                 '--close-when-done',
@@ -178,10 +196,11 @@ class UnitTest(PhoneTest):
                 '--file-level=%s' % test_parameters['file_level'],
                 '--repeat=%d' % test_parameters['iterations'],
             ]
-        elif test_parameters['test_name'] == 'mochitest':
+        elif test_name_lower.startswith('mochitest'):
             test_args = [
                 'mochitest/runtestsremote.py',
-                '--test-manifest=mochitest/android.json',
+                '--test-manifest=%s' % test_parameters['test_manifest'],
+                '--test-path=%s' % test_parameters['test_path'],
                 '--certificate-path=certs',
                 '--close-when-done',
                 '--autorun',
@@ -189,30 +208,30 @@ class UnitTest(PhoneTest):
                 '--file-level=%s' % test_parameters['file_level'],
                 '--repeat=%d' % test_parameters['iterations'],
             ]
-        elif test_parameters['test_name'] == 'reftest':
+        elif test_name_lower.startswith('reftest'):
             test_args = [
                 'reftest/remotereftest.py',
                 '--enable-privilege',
                 '--ignore-window-size',
                 '--bootstrap',
-                'reftest/tests/layout/reftests/reftest.list',
+                '%s' % test_parameters['test_manifest'],
                 ]
-        elif test_parameters['test_name'] == 'jsreftest':
+        elif test_name_lower.startswith('jsreftest'):
             test_args = [
                 'reftest/remotereftest.py',
                 '--enable-privilege',
                 '--ignore-window-size',
                 '--bootstrap',
                 '--extra-profile-file=jsreftest/tests/user.js',
-                'jsreftest/tests/jstests.list',
+                '%s' % test_parameters['test_manifest'],
                 ]
-        elif test_parameters['test_name'] == 'crashtest':
+        elif test_name_lower.startswith('crashtest'):
             test_args = [
                 'reftest/remotereftest.py',
                 '--enable-privilege',
                 '--ignore-window-size',
                 '--bootstrap',
-                'reftest/tests/testing/crashtest/crashtests.list',
+                '%s' % test_parameters['test_manifest'],
                 ]
         else:
             self.loggerdeco.error('Unknown test_name %s' % test_parameters['test_name'])
@@ -235,6 +254,8 @@ class UnitTest(PhoneTest):
             '--log-file=%s-%s.log' % (test_parameters['test_name'], test_parameters['phone_ip_address']),
             '--pidfile=%s-%s.pid' % (test_parameters['test_name'], test_parameters['phone_ip_address']),
         ]
+        for pref in test_parameters['prefs']:
+            common_args.append('--setpref=%s' % pref)
 
         args.extend(test_args)
         args.extend(common_args)
@@ -409,9 +430,20 @@ class UnitTest(PhoneTest):
                     self.set_status(msg='Running test %s chunk %d of %d' %
                                     (test_parameters['test_name'],
                                      this_chunk, test_parameters['total_chunks']))
-                    # needed on droid?
                     if self.dm.processExist(test_parameters['androidprocname']):
-                        self.dm.killProcess(test_parameters['androidprocname'])
+                        max_kill_attempts = 3
+                        for kill_attempt in range(max_kill_attempts):
+                            self.loggerdeco.debug(
+                                'Process %s exists. Attempt %d to kill.' % (
+                                    test_parameters['androidprocname'], kill_attempt + 1))
+                            self.dm.killProcess(test_parameters['androidprocname'])
+                            if not self.dm.processExist(test_parameters['androidprocname']):
+                                break
+                        if kill_attempt == max_kill_attempts - 1 and \
+                                self.dm.processExist(test_parameters['androidprocname']):
+                            self.loggerdeco.warning(
+                                'Could not kill process %s.' % (
+                                    test_parameters['androidprocname']))
                     proc = subprocess.Popen(
                         args,
                         cwd=os.path.join(test_parameters['cache_build_dir'],

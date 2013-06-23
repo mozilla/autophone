@@ -3,6 +3,8 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import re
+import sys
+import traceback
 
 class LogDecorator(object):
     def __init__(self, logger, extradict, extraformat):
@@ -16,8 +18,17 @@ class LogDecorator(object):
 
     def _expanded_message(self, message):
         extradict = dict(self._extradict)
-        extradict['message'] = message
-        extramessage = self._extraformat % extradict
+        try:
+            if isinstance(message, unicode):
+                extradict['message'] = message
+            else:
+                extradict['message'] = unicode(message, errors='replace')
+            extramessage = self._extraformat % extradict
+        except UnicodeDecodeError, e:
+            etype, evalue, etraceback = sys.exc_info()
+            extramessage = ''.join(traceback.format_exception(etype, evalue, etraceback))
+            print extramessage
+            print message
         return extramessage
 
     def logger(self):
