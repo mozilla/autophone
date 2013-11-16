@@ -1033,7 +1033,8 @@ def parse_log(fh):
                               'TEST-UNEXPECTED-FAIL | ',
                               'TEST-INFO | ',
                               'PROCESS-CRASH | ',
-                              'REFTEST INFO | runreftest.py')):
+                              'REFTEST INFO | runreftest.py',
+                              'runtests.py | ')):
 
             # framework message
             if logger.getEffectiveLevel() == logging.DEBUG:
@@ -1045,11 +1046,17 @@ def parse_log(fh):
             prev_framework_message = framework_message
 
             parts = line.split(' | ')
-            reason = parts[0]  # INFO, WARNING, ...
-            index = 1
-            if parts[1].find(' process ') != -1:
-                parts[-1] = parts[-1] + ' ' + parts[1]
-                index = 2
+            # Bug 865349 removed the leading INFO | from the Mochitest Running tests: start.
+            # message. Check for the new condition and munge it to fit previous pattern.
+            if parts[0] == 'runtests.py':
+                reason = 'INFO'
+                index = 0
+            else:
+                reason = parts[0]  # INFO, WARNING, ...
+                index = 1
+                if parts[1].find(' process ') != -1:
+                    parts[-1] = parts[-1] + ' ' + parts[1]
+                    index = 2
 
             testpath = parts[index]
             text = ' | '.join(parts[index + 1:])
