@@ -409,19 +409,20 @@ class BuildCache(object):
         buildid = cfg.get('App', 'BuildID')
         blddate = datetime.datetime.strptime(buildid,
                                              '%Y%m%d%H%M%S')
-        procname = ''
-        if repo == 'http://hg.mozilla.org/mozilla-central':
-            tree = 'mozilla-central'
-            procname = 'org.mozilla.fennec'
-        elif repo == 'http://hg.mozilla.org/integration/mozilla-inbound':
-            tree = 'mozilla-inbound'
-            procname = 'org.mozilla.fennec'
-        elif repo == 'http://hg.mozilla.org/releases/mozilla-aurora':
-            tree = 'mozilla-aurora'
-            procname = 'org.mozilla.fennec_aurora'
-        elif repo == 'http://hg.mozilla.org/releases/mozilla-beta':
-            tree = 'mozilla-beta'
-            procname = 'org.mozilla.firefox'
+        tree = None
+        procname = None
+        for temp_tree, temp_procname in (
+                ('mozilla-central', 'org.mozilla.fennec'),
+                ('mozilla-inbound', 'org.mozilla.fennec'),
+                ('mozilla-aurora', 'org.mozilla.fennec_aurora'),
+                ('mozilla-beta', 'org.mozilla.firefox')):
+            if temp_tree in repo:
+                tree = temp_tree
+                procname = temp_procname
+                break
+        if not tree:
+            raise BuildCacheException('build %s contains an unknown SourceRepository %s' %
+                                      (apkfile, repo))
 
         metadata = {'cache_build_dir': build_dir,
                     'tree': tree,
