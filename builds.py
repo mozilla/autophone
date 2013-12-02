@@ -91,6 +91,11 @@ class Tinderbox(object):
         return build_time
 
 
+class InboundArchive(Tinderbox):
+
+    main_http_url = 'http://inbound-archive.pub.build.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/'
+
+
 class BuildCacheException(Exception):
     pass
 
@@ -129,6 +134,8 @@ class BuildCache(object):
             return Nightly(self.repos, self.buildtypes)
         if 'tinderbox' in s:
             return Tinderbox(self.repos, self.buildtypes)
+        if 'inboundarchive' in s:
+            return InboundArchive(self.repos, self.buildtypes)
         return None
 
     def find_latest_builds(self, build_location_name='nightly'):
