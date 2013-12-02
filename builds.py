@@ -5,7 +5,7 @@
 import ConfigParser
 import base64
 import datetime
-import ftplib
+import httplib
 import json
 import logging
 import math
@@ -19,6 +19,9 @@ import urllib
 import urlparse
 import zipfile
 
+from bs4 import BeautifulSoup
+import httplib2
+
 logger = logging.getLogger('autophone.builds')
 
 class Nightly(object):
@@ -29,84 +32,63 @@ class Nightly(object):
         self.nightly_dirnames = [(re.compile('(.*)-%s-android(-armv6|-x86)?$'
                                              % repo)) for repo in repos]
 
-    def nightly_ftpdir(self, year, month):
-        return 'ftp://ftp.mozilla.org/pub/mobile/nightly/%d/%02d/' % (year,
-                                                                      month)
-
-    def ftpdirs(self, start_time, end_time):
-        logger.debug('Getting ftp dirs...')
+    def get_search_directories(self, start_time, end_time):
+        logger.debug('Nightly:get_search_directories(%s, %s)' % (start_time, end_time))
         dirs = []
         y = start_time.year
         m = start_time.month
         while y < end_time.year or (y == end_time.year and m <= end_time.month):
-            dirs.append(self.nightly_ftpdir(y, m))
+            dirs.append('http://ftp.mozilla.org/pub/mobile/nightly/%d/%02d/' % (y, m))
             if m == 12:
                 y += 1
                 m = 1
             else:
                 m += 1
-        logger.debug('Searching these ftp dirs: %s' % ', '.join(dirs))
+        logger.debug('Searching these http dirs: %s' % ', '.join(dirs))
         return dirs
 
-    def build_info_from_ftp(self, ftpline):
-        srcdir = ftpline.split(' ')[-1].strip()
+    def build_time_from_directory_name(self, directory_name):
+        logger.debug('Nightly:build_time_from_directory_name(%s)' % directory_name)
         build_time = None
         dirnamematch = None
         for r in self.nightly_dirnames:
-            dirnamematch = r.match(srcdir)
+            dirnamematch = r.match(directory_name)
             if dirnamematch:
                 break
         if dirnamematch:
             build_time = datetime.datetime.strptime(dirnamematch.group(1),
                                                     '%Y-%m-%d-%H-%M-%S')
             build_time = build_time.replace(tzinfo=pytz.timezone('US/Pacific'))
-        return (srcdir, build_time)
-
-    def build_date_from_url(self, url):
-        # nightly urls are of the form
-        #  ftp://ftp.mozilla.org/pub/mobile/nightly/<year>/<month>/<year>-
-        #    <month>-<day>-<hour>-<minute>-<second>-<repo>-android(-armv6|-x86)?/
-        #    <buildfile>
-        m = re.search('nightly\/[\d]{4}\/[\d]{2}\/([\d]{4}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2})-', url)
-        if not m:
-            return None
-        return datetime.datetime.strptime(m.group(1), '%Y-%m-%d-%H-%M-%S')
+        logger.debug('Nightly:build_time_from_directory_name: (%s, %s)' % (directory_name, build_time))
+        return build_time
 
 
 class Tinderbox(object):
 
-    main_ftp_url = 'ftp://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/'
+    main_http_url = 'http://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/'
 
     def __init__(self, repos, buildtypes):
         self.repos = repos
         self.buildtypes = buildtypes
 
-    def ftpdirs(self, start_time, end_time):
+    def get_search_directories(self, start_time, end_time):
+        logger.debug('Tinderbox:get_search_directories(%s, %s)' % (start_time, end_time))
         # FIXME: Can we be certain that there's only one buildID (unique
         # timestamp) regardless of repo (at least m-i vs m-c)?
         dirnames = []
         for repo in self.repos:
             for arch in ('', '-armv6', '-x86'):
-                dirnames.append('%s%s-android%s/' % (self.main_ftp_url, repo, arch))
+                dirnames.append('%s%s-android%s/' % (self.main_http_url, repo, arch))
 
         return dirnames
 
-    def build_info_from_ftp(self, ftpline):
-        srcdir = ftpline.split()[8].strip()
-        build_time = datetime.datetime.fromtimestamp(int(srcdir), pytz.timezone('US/Pacific'))
-        return (srcdir, build_time)
-
-    def build_date_from_url(self, url):
-        # tinderbox urls are of the form
-        #   ftp://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/
-        #     <repo>-android(-armv6|-x86)?/<build timestamp>/<buildfile>
-        m = re.search('tinderbox-builds\/.*-android(-armv6|-x86)?\/([\d]+)\/', url)
-        logger.debug('build_date_from_url: url: %s, match: %s' % (url, m))
-        if not m:
-            return None
-        logger.debug('build_date_from_url: match.group(1): %s' % m.group(1))
-        return datetime.datetime.fromtimestamp(int(m.group(1)),
-                                               pytz.timezone('US/Pacific'))
+    def build_time_from_directory_name(self, directory_name):
+        logger.debug('Tinderbox:build_time_from_directory_name(%s)' % directory_name)
+        try:
+            build_time = datetime.datetime.fromtimestamp(int(directory_name), pytz.timezone('US/Pacific'))
+        except ValueError:
+            build_time = None
+        return build_time
 
 
 class BuildCacheException(Exception):
@@ -117,13 +99,6 @@ class BuildCache(object):
 
     MAX_NUM_BUILDS = 20
     EXPIRE_AFTER_SECONDS = 60 * 60 * 24
-
-    class FtpLineCache(object):
-        def __init__(self):
-            self.lines = []
-
-        def __call__(self, line):
-            self.lines.append(line)
 
     def __init__(self, repos, buildtypes,
                  cache_dir='builds', override_build_dir=None,
@@ -181,6 +156,7 @@ class BuildCache(object):
     def find_builds(self, start_time, end_time, build_location_name='nightly'):
         logger.debug('Finding most recent build between %s and %s...' %
                      (start_time, end_time))
+        http = httplib2.Http()
         build_location = self.build_location(build_location_name)
         if not build_location:
             logger.error('unsupported build_location "%s"' % build_location_name)
@@ -194,17 +170,20 @@ class BuildCache(object):
         builds = []
         fennecregex = re.compile("fennec.*\.android-(arm|arm-armv6|i386)\.apk")
 
-        for d in build_location.ftpdirs(start_time, end_time):
-            url = urlparse.urlparse(d)
-            logger.debug('Logging into %s...' % url.netloc)
-            f = ftplib.FTP(url.netloc)
-            f.login()
-            logger.debug('Looking for builds in %s...' % url.path)
-            lines = self.FtpLineCache()
-            f.dir(url.path, lines)
-            file('lines.out', 'w').write('\n'.join(lines.lines))
-            for line in lines.lines:
-                srcdir, build_time = build_location.build_info_from_ftp(line)
+        for d in build_location.get_search_directories(start_time, end_time):
+            logger.debug('Checking %s...' % d)
+            directory_response, directory_content = http.request(d, "GET")
+            if directory_response.status != 200:
+                logger.warning("Unable to get directory: %s : %s" % (
+                    d, httplib.responses[directory_response.status]))
+                continue
+            directory_soup = BeautifulSoup(directory_content)
+            for directory_link in directory_soup.findAll('a'):
+                directory_name = directory_link.get_text().rstrip('/')
+                directory_href = '%s%s/' % (d, directory_name)
+                logger.debug('find_builds: directory: href: %s, name: %s' % (
+                    directory_href, directory_name))
+                build_time = build_location.build_time_from_directory_name(directory_name)
 
                 if not build_time:
                     continue
@@ -213,26 +192,21 @@ class BuildCache(object):
                                    build_time > end_time):
                     continue
 
-                newpath = url.path + srcdir
-                lines2 = self.FtpLineCache()
-                f.dir(newpath, lines2)
-                for l2 in lines2.lines:
-                    filename = l2.split(' ')[-1].strip()
+                builddir_response, builddir_content = http.request(directory_href)
+                if builddir_response.status != 200:
+                    logger.warning("Unable to get build directory: %s, %s" % (
+                        directory_href, httplib.responses[builddir_response.status]))
+                    continue
+
+                builddir_soup = BeautifulSoup(builddir_content)
+                for build_link in builddir_soup.findAll('a'):
+                    filename = build_link.get_text()
+                    logger.debug('find_builds: filename: %s' % filename)
                     if fennecregex.match(filename):
-                        buildurl = url.scheme + '://' + url.netloc + newpath + "/" + filename
-                        builds.append(buildurl)
+                        builds.append('%s%s' % (directory_href, filename))
         if not builds:
             logger.error('No builds found.')
         return builds
-
-    def build_date(self, url):
-        build_location = self.build_location(url)
-        builddate = None
-        if build_location:
-            builddate = build_location.build_date_from_url(url)
-        if not builddate:
-            logger.error('bad URL "%s"' % url)
-        return builddate
 
     def get(self, buildurl, force=False):
         """Returns info on a cached build, fetching it if necessary.

@@ -1,4 +1,6 @@
 -e git://github.com/markrcote/jwt.git#egg=jwt
+beautifulsoup4
+httplib2
 logparser
 mozautolog
 mozdevice

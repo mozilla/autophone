@@ -136,9 +136,9 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       help='Log file to store build system logs, '
                       'defaults to autophone.log')
     parser.add_option('--loglevel', action='store', type='string',
-                      dest='loglevel_name', default='DEBUG',
+                      dest='loglevel_name', default='INFO',
                       help='Log level - ERROR, WARNING, DEBUG, or INFO, '
-                      'defaults to DEBUG')
+                      'defaults to INFO')
     parser.add_option('--repo',
                       dest='repos',
                       action='append',
