@@ -472,9 +472,14 @@ def main(clear_cache, test_path, cachefile, ipaddr, port,
 
     console_logger.info('Starting build-cache server on port %d.' %
                         build_cache_port)
+    product = 'fennec'
+    build_platforms = ['android', 'android-armv6', 'android-x86']
+    buildfile_ext = '.apk'
     try:
         build_cache = builds.BuildCache(
-            repos, buildtypes, cache_dir=cache_dir,
+            repos, buildtypes,
+            product, build_platforms, buildfile_ext,
+            cache_dir=cache_dir,
             override_build_dir=override_build_dir,
             enable_unittests=enable_unittests)
     except builds.BuildCacheException, e:

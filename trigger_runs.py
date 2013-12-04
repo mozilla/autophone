@@ -52,10 +52,23 @@ def main(args, options):
     logger.addHandler(filehandler)
 
     logger.info('Looking for builds...')
+    product = 'fennec'
+    build_platforms = ['android', 'android-armv6', 'android-x86']
+    buildfile_ext = '.apk'
+
     build_urls = []
-    if args[0] == 'latest':
+    if not args:
         build_urls = builds.BuildCache(
-            options.repos, options.buildtypes).find_latest_builds(
+            options.repos, options.buildtypes,
+            product, build_platforms,
+            buildfile_ext).find_builds_by_revision(
+                options.first_revision, options.last_revision,
+                options.build_location)
+    elif args[0] == 'latest':
+        build_urls = builds.BuildCache(
+            options.repos, options.buildtypes,
+            product, build_platforms,
+            buildfile_ext).find_latest_builds(
             options.build_location)
     else:
         if re.match('\d{14}', args[0]):
@@ -74,7 +87,9 @@ def main(args, options):
         if not end_time.tzinfo:
             end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
         build_urls = builds.BuildCache(
-            options.repos, options.buildtypes).find_builds(
+            options.repos, options.buildtypes,
+            product, build_platforms,
+            buildfile_ext).find_builds_by_time(
             start_time, end_time, options.build_location)
 
     if not build_urls:
@@ -153,13 +168,26 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       'One of opt or debug. To specify multiple build types, '
                       'specify them with additional --buildtype options. '
                       'Defaults to opt.')
+    parser.add_option('--first-revision', action='store', type='string',
+                      dest='first_revision',
+                      help='revision of first build; must match a build;'
+                      ' last revision must also be specified;'
+                      ' can not be used with date arguments.')
+    parser.add_option('--last-revision', action='store', type='string',
+                      dest='last_revision',
+                      help='revision of second build; must match a build;'
+                      ' first revision must also be specified;'
+                      ' can not be used with date arguments.')
     parser.add_option('--device',
                       dest='devices',
                       action='append',
                       help='Device on which to run the job.  Defaults to all '
                       'if not specified. Can be specified multiple times.')
     (options, args) = parser.parse_args()
-    if len(args) > 2:
+    if (len(args) > 2 or
+        (options.first_revision and not options.last_revision) or
+        (not options.first_revision and options.last_revision) or
+        (options.first_revision and len(args) > 0)):
         parser.print_help()
         sys.exit(errno.EINVAL)
 
