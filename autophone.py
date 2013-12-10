@@ -297,15 +297,16 @@ class AutoPhone(object):
         return response
 
     def create_worker(self, phone_cfg, user_cfg):
-        self.logger.info('Creating worker for %s.' % phone_cfg['phoneid'])
+        phoneid = phone_cfg['phoneid']
+        self.logger.info('Creating worker for %s.' % phoneid)
         tests = [x[0](phone_cfg=phone_cfg, user_cfg=user_cfg, config_file=x[1])
-                 for x in self._tests]
+                 for x in self._tests if 'all' in x[2] or phoneid in x[2]]
         logfile_prefix = os.path.splitext(self.logfile)[0]
         worker = PhoneWorker(self.next_worker_num, self.ipaddr,
                              tests, phone_cfg, user_cfg, self.worker_msg_queue,
-                             '%s-%s' % (logfile_prefix, phone_cfg['phoneid']),
+                             '%s-%s' % (logfile_prefix, phoneid),
                              self.loglevel, self.mailer, self.build_cache_port)
-        self.phone_workers[phone_cfg['phoneid']] = worker
+        self.phone_workers[phoneid] = worker
         worker.start()
 
     def register_cmd(self, data):
@@ -388,12 +389,19 @@ class AutoPhone(object):
                 t['name'] = t['name'][:-3]
             # add all classes in module that are derived from PhoneTest to
             # the test list
-            tests = [(x[1], os.path.normpath(os.path.join(t['here'],
-                                                          t.get('config', ''))))
-                     for x in inspect.getmembers(__import__(t['name']),
-                                                 inspect.isclass)
-                     if x[0] != 'PhoneTest' and issubclass(x[1],
-                                                           phonetest.PhoneTest)]
+            tests = []
+            for x in inspect.getmembers(__import__(t['name']),
+                                                 inspect.isclass):
+                if (x[0] != 'PhoneTest' and
+                    issubclass(x[1], phonetest.PhoneTest)):
+                    config = os.path.join(t['here'],
+                                          t.get('config', ''))
+                    if t.get('devices', '') == '':
+                        devices = set(['all'])
+                    else:
+                        devices = set(t.get('devices', '').split(' '))
+                    tests.append((x[1], config, devices))
+
             self._tests.extend(tests)
 
     def trigger_jobs(self, data):
