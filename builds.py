@@ -29,6 +29,7 @@ from build_dates import (TIMESTAMP, DIRECTORY_DATE, DIRECTORY_DATETIME,
 logger = logging.getLogger('autophone.builds')
 
 repo_urls = {
+    'fx-team': 'http://hg.mozilla.org/integration/fx-team/',
     'mozilla-central': 'http://hg.mozilla.org/mozilla-central/',
     'mozilla-aurora': 'http://hg.mozilla.org/releases/mozilla-aurora/',
     'mozilla-beta': 'http://hg.mozilla.org/releases/mozilla-beta/',
@@ -65,7 +66,7 @@ def get_revision_timestamps(repo, first_revision, last_revision):
     arguments:
     repo            - name of repository. For example, one of
                       mozilla-central, mozilla-aurora, mozilla-beta,
-                      mozilla-inbound
+                      mozilla-inbound, fx-team
     first_revision  - string.
     last_revision - string.
 
@@ -704,6 +705,7 @@ class BuildCache(object):
         tree = None
         procname = None
         for temp_tree, temp_procname in (
+                ('fx-team', 'org.mozilla.fennec'),
                 ('mozilla-central', 'org.mozilla.fennec'),
                 ('mozilla-inbound', 'org.mozilla.fennec'),
                 ('mozilla-aurora', 'org.mozilla.fennec_aurora'),
@@ -720,7 +722,7 @@ class BuildCache(object):
                     'tree': tree,
                     'blddate': math.trunc(time.mktime(blddate.timetuple())),
                     'buildid': buildid,
-                    'revision': rev,
+                    'revision': '%srev/%s' % (repo_urls[tree], rev),
                     'androidprocname': procname,
                     'version': ver,
                     'bldtype': 'opt'}

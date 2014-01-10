@@ -159,7 +159,7 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       action='append',
                       help='The repos to test. '
                       'One of mozilla-central, mozilla-inbound, mozilla-aurora, '
-                      'mozilla-beta. To specify multiple repos, specify them '
+                      'mozilla-beta, fx-team. To specify multiple repos, specify them '
                       'with additional --repo options. Defaults to mozilla-central.')
     parser.add_option('--buildtype',
                       dest='buildtypes',
