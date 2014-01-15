@@ -62,7 +62,12 @@ class UnitTest(PhoneTest):
             symbols_path = None
 
         androidprocname = build_metadata['androidprocname']
-        revision = build_metadata['revision']
+        re_revision = re.compile(r'http.*/rev/(.*)')
+        match = re_revision.match(build_metadata['revision'])
+        if match:
+            revision = match.group(1)
+        else:
+            revision = build_metadata['revision']
         buildid = build_metadata['buildid']
         tree = build_metadata['tree']
 
