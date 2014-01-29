@@ -19,6 +19,9 @@ class LogDecorator(object):
     def _expanded_message(self, message):
         extradict = dict(self._extradict)
         try:
+            # If the message is actualy an object, such as DMError,
+            # convert it to a string.
+            message = "%s" % message
             if isinstance(message, unicode):
                 extradict['message'] = message
             else:
@@ -41,6 +44,9 @@ class LogDecorator(object):
         self._logger.info(self._expanded_message(message), *args, **kwargs)
 
     def warning(self, message, *args, **kwargs):
+        self._logger.warning(self._expanded_message(message), *args, **kwargs)
+
+    def warn(self, message, *args, **kwargs):
         self._logger.warning(self._expanded_message(message), *args, **kwargs)
 
     def error(self, message, *args, **kwargs):

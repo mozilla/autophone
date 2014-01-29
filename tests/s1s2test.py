@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
+import datetime
 import json
 import jwt
 import logging
@@ -22,7 +23,7 @@ from phonetest import PhoneTest
 # the mean. We will continue to collect results until all of the
 # measurement's percentage standard errors of the mean are below this
 # value or until the number of iterations has been exceeded.
-STDERRP_THRESHOLD = 1.0
+STDERRP_THRESHOLD = 0
 
 def get_stats(values):
     """Calculate and return an object containing the count, mean,
@@ -64,6 +65,7 @@ class S1S2Test(PhoneTest):
                                         'buildid': build_metadata['buildid']},
                                        '%(phoneid)s|%(phoneip)s|%(buildid)s|'
                                        '%(message)s')
+        self.dm._logger = self.loggerdeco
 
         try:
             # Read our config file which gives us our number of
@@ -92,6 +94,7 @@ class S1S2Test(PhoneTest):
         finally:
             self.logger = logger
             self.loggerdeco = loggerdeco
+            self.dm._logger = loggerdeco
 
     def runtests(self, build_metadata, worker_subprocess):
         self.loggerdeco = LogDecorator(self.logger,
@@ -100,52 +103,16 @@ class S1S2Test(PhoneTest):
                                         'buildid': build_metadata['buildid']},
                                        '%(phoneid)s|%(phoneip)s|%(buildid)s|'
                                        '%(message)s')
+        self.dm._logger = self.loggerdeco
         appname = build_metadata['androidprocname']
 
-        # Attempt to install the local html pages required for
-        # the test. Try up to 2 times, otherwise abort the test.
-        success = False
-        for attempt in range(2):
-            self.loggerdeco.debug('Installing local pages...')
-            try:
-                self.install_local_pages()
-                success = True
-                break
-            except:
-                self.loggerdeco.exception('Exception installing local pages:')
-        if not success:
-            self.loggerdeco.info('%s: Could not install local pages on phone. '
-                                 'Aborting test for build %s' %
-                                 (self.phone_cfg['phoneid'],
-                                  build_metadata['buildid']))
+        if not self.install_local_pages():
             self.set_status(msg='Could not install local pages on phone. '
                             'Aborting test for '
                             'build %s' % build_metadata['buildid'])
             return
 
-        # Attempt to launch fennec and load the initialize url
-        # to see if we can actually test this build. Try up to
-        # 2 times, otherwise abort the test.
-        success = False
-        self.create_profile(build_metadata)
-        for attempt in range(2):
-            self.loggerdeco.debug('Checking if fennec is runnable...')
-            self.run_fennec_with_profile(appname, self._initialize_url)
-            if self.wait_for_fennec(build_metadata):
-                success = True
-                break
-            self.loggerdeco.info('%s: Attempt %d failed to run fennec for build %s' %
-                                 (self.phone_cfg['phoneid'],
-                                  attempt,
-                                  build_metadata['buildid']))
-            self.set_status(msg='Attempt %d failed to run fennec for build %s' %
-                            (attempt,
-                             build_metadata['buildid']))
-        if not success:
-            self.loggerdeco.info('%s: Could not run Fennec. Aborting test for '
-                                 'build %s' %
-                                 (self.phone_cfg['phoneid'],
-                                  build_metadata['buildid']))
+        if not self.create_profile(build_metadata):
             self.set_status(msg='Could not run Fennec. Aborting test for '
                             'build %s' % build_metadata['buildid'])
             return
@@ -159,6 +126,7 @@ class S1S2Test(PhoneTest):
                                             'testname': testname},
                                            '%(phoneid)s|%(phoneip)s|%(buildid)s|'
                                            '%(testname)s|%(message)s')
+            self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
                                  (testnum, len(self._urls.keys()),
                                   self._iterations))
@@ -182,6 +150,12 @@ class S1S2Test(PhoneTest):
             attempt = 0
             while iteration <= self._iterations:
                 attempt += 1
+                if attempt > 3:
+                    self.set_status(msg='Too many attempts to get measurements. '
+                                    'Aborting test for build %s' %
+                                    build_metadata['buildid'])
+                    return
+
                 data = {
                     'uncached': {
                         'starttime' : 0, 'throbberstart' : 0, 'throbberstop' : 0
@@ -190,25 +164,11 @@ class S1S2Test(PhoneTest):
                         'starttime' : 0, 'throbberstart' : 0, 'throbberstop' : 0
                         }
                     }
-                self.create_profile(build_metadata)
 
-                # Initialize profile
-                success = False
-                for initialize_attempt in range(2):
-                    self.loggerdeco.debug('initializing profile...')
-                    self.run_fennec_with_profile(appname, self._initialize_url)
-                    if self.wait_for_fennec(build_metadata):
-                        success = True
-                        break
-                    sleep(5)
-                if not success:
-                    self.loggerdeco.info('%s: Failed to initialize profile for build %s' %
-                                         (self.phone_cfg['phoneid'],
-                                          build_metadata['buildid']))
-                    self.set_status(msg='Failed to initialize profile for build %s' %
-                                    build_metadata['buildid'])
-                    return
-
+                if not self.create_profile(build_metadata):
+                    self.set_status(msg='Attempt %d Failed to initialize profile for build %s' %
+                                    (attempt, build_metadata['buildid']))
+                    continue
                 if not self.runtest(build_metadata, appname, data, 'uncached',
                                     testname, testnum, testcount, iteration,
                                     attempt, url):
@@ -247,11 +207,11 @@ class S1S2Test(PhoneTest):
         self.loggerdeco.debug('running fennec')
 
         # Run test
-        starttime = self.run_fennec_with_profile(appname, url)
+        self.run_fennec_with_profile(appname, url)
 
         # Get results - do this now so we don't have as much to
         # parse in logcat.
-        throbberstart, throbberstop = self.analyze_logcat(
+        starttime, throbberstart, throbberstop = self.analyze_logcat(
             build_metadata)
 
         self.wait_for_fennec(build_metadata)
@@ -261,7 +221,7 @@ class S1S2Test(PhoneTest):
             self.loggerdeco.debug('Successful %s throbber '
                                   'measurement run %d attempt %d' %
                                   (cachekey, iteration, attempt))
-            data[cachekey]['starttime'] = int(starttime)
+            data[cachekey]['starttime'] = starttime
             data[cachekey]['throbberstart'] = throbberstart
             data[cachekey]['throbberstop'] = throbberstop
             return True
@@ -296,6 +256,9 @@ class S1S2Test(PhoneTest):
         return False
 
     def create_profile(self, build_metadata, custom_prefs=None):
+        # Create, install and initialize the profile to be
+        # used in the test.
+
         telemetry_prompt = 999
         if build_metadata['blddate'] < '2013-01-03':
             telemetry_prompt = 2
@@ -308,21 +271,36 @@ class S1S2Test(PhoneTest):
             'browser.warnOnQuit': False,
             'browser.EULA.override': True,
             'toolkit.telemetry.prompted': telemetry_prompt,
-            'toolkit.telemetry.notifiedOptOut': telemetry_prompt
+            'toolkit.telemetry.notifiedOptOut': telemetry_prompt,
+            'datareporting.healthreport.service.enabled': False,
             }
         if isinstance(custom_prefs, dict):
             prefs = dict(prefs.items() + custom_prefs.items())
         profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
                                  os.getcwd())
-        self.install_profile(profile)
+        if not self.install_profile(profile):
+            return False
+
+        appname = build_metadata['androidprocname']
+        buildid = build_metadata['buildid']
+        success = False
+        for attempt in range(self.retry_limit):
+            self.loggerdeco.debug('Attempt %d Initializing profile' % attempt)
+            self.run_fennec_with_profile(appname, self._initialize_url)
+            if self.wait_for_fennec(build_metadata):
+                success = True
+                break
+            sleep(self.wait_after_error)
+
+        if not success:
+            self.loggerdeco.error('Failure initializing profile for '
+                                 'build %s' % buildid)
+        return success
 
     def install_local_pages(self):
         if not os.path.exists(self.config_file):
             self.loggerdeco.error('Cannot find config file: %s' % self.config_file)
             raise NameError('Cannot find config file: %s' % self.config_file)
-
-        testroot = '/mnt/sdcard/s1test'
-        self.dm.mkDir(testroot)
 
         cfg = ConfigParser.RawConfigParser()
         cfg.read(self.config_file)
@@ -337,43 +315,111 @@ class S1S2Test(PhoneTest):
         # FIXME: Check for errors, use defined path for configs (e.g. config/)
         #        so that we can properly strip path root, instead of just
         #        always using basename.
-        for h in cfg.items('htmlfiles'):
-            if os.path.isdir(h[1]):
-                self.dm.pushDir(h[1], posixpath.join(testroot,
-                                                     os.path.basename(h[1])))
-            else:
-                self.dm.pushFile(h[1], posixpath.join(testroot,
-                                                      os.path.basename(h[1])))
+        testroot = '/mnt/sdcard/s1test'
+        success = False
+        for attempt in range(self.retry_limit):
+            self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
+            try:
+                self.dm.mkDir(testroot)
+
+                for h in cfg.items('htmlfiles'):
+                    srcpath = h[1]
+                    destpath = posixpath.join(testroot, os.path.basename(srcpath))
+                    if os.path.isdir(srcpath):
+                        self.dm.pushDir(srcpath, destpath)
+                    else:
+                        self.dm.pushFile(srcpath, destpath)
+                success = True
+            except DMError:
+                self.loggerdeco.warning('Attempt %d Exception Installing local pages' % attempt)
+                sleep(self.wait_after_error)
+
+        if not success:
+            self.loggerdeco.error('Failure installing local pages')
+
+        return success
+
+    def is_fennec_running(self, appname):
+        for attempt in range(self.retry_limit):
+            try:
+                return self.dm.processExist(appname)
+            except DMError:
+                self.loggerdeco.warning('Attempt %d is fennec running' % attempt)
+                if attempt == self.retry_limit - 1:
+                    raise
+                sleep(self.wait_after_error)
+
+    def get_logcat_throbbers(self):
+        for attempt in range(self.retry_limit):
+            try:
+                return [x.strip() for x in
+                        self.dm.getLogcat(
+                            filterSpecs=['GeckoToolbarDisplayLayout:*', 'SUTAgentAndroid:I', '*:S'])]
+            except DMError:
+                self.loggerdeco.warning('Attempt %d get logcat throbbers' % attempt)
+                if attempt == self.retry_limit - 1:
+                    raise
+                sleep(self.wait_after_error)
 
     def analyze_logcat(self, build_metadata):
         self.loggerdeco.debug('analyzing logcat')
-        throbberstartRE = re.compile('.*Throbber start$')
-        throbberstopRE = re.compile('.*Throbber stop$')
-        throbstart = 0
-        throbstop = 0
+
+        app_name = build_metadata['androidprocname']
+        logcat_prefix = '(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})'
+        throbber_prefix = 'I/GeckoToolbarDisplayLayout.* zerdatime (\d+) - Throbber'
+        re_base_time = re.compile('%s' % logcat_prefix)
+        re_start_time = re.compile('%s I/SUTAgentAndroid.* '
+                                   'exec am start\s+-n %s/.App '
+                                   '-a android.intent.action.VIEW' %
+                                   (logcat_prefix, app_name))
+        re_throbber_start_time = re.compile('%s %s start' %
+                                            (logcat_prefix, throbber_prefix))
+        re_throbber_stop_time = re.compile('%s %s stop' %
+                                           (logcat_prefix, throbber_prefix))
+
+        self.loggerdeco.debug('analyze_logcat: re_base_time: %s' % re_base_time.pattern)
+        self.loggerdeco.debug('analyze_logcat: re_start_time: %s' % re_start_time.pattern)
+        self.loggerdeco.debug('analyze_logcat: re_throbber_start_time: %s' % re_throbber_start_time.pattern)
+        self.loggerdeco.debug('analyze_logcat: re_throbber_stop_time: %s' % re_throbber_stop_time.pattern)
+
+        base_time = 0
+        start_time = 0
+        throbber_start_time = 0
+        throbber_stop_time = 0
+
         attempt = 0
         max_time = 90 # maximum time to wait for throbbers
         wait_time = 3 # time to wait between attempts
         max_attempts = max_time / wait_time
 
-        # Always do at least one analysis of the logcat output
-        # after fennec stops running to make sure we have not missed
-        # throbberstop.
-        fennec_still_running = True
-        while (fennec_still_running and
-               attempt < max_attempts and (throbstart == 0 or throbstop == 0)):
-            if not self.dm.processExist(build_metadata['androidprocname']):
-                fennec_still_running = False
-            buf = [x.strip() for x in self.dm.getLogcat()]
+        while (attempt < max_attempts and (throbber_start_time == 0 or
+                                           throbber_stop_time == 0)):
+            buf = self.get_logcat_throbbers()
             for line in buf:
+                self.loggerdeco.debug('analyze_logcat: %s' % line)
+                match = re_base_time.match(line)
+                if match and not base_time:
+                    base_time = match.group(1)
+                    self.loggerdeco.debug('analyze_logcat: base_time: %s' % base_time)
                 # we want the first throbberstart and throbberstop.
-                if throbberstartRE.match(line) and not throbstart:
-                    throbstart = line.split(' ')[-4]
-                elif throbberstopRE.match(line) and not throbstop:
-                    throbstop = line.split(' ')[-4]
-                if throbstart and throbstop:
+                match = re_start_time.match(line)
+                if match:
+                    start_time = match.group(1)
+                    self.loggerdeco.debug('analyze_logcat: start_time: %s' % start_time)
+                    continue
+                match = re_throbber_start_time.match(line)
+                if match and not throbber_start_time:
+                    throbber_start_time = match.group(1)
+                    self.loggerdeco.debug('analyze_logcat: throbber_start_time: %s' % throbber_start_time)
+                    continue
+                match = re_throbber_stop_time.match(line)
+                if match and not throbber_stop_time:
+                    throbber_stop_time = match.group(1)
+                    self.loggerdeco.debug('analyze_logcat: throbber_stop_time: %s' % throbber_stop_time)
+                    continue
+                if throbber_start_time and throbber_stop_time:
                     break
-            if fennec_still_running and (throbstart == 0 or throbstop == 0):
+            if throbber_start_time == 0 or throbber_stop_time == 0:
                 sleep(wait_time)
                 attempt += 1
         if self.check_for_crashes():
@@ -381,10 +427,51 @@ class S1S2Test(PhoneTest):
             fennec_crashed = True
         else:
             fennec_crashed = False
-        if throbstart and throbstop == 0 and not fennec_crashed:
+        if throbber_start_time and throbber_stop_time == 0 and not fennec_crashed:
             self.loggerdeco.info('Unable to find Throbber stop')
 
-        return (int(throbstart), int(throbstop))
+        # The captured time from the logcat lines is in the format
+        # MM-DD HH:MM:SS.mmm. It is possible for the year to change
+        # between the different times, so we need to make adjustments
+        # if necessary. First, we assume the year does not change and
+        # parse the dates as if they are in the current year. If
+        # the dates violate the natural order start_time,
+        # throbber_start_time, throbber_stop_time, we can adjust the
+        # year.
+
+        if base_time and start_time and throbber_start_time and throbber_stop_time:
+            parse = lambda y, t: datetime.datetime.strptime('%4d-%s' % (y, t), '%Y-%m-%d %H:%M:%S.%f')
+            year = datetime.datetime.now().year
+            base_time = parse(year, base_time)
+            start_time = parse(year, start_time)
+            throbber_start_time = parse(year, throbber_start_time)
+            throbber_stop_time = parse(year, throbber_stop_time)
+
+            if base_time > start_time:
+                base_time.replace(year=year-1)
+            elif start_time > throbber_start_time:
+                base_time.replace(year=year-1)
+                start_time.replace(year=year-1)
+            elif throbber_start_time > throbber_stop_time:
+                base_time.replace(year=year-1)
+                start_time.replace(year=year-1)
+                throbber_start_time.replace(year-1)
+
+            # Convert the times to milliseconds from the base time.
+            convert = lambda t1, t2: round((t2 - t1).total_seconds() * 1000.0)
+
+            start_time = convert(base_time, start_time)
+            throbber_start_time = convert(base_time, throbber_start_time)
+            throbber_stop_time = convert(base_time, throbber_stop_time)
+
+            self.loggerdeco.debug('analyze_logcat: base: %s, start: %s, '
+                                  'throbber start: %s, throbber stop: %s, '
+                                  'throbber time: %s ' %
+                                  (base_time, start_time,
+                                   throbber_start_time, throbber_stop_time,
+                                   throbber_stop_time - throbber_start_time))
+
+        return (start_time, throbber_start_time, throbber_stop_time)
 
     def clear_results(self, build_metadata):
         data = json.dumps({'revision': build_metadata['revision'],

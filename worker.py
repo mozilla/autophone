@@ -152,6 +152,10 @@ class PhoneWorkerSubProcess(object):
         self.last_ping = None
         self._dm = None
         self.status = None
+        # number of seconds to wait after an error before retrying
+        self.wait_after_error = 15
+        # number of retries before giving up on an operation
+        self.retry_limit = 2
         self.logger = logging.getLogger('autophone.worker.subprocess')
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone_cfg['phoneid'],
@@ -169,9 +173,12 @@ class PhoneWorkerSubProcess(object):
             # default retrylimit.
             self._dm = DroidSUT(self.phone_cfg['ip'],
                                 self.phone_cfg['sutcmdport'],
-                                retryLimit=8)
+                                retryLimit=8,
+                                logLevel=self.loglevel)
             # Give slow devices chance to mount all devices.
             self._dm.reboot_settling_time = 120
+            # Override mozlog.logger
+            self._dm._logger = self.loggerdeco
             self.loggerdeco.info('Connected.')
         return self._dm
 
@@ -369,16 +376,21 @@ the "enable" command.
             'Installing build %s.' % datetime.datetime.fromtimestamp(
                 float(build_metadata['blddate'])))
 
-        try:
-            pathOnDevice = posixpath.join(self.dm.getDeviceRoot(),
-                                          'build.apk')
-            self.dm.pushFile(os.path.join(build_metadata['cache_build_dir'],
-                                          'build.apk'), pathOnDevice)
-            self.dm.installApp(pathOnDevice)
-            self.dm.removeFile(pathOnDevice)
-        except DMError:
-            exc = 'Exception installing fennec!\n\n%s' % traceback.format_exc()
-            self.loggerdeco.exception('Exception installing fennec!')
+        success = False
+        for attempt in range(self.retry_limit):
+            try:
+                pathOnDevice = posixpath.join(self.dm.getDeviceRoot(),
+                                              'build.apk')
+                self.dm.pushFile(os.path.join(build_metadata['cache_build_dir'],
+                                              'build.apk'), pathOnDevice)
+                self.dm.installApp(pathOnDevice)
+                self.dm.removeFile(pathOnDevice)
+                success = True
+            except DMError:
+                exc = 'Exception installing fennec attempt %d!\n\n%s' % (attempt, traceback.format_exc())
+                self.loggerdeco.exception('Exception installing fennec attempt %d!' % attempt)
+                time.sleep(self.wait_after_error)
+        if not success:
             self.phone_disconnected(exc)
             return False
         self.current_build = build_metadata['blddate']
@@ -449,6 +461,7 @@ the "enable" command.
             self.loggerdeco.warning('Errors occured getting build %s: %s' %
                                     (build_url, cache_response['error']))
             return
+        starttime = datetime.datetime.now()
         if self.run_tests(cache_response['metadata']):
             self.loggerdeco.info('Job completed.')
             self.jobs.job_completed(job['id'])
@@ -458,6 +471,8 @@ the "enable" command.
                     self.current_build))
         else:
             self.loggerdeco.error('Job failed.')
+        stoptime = datetime.datetime.now()
+        self.loggerdeco.info('Job elapsed time: %s' % (stoptime - starttime))
 
     def handle_cmd(self, request):
         if not request:

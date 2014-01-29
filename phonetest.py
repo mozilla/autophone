@@ -7,6 +7,7 @@ import glob
 import json
 import logging
 import os
+import time
 import StringIO
 
 from logdecorator import LogDecorator
@@ -81,6 +82,10 @@ class PhoneTest(object):
         self.loggerdeco.info('init autophone.phonetest')
         self._base_device_path = ''
         self._dm = None
+        # number of seconds to wait after an error before retrying
+        self.wait_after_error = 15
+        # number of retries before giving up on an operation
+        self.retry_limit = 2
 
     @property
     def dm(self):
@@ -90,10 +95,12 @@ class PhoneTest(object):
             # default retrylimit to match that used in worker.py.
             self._dm = DroidSUT(self.phone_cfg['ip'],
                                 self.phone_cfg['sutcmdport'],
-                                retryLimit=8)
-            self._dm.loglevel = self.user_cfg['debug']
+                                retryLimit=8,
+                                logLevel=self.user_cfg['debug'])
             # Give slow devices chance to mount all devices.
             self._dm.reboot_settling_time = 120
+            # Override mozlog.logger
+            self._dm._logger = self.loggerdeco
         return self._dm
 
     @property
@@ -133,9 +140,23 @@ class PhoneTest(object):
         if not profile:
             profile = FirefoxProfile()
 
-        self.dm.removeDir(self.profile_path)
-        self.dm.mkDir(self.profile_path)
-        self.dm.pushDir(profile.profile, self.profile_path)
+        success = False
+        for attempt in range(self.retry_limit):
+            try:
+                self.loggerdeco.debug('Attempt %d installing profile' % attempt)
+                self.dm.removeDir(self.profile_path)
+                self.dm.mkDir(self.profile_path)
+                self.dm.pushDir(profile.profile, self.profile_path)
+                success = True
+                break
+            except:
+                self.loggerdeco.exception('Attempt %d Exception installing profile' % attempt)
+                time.sleep(self.wait_after_error)
+
+        if not success:
+            self.loggerdeco.error('Failure installing profile')
+
+        return success
 
     def run_fennec_with_profile(self, appname, url):
         self.loggerdeco.debug('run_fennec_with_profile: %s %s' % (appname, url))
@@ -148,7 +169,6 @@ class PhoneTest(object):
             # we pass failIfRunning=False to prevent launchApplication
             # from calling processExist which otherwise would have
             # added overhead to times measured relative to starttime.
-            starttime = int(self.dm.getInfo('uptimemillis')['uptimemillis'][0])
             self.dm.launchFennec(appname,
                                  intent="android.intent.action.VIEW",
                                  mozEnv={'MOZ_CRASHREPORTER_NO_REPORT': '1'},
@@ -159,7 +179,6 @@ class PhoneTest(object):
         except:
             self.loggerdeco.exception('run_fennec_with_profile: Exception:')
             raise
-        return starttime
 
     def remove_sessionstore_files(self):
         self.dm.removeFile(self.profile_path + '/sessionstore.js')
