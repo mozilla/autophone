@@ -31,7 +31,7 @@ class MockDeviceManagerSUT(mozdevice.DeviceManagerSUT):
     def removeFile(self, f):
         return True
 
-    def reboot(self, ip, port):
+    def reboot(self, ipAddr=None):
         return True
 
     def shell(self, args, output):

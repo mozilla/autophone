@@ -270,7 +270,7 @@ class PhoneWorkerSubProcess(object):
             # FIXME: reboot() no longer indicates success/failure; instead
             # we just verify the device root.
             try:
-                self.dm.reboot(self.ipaddr, 30000+self.worker_num)
+                self.dm.reboot(ipAddr=self.ipaddr)
                 if self.dm.getDeviceRoot():
                     self.loggerdeco.info('Phone is back up.')
                     if self.check_sdcard():
