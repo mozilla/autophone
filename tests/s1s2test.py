@@ -369,7 +369,7 @@ class S1S2Test(PhoneTest):
         throbber_prefix = 'I/GeckoToolbarDisplayLayout.* zerdatime (\d+) - Throbber'
         re_base_time = re.compile('%s' % logcat_prefix)
         re_start_time = re.compile('%s I/SUTAgentAndroid.* '
-                                   'exec am start\s+-n %s/.App '
+                                   'exec am start\s+.*-n %s/.App '
                                    '-a android.intent.action.VIEW' %
                                    (logcat_prefix, app_name))
         re_throbber_start_time = re.compile('%s %s start' %
