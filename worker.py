@@ -176,7 +176,10 @@ class PhoneWorkerSubProcess(object):
                                 retryLimit=8,
                                 logLevel=self.loglevel)
             # Give slow devices chance to mount all devices.
-            self._dm.reboot_settling_time = 120
+            # Setting the reboot_settling_time is commented out
+            # pending a change to make this configurable via a
+            # configuration file.
+            #self._dm.reboot_settling_time = 0
             # Override mozlog.logger
             self._dm._logger = self.loggerdeco
             self.loggerdeco.info('Connected.')

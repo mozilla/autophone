@@ -1,0 +1,14 @@
+<!DOCTYPE HTML>
+<html>
+<script>
+function quit() {
+  var evt = document.createEvent('Events');
+  evt.initEvent('please-quit', true, false);
+  document.dispatchEvent(evt);
+}
+window.addEventListener("load", function () { setTimeout(quit, 1000); }, false);
+window.onerror = quit;
+</script>
+<body>
+</body>
+</html>

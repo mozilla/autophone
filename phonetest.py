@@ -8,9 +8,9 @@ import json
 import logging
 import os
 import time
-import StringIO
 
 from logdecorator import LogDecorator
+from mozdevice import DMError
 from mozdevice import DroidSUT
 from mozprofile import FirefoxProfile
 
@@ -81,6 +81,7 @@ class PhoneTest(object):
                                        '%(phoneid)s|%(phoneip)s|%(message)s')
         self.loggerdeco.info('init autophone.phonetest')
         self._base_device_path = ''
+        self.profile_path = '/data/local/tmp/profile'
         self._dm = None
         # number of seconds to wait after an error before retrying
         self.wait_after_error = 15
@@ -98,7 +99,10 @@ class PhoneTest(object):
                                 retryLimit=8,
                                 logLevel=self.user_cfg['debug'])
             # Give slow devices chance to mount all devices.
-            self._dm.reboot_settling_time = 120
+            # Setting the reboot_settling_time is commented out
+            # pending a change to make this configurable via a
+            # configuration file.
+            #self._dm.reboot_settling_time = 0
             # Override mozlog.logger
             self._dm._logger = self.loggerdeco
         return self._dm
@@ -107,14 +111,24 @@ class PhoneTest(object):
     def base_device_path(self):
         if self._base_device_path:
             return self._base_device_path
-        self._base_device_path = self.dm.getDeviceRoot() + '/autophone'
-        if not self.dm.dirExists(self._base_device_path):
-            self.dm.mkDirs(self._base_device_path)
-        return self._base_device_path
+        success = False
+        e = None
+        for attempt in range(self.retry_limit):
+            self._base_device_path = self.dm.getDeviceRoot() + '/autophone'
+            self.loggerdeco.debug('Attempt %d creating base device path' % attempt)
+            try:
+                if not self.dm.dirExists(self._base_device_path):
+                    self.dm.mkDirs(self._base_device_path)
+                success = True
+                break
+            except DMError, e:
+                self.loggerdeco.exception('Attempt %d creating base device path' % attempt)
+                sleep(self.wait_after_error)
 
-    @property
-    def profile_path(self):
-        return self.base_device_path + '/profile'
+        if not success:
+            raise e
+
+        return self._base_device_path
 
     def runjob(self, build_metadata, worker_subprocess):
         raise NotImplementedError
@@ -147,6 +161,7 @@ class PhoneTest(object):
                 self.dm.removeDir(self.profile_path)
                 self.dm.mkDir(self.profile_path)
                 self.dm.pushDir(profile.profile, self.profile_path)
+                self.dm.chmodDir(self.profile_path)
                 success = True
                 break
             except:

@@ -4,12 +4,14 @@
 
 import ConfigParser
 import datetime
+import glob
 import json
 import jwt
 import logging
 import os
 import posixpath
 import re
+import sys
 import urllib2
 from math import sqrt
 from time import sleep
@@ -72,6 +74,7 @@ class S1S2Test(PhoneTest):
             # iterations and urls that we will be testing
             cfg = ConfigParser.RawConfigParser()
             cfg.read(self.config_file)
+            # [signature]
             self._signer = None
             self._jwt = {'id': '', 'key': None}
             for opt in self._jwt.keys():
@@ -84,11 +87,51 @@ class S1S2Test(PhoneTest):
             if self._jwt['id'] and self._jwt['key']:
                 self._signer = jwt.jws.HmacSha(key=self._jwt['key'],
                                                key_id=self._jwt['id'])
+            # [paths]
+            autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
+            self._paths = {}
+            self._paths['source'] = os.path.join(autophone_directory, 'files/')
+            self._paths['dest'] = posixpath.join(self.base_device_path, 's1test/')
+            self._paths['remote'] = 'http://phonedash.mozilla.org/'
+            try:
+                for opt in ('source', 'dest', 'profile', 'remote'):
+                    try:
+                        self._paths[opt] = cfg.get('paths', opt)
+                        if not self._paths[opt].endswith('/'):
+                            self._paths[opt] += '/'
+                    except ConfigParser.NoOptionError:
+                        pass
+            except ConfigParser.NoSectionError:
+                pass
+            if 'profile' in self._paths:
+                self.profile_path = self._paths['profile']
+            # _pushes = {'sourcepath' : 'destpath', ...}
+            self._pushes = {}
+            for push in glob.glob(self._paths['source'] + '*'):
+                if push.endswith('~') or push.endswith('.bak'):
+                    continue
+                push_dest = posixpath.join(self._paths['dest'], os.path.basename(push))
+                self._pushes[push] = push_dest
+            # [tests]
+            self._tests = {}
+            for t in cfg.items('tests'):
+                self._tests[t[0]] = t[1]
+            # Map URLS - {urlname: url} - urlname serves as testname
+            self._urls = {}
+            for test_location in ('local', 'remote'):
+                for test_name in self._tests:
+                    if test_location == 'local':
+                        test_url = 'file://' + self._paths['dest'] + self._tests[test_name]
+                    else:
+                        test_url = self._paths['remote'] + self._tests[test_name]
+                    self._urls["%s-%s" % (test_location, test_name)] = test_url
+            # [settings]
             self._iterations = cfg.getint('settings', 'iterations')
             self._resulturl = cfg.get('settings', 'resulturl')
-            if self._resulturl[-1] != '/':
+            if not self._resulturl.endswith('/'):
                 self._resulturl += '/'
-            self._initialize_url = cfg.get('settings', 'initialize_url')
+            self._initialize_url = 'file://' + self._paths['dest'] + 'initialize_profile.html'
+
             self.clear_results(build_metadata)
             self.runtests(build_metadata, worker_subprocess)
         finally:
@@ -248,8 +291,8 @@ class S1S2Test(PhoneTest):
                 self.dm.killProcess(build_metadata['androidprocname'])
                 break
             except DMError:
-                self.loggerdeco.info('Attempt %d to kill fennec failed' %
-                                     kill_attempt)
+                self.loggerdeco.exception('Attempt %d to kill fennec failed' %
+                                          kill_attempt)
                 if kill_attempt == max_killattempts - 1:
                     raise
                 sleep(kill_wait_time)
@@ -298,40 +341,21 @@ class S1S2Test(PhoneTest):
         return success
 
     def install_local_pages(self):
-        if not os.path.exists(self.config_file):
-            self.loggerdeco.error('Cannot find config file: %s' % self.config_file)
-            raise NameError('Cannot find config file: %s' % self.config_file)
-
-        cfg = ConfigParser.RawConfigParser()
-        cfg.read(self.config_file)
-
-        # Map URLS - {urlname: url} - urlname serves as testname
-        self._urls = {}
-        for u in cfg.items('urls'):
-            self._urls[u[0]] = u[1]
-
-        # Move the local html files in htmlfiles onto the phone's sdcard
-        # Copy our HTML files for local use into place
-        # FIXME: Check for errors, use defined path for configs (e.g. config/)
-        #        so that we can properly strip path root, instead of just
-        #        always using basename.
-        testroot = '/mnt/sdcard/s1test'
         success = False
         for attempt in range(self.retry_limit):
             self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
             try:
-                self.dm.mkDir(testroot)
-
-                for h in cfg.items('htmlfiles'):
-                    srcpath = h[1]
-                    destpath = posixpath.join(testroot, os.path.basename(srcpath))
-                    if os.path.isdir(srcpath):
-                        self.dm.pushDir(srcpath, destpath)
+                self.dm.mkDir(self._paths['dest'])
+                for push_source in self._pushes:
+                    push_dest = self._pushes[push_source]
+                    if os.path.isdir(push_source):
+                        self.dm.pushDir(push_source, push_dest)
                     else:
-                        self.dm.pushFile(srcpath, destpath)
+                        self.dm.pushFile(push_source, push_dest)
                 success = True
+                break
             except DMError:
-                self.loggerdeco.warning('Attempt %d Exception Installing local pages' % attempt)
+                self.loggerdeco.exception('Attempt %d Installing local pages' % attempt)
                 sleep(self.wait_after_error)
 
         if not success:
@@ -344,7 +368,7 @@ class S1S2Test(PhoneTest):
             try:
                 return self.dm.processExist(appname)
             except DMError:
-                self.loggerdeco.warning('Attempt %d is fennec running' % attempt)
+                self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
                 if attempt == self.retry_limit - 1:
                     raise
                 sleep(self.wait_after_error)
@@ -356,7 +380,7 @@ class S1S2Test(PhoneTest):
                         self.dm.getLogcat(
                             filterSpecs=['GeckoToolbarDisplayLayout:*', 'SUTAgentAndroid:I', '*:S'])]
             except DMError:
-                self.loggerdeco.warning('Attempt %d get logcat throbbers' % attempt)
+                self.loggerdeco.exception('Attempt %d get logcat throbbers' % attempt)
                 if attempt == self.retry_limit - 1:
                     raise
                 sleep(self.wait_after_error)

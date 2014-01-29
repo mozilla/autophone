@@ -28,40 +28,60 @@ Autophone is packaged with two tests: s1s2 and unittests.
 
 s1s2
 ----
-s1s2 measures fennec load times for a couple different pages,
+s1s2 measures fennec load times for web pages,
 served both remotely and from a local file.
 
-Put the pages to be served into autophone/configs. You will need a way to
+Put the pages to be served into autophone/files. You will need a way to
 serve them (FIXME: autophone should do this). If you're using phonedash,
 it can serve the files by just dropping them into phonedash/html/.
 
 The s1s2 test is configured in the file configs/s1s2_settings.ini:
 
-    [htmlfiles]
-    file3 = configs/Twitter_files
-    file1 = configs/startup6.html
-    file2 = configs/Twitter2.html
-    file4 = configs/initialize_profile.html
-    
-    [urls]
-    # These must resolve, so ensure this matches what is in the code for
-    # the testroot
-    local-twitter = file://mnt/sdcard/s1test/Twitter2.html
-    local-blank = file://mnt/sdcard/s1test/startup6.html
-    remote-twitter = http://192.168.1.133:8100/Twitter2.html
-    remote-blank = http://192.168.1.133:8100/startup6.html
-    
-    [settings]
-    iterations = 20
-    resulturl = http://192.168.1.133:8100/api/s1s2_add/
-    # initialize_url is loaded prior to the other urls in order to
-    # initialize the profile.
-    initialize_url = file://mnt/sdcard/s1test/initialize_profile.html
+    [paths]
+    # By default, Autophone will attempt to copy the test files
+    # from the autophone/files directory. If you wish to customize
+    # the location, you can use the source option to specify the
+    # the path as either a local or absolute path.
+    #source = files/
 
-[htmlfiles] contains the paths of files to transfer to the phone. [urls]
-lists local and remote URLs (FIXME: we could make this less redundant).
-Remember that the remote links must be external IPs, since they are loaded
-from the mobile devices.
+    # By default, Autophone will places the test files in
+    # <testroot>/tests/autophone/s1test/ directory. You can customize
+    # the location for all devices by setting the dest option.
+    #dest = /mnt/sdcard/tests/autophone/s1test/
+
+    # By default, Autophone will place Fennec's profile in
+    # /data/local/tmp/profile. You can customize the location
+    # for all devices by setting the profile option.
+    #profile = /data/local/tmp/profile
+
+    # The remote option specifies the web server where the devices
+    # will retrieve the test files for the remote tests. It must
+    # be specified and be reachable from the devices.
+    remote = http://autophone.host/
+
+    [tests]
+    # List each testname as the option name and its corresponding
+    # file as the option value. Remote and Local versions of the
+    # tests will be created and displayed in the phonedash UI.
+    blank = blank.html
+    twitter = twitter.html
+
+    [settings]
+    # Autophone submits results to the server specified in the
+    # resulturl option. By default, this is set to
+    # http://phonedash.mozilla.org/api/s1s2/. You may customize
+    # by setting the resulturl option.
+    #resulturl = http://phonedash.mozilla.org/api/s1s2/
+
+    # Autophone will load each test page the number of times
+    # specified by the iterations option.
+    iterations = 8
+
+    [signature]
+    # Set the id and key options to match those used on the
+    # phonedash webserver where results will be submitted.
+    id = foo
+    key = bar
 
 The resulturl is the URL used to POST results to the database.
 
