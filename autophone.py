@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import ConfigParser
 import Queue
 import SocketServer
 import datetime
@@ -16,7 +17,6 @@ import signal
 import socket
 import sys
 import threading
-import traceback
 import urlparse
 
 from manifestparser import TestManifest
@@ -30,7 +30,8 @@ import phonetest
 
 from mailer import Mailer
 from multiprocessinghandlers import MultiprocessingStreamHandler, MultiprocessingTimedRotatingFileHandler
-from worker import PhoneWorker
+from options import *
+from worker import Crashes, PhoneWorker
 
 class AutoPhone(object):
 
@@ -67,25 +68,17 @@ class AutoPhone(object):
                     response = self.server.cmd_cb(line)
                     self.request.send(response + '\n')
 
-    def __init__(self, clear_cache, test_path, cachefile,
-                 ipaddr, port, logfile, loglevel, emailcfg, enable_pulse,
-                 repos, buildtypes, build_cache_port):
+    def __init__(self, loglevel, options):
         self.logger = logging.getLogger('autophone')
         self.console_logger = logging.getLogger('autophone.console')
-        self._test_path = test_path
-        self._cache = cachefile
-        if ipaddr:
-            self.ipaddr = ipaddr
-        else:
+        self.options = options
+        if not options.get(IPADDR, None):
             nt = NetworkTools()
-            self.ipaddr = nt.getLanIp()
+            self.options[IPADDR] = nt.getLanIp()
             self.logger.info('IP address for phone callbacks not provided; using '
-                             '%s.' % self.ipaddr)
-        self.port = port
-        self.logfile = logfile
+                             '%s.' % self.options[IPADDR])
         self.loglevel = loglevel
-        self.mailer = Mailer(emailcfg, '[autophone] ')
-        self.build_cache_port = build_cache_port
+        self.mailer = Mailer(options[EMAILCFG], '[autophone] ')
 
         self._stop = False
         self._next_worker_num = 0
@@ -101,35 +94,37 @@ class AutoPhone(object):
 
         self.read_tests()
 
-        if not os.path.exists(self._cache):
+        if not os.path.exists(options[CACHEFILE]):
             # If we don't have a cache you aren't restarting
-            open(self._cache, 'wb')
-        elif clear_cache:
+            open(options[CACHEFILE], 'wb')
+        elif options[CLEAR_CACHE]:
             # If the clear cache option is specified, then blow it away and
             # recreate it
-            os.remove(self._cache)
+            os.remove(options[CACHEFILE])
         else:
             # Otherwise assume cache is valid and read from it
             self.read_cache()
 
-        if clear_cache:
+        if options[CLEAR_CACHE]:
             self.jobs.clear_all()
 
         self.server = None
         self.server_thread = None
 
-        if enable_pulse:
+        if options[ENABLE_PULSE]:
             self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
-                                                    trees=repos,
+                                                    trees=options[REPOS],
                                                     platforms=['android',
                                                                'android-armv6',
                                                                'android-x86'],
-                                                    buildtypes=buildtypes,
+                                                    buildtypes=options[BUILDTYPES],
                                                     logger=self.logger)
         else:
             self.pulsemonitor = None
 
         self.restart_workers = {}
+
+        self.logger.debug('autophone_options: %s' % self.options)
 
     @property
     def next_worker_num(self):
@@ -138,7 +133,7 @@ class AutoPhone(object):
         return n
 
     def run(self):
-        self.server = self.CmdTCPServer(('0.0.0.0', self.port),
+        self.server = self.CmdTCPServer(('0.0.0.0', self.options[PORT]),
                                         self.CmdTCPHandler)
         self.server.cmd_cb = self.route_cmd
         self.server_thread = threading.Thread(target=self.server.serve_forever)
@@ -298,16 +293,43 @@ class AutoPhone(object):
 
     def create_worker(self, phone_cfg, user_cfg):
         phoneid = phone_cfg['phoneid']
-        self.logger.info('Creating worker for %s.' % phoneid)
-        tests = [x[0](phone_cfg=phone_cfg, user_cfg=user_cfg, config_file=x[1])
-                 for x in self._tests if 'all' in x[2] or phoneid in x[2]]
-        logfile_prefix = os.path.splitext(self.logfile)[0]
-        worker = PhoneWorker(self.next_worker_num, self.ipaddr,
-                             tests, phone_cfg, user_cfg, self.worker_msg_queue,
+        self.logger.info('Creating worker for %s: %s, %s.' % (phoneid, phone_cfg, user_cfg))
+        tests = []
+        for test_class, config_file, enable_unittests, test_devices_repos in self._tests:
+            skip_test = True
+            if not test_devices_repos:
+                # There is no restriction on this test being run by
+                # specific devices.
+                skip_test = False
+            elif phoneid in test_devices_repos:
+                # This test is to be run by this device on test_repos
+                skip_test = False
+            if not skip_test:
+                tests.append(test_class(phone_cfg=phone_cfg,
+                                        user_cfg=user_cfg,
+                                        config_file=config_file,
+                                        enable_unittests=enable_unittests,
+                                        test_devices_repos=test_devices_repos))
+        if not tests:
+                self.logger.warning('Not creating worker: No tests defined for '
+                                    'worker for %s: %s, %s.' %
+                                    (phoneid, phone_cfg, user_cfg))
+                return
+        logfile_prefix = os.path.splitext(self.options[LOGFILE])[0]
+        worker = PhoneWorker(self.next_worker_num, self.options[IPADDR],
+                             tests, phone_cfg, user_cfg,
+                             self.worker_msg_queue,
                              '%s-%s' % (logfile_prefix, phoneid),
-                             self.loglevel, self.mailer, self.build_cache_port)
+                             self.loglevel, self.mailer,
+                             self.options[BUILD_CACHE_PORT])
         self.phone_workers[phoneid] = worker
         worker.start()
+
+    def get_user_cfg(self):
+        user_cfg = {}
+        for option_name in INI_OPTION_NAMES:
+            user_cfg[option_name] = self.options[option_name]
+        return user_cfg
 
     def register_cmd(self, data):
         # Un-url encode it
@@ -321,12 +343,12 @@ class AutoPhone(object):
             phone_cfg = dict(
                 phoneid=phoneid,
                 serial=data['pool'][0].upper(),
-                ip=data['ipaddr'][0],
+                ip=data[IPADDR][0],
                 sutcmdport=int(data['cmdport'][0]),
                 machinetype=data['hardware'][0],
                 osver=data['os'][0],
                 abi=data['abi'][0],
-                ipaddr=self.ipaddr)
+                ipaddr=self.options[IPADDR])
             if self.logger.getEffectiveLevel() == logging.DEBUG:
                 self.logger.debug('register_cmd: phone_cfg: %s' % phone_cfg)
             if phoneid in self.phone_workers:
@@ -347,7 +369,8 @@ class AutoPhone(object):
                         self.restart_workers[phoneid] = phone_cfg
                         worker.stop()
             else:
-                user_cfg = {'debug': 3}
+                user_cfg = self.get_user_cfg()
+                user_cfg['debug'] = 3
                 self.create_worker(phone_cfg, user_cfg)
                 self.logger.info('Registered phone %s.' % phone_cfg['phoneid'])
                 self.update_phone_cache()
@@ -358,14 +381,17 @@ class AutoPhone(object):
     def read_cache(self):
         self.phone_workers.clear()
         try:
-            with open(self._cache) as f:
+            with open(self.options[CACHEFILE]) as f:
                 try:
                     cache = json.loads(f.read())
                 except ValueError:
                     cache = {}
 
                 for cfg in cache.get('phones', []):
-                    self.create_worker(cfg['phone_cfg'], cfg['user_cfg'])
+                    # ignore the cached runtime options saved in the cache.
+                    new_user_cfg = self.get_user_cfg()
+                    new_user_cfg['debug'] = cfg['user_cfg']['debug']
+                    self.create_worker(cfg['phone_cfg'], new_user_cfg)
         except IOError, err:
             if err.errno != errno.ENOENT:
                 raise err
@@ -374,13 +400,13 @@ class AutoPhone(object):
         cache = {}
         cache['phones'] = [{'phone_cfg': x.phone_cfg, 'user_cfg': x.user_cfg}
                            for x in self.phone_workers.values()]
-        with open(self._cache, 'w') as f:
+        with open(self.options[CACHEFILE], 'w') as f:
             f.write(json.dumps(cache))
 
     def read_tests(self):
         self._tests = []
         manifest = TestManifest()
-        manifest.read(self._test_path)
+        manifest.read(self.options[TEST_PATH])
         tests_info = manifest.get()
         for t in tests_info:
             if not t['here'] in sys.path:
@@ -390,19 +416,32 @@ class AutoPhone(object):
             # add all classes in module that are derived from PhoneTest to
             # the test list
             tests = []
-            for x in inspect.getmembers(__import__(t['name']),
-                                                 inspect.isclass):
-                if (x[0] != 'PhoneTest' and
-                    issubclass(x[1], phonetest.PhoneTest)):
+            for member_name, member_value in inspect.getmembers(__import__(t['name']),
+                                                                inspect.isclass):
+                if (member_name != 'PhoneTest' and
+                    issubclass(member_value, phonetest.PhoneTest)):
                     config = os.path.join(t['here'],
                                           t.get('config', ''))
-                    if t.get('devices', '') == '':
-                        devices = set(['all'])
-                    else:
-                        devices = set(t.get('devices', '').split(' '))
-                    tests.append((x[1], config, devices))
+                    # The config file can contain additional options
+                    # for each test:
+                    # unittests = 1  determines if the tests zip file should
+                    # be downloaded along with the build.
+                    # <device> = <repo-list> determines the devices
+                    # which should run the test. If no devices are listed,
+                    # then all devices will run the test.
+                    enable_unittests = bool(t.get('unittests', False))
+
+                    devices = [device for device in t if device not in
+                               ('name', 'here', 'manifest', 'path', 'config',
+                                'relpath', 'unittest')]
+                    test_devices_repos = {}
+                    for device in devices:
+                        test_devices_repos[device] = t[device].split()
+
+                    tests.append((member_value, config, enable_unittests, test_devices_repos))
 
             self._tests.extend(tests)
+
 
     def trigger_jobs(self, data):
         self.logger.info('Received user-specified job: %s' % data)
@@ -438,29 +477,95 @@ class AutoPhone(object):
             p.stop()
         self.server_thread.join()
 
+def load_autophone_options(cmd_options):
+    options = {}
 
-def main(clear_cache, test_path, cachefile, ipaddr, port,
-         logfile, loglevel_name, emailcfg, enable_pulse, enable_unittests,
-         cache_dir, override_build_dir, repos, buildtypes, build_cache_port):
+    if not cmd_options.repos:
+        cmd_options.repos = ['mozilla-central']
+
+    if not cmd_options.buildtypes:
+        cmd_options.buildtypes = ['opt']
+
+    if cmd_options.autophonecfg:
+        cfg = ConfigParser.RawConfigParser()
+        cfg.read(cmd_options.autophonecfg)
+
+        for setting_name in CMD_OPTION_NAMES:
+            try:
+                getter = getattr(ConfigParser.RawConfigParser,
+                                 CMD_OPTION_NAMES[setting_name])
+                value = getter(cfg, 'settings', setting_name)
+                if setting_name == REPOS:
+                    value = value.split()
+                elif setting_name == BUILDTYPES:
+                    value = value.split()
+                options[setting_name] = value
+            except ConfigParser.NoOptionError:
+                pass
+        for setting_name in INI_OPTION_NAMES:
+            try:
+                getter = getattr(ConfigParser.RawConfigParser,
+                                 INI_OPTION_NAMES[setting_name])
+                value = getter(cfg, 'settings', setting_name)
+                options[setting_name] = value
+            except ConfigParser.NoOptionError:
+                pass
+
+    for setting_name in CMD_OPTION_NAMES:
+        if setting_name not in options:
+            options[setting_name] = getattr(cmd_options, setting_name)
+
+    # Force defaults if they were not explicitly set.
+    def set_value(o, p, v):
+        if p not in o:
+            o[p] = v
+
+    set_value(options, BUILD_CACHE_SIZE,
+              builds.BuildCache.MAX_NUM_BUILDS)
+    set_value(options, BUILD_CACHE_EXPIRES,
+              builds.BuildCache.EXPIRE_AFTER_DAYS)
+    set_value(options, DEVICEMANAGER_RETRY_LIMIT,
+              PhoneWorker.DEVICEMANAGER_RETRY_LIMIT)
+    set_value(options, DEVICEMANAGER_SETTLING_TIME,
+              PhoneWorker.DEVICEMANAGER_SETTLING_TIME)
+    set_value(options, PHONE_RETRY_LIMIT,
+              PhoneWorker.PHONE_RETRY_LIMIT)
+    set_value(options, PHONE_RETRY_WAIT,
+              PhoneWorker.PHONE_RETRY_WAIT)
+    set_value(options, PHONE_MAX_REBOOTS,
+              PhoneWorker.PHONE_MAX_REBOOTS)
+    set_value(options, PHONE_PING_INTERVAL,
+              PhoneWorker.PHONE_PING_INTERVAL)
+    set_value(options, PHONE_COMMAND_QUEUE_TIMEOUT,
+              PhoneWorker.PHONE_COMMAND_QUEUE_TIMEOUT)
+    set_value(options, PHONE_CRASH_WINDOW,
+              Crashes.CRASH_WINDOW)
+    set_value(options, PHONE_CRASH_LIMIT,
+              Crashes.CRASH_LIMIT)
+
+    return options
+
+
+def main(options):
 
     def sigterm_handler(signum, frame):
         autophone.stop()
 
     loglevel = e = None
     try:
-        loglevel = getattr(logging, loglevel_name)
+        loglevel = getattr(logging, options[LOGLEVEL])
     except AttributeError, e:
         pass
     finally:
-        if e or logging.getLevelName(loglevel) != loglevel_name:
-            print 'Invalid log level %s' % loglevel_name
+        if e or logging.getLevelName(loglevel) != options[LOGLEVEL]:
+            print 'Invalid log level %s' % options[LOGLEVEL]
             return errno.EINVAL
 
     logger = logging.getLogger('autophone')
     logger.propagate = False
     logger.setLevel(loglevel)
 
-    filehandler = MultiprocessingTimedRotatingFileHandler(logfile,
+    filehandler = MultiprocessingTimedRotatingFileHandler(options[LOGFILE],
                                                           when='midnight',
                                                           backupCount=7)
     fileformatstring = ('%(asctime)s|%(levelname)s'
@@ -478,18 +583,26 @@ def main(clear_cache, test_path, cachefile, ipaddr, port,
     streamhandler.setFormatter(streamformatter)
     console_logger.addHandler(streamhandler)
 
+    console_logger.info('Starting server on port %d.' % options[PORT])
+    autophone = AutoPhone(loglevel, options)
+
     console_logger.info('Starting build-cache server on port %d.' %
-                        build_cache_port)
+                        options[BUILD_CACHE_PORT])
     product = 'fennec'
     build_platforms = ['android', 'android-armv6', 'android-x86']
     buildfile_ext = '.apk'
     try:
         build_cache = builds.BuildCache(
-            repos, buildtypes,
-            product, build_platforms, buildfile_ext,
-            cache_dir=cache_dir,
-            override_build_dir=override_build_dir,
-            enable_unittests=enable_unittests)
+            options[REPOS],
+            options[BUILDTYPES],
+            product,
+            build_platforms,
+            buildfile_ext,
+            cache_dir=options[CACHE_DIR],
+            override_build_dir=options[OVERRIDE_BUILD_DIR],
+            enable_unittests=options[ENABLE_UNITTESTS],
+            build_cache_size=options[BUILD_CACHE_SIZE],
+            build_cache_expires=options[BUILD_CACHE_EXPIRES])
     except builds.BuildCacheException, e:
         print '''%s
 
@@ -501,21 +614,17 @@ build directory must also contain a tests directory containing the
 unpacked tests package for the build.
 
         ''' % e
-        parser.print_help()
-        return 1
+        raise
 
     build_cache_server = buildserver.BuildCacheServer(
-        ('127.0.0.1', build_cache_port), buildserver.BuildCacheHandler)
+        ('127.0.0.1', options[BUILD_CACHE_PORT]),
+        buildserver.BuildCacheHandler)
     build_cache_server.build_cache = build_cache
     build_cache_server_thread = threading.Thread(
         target=build_cache_server.serve_forever)
     build_cache_server_thread.daemon = True
     build_cache_server_thread.start()
 
-    console_logger.info('Starting server on port %d.' % port)
-    autophone = AutoPhone(clear_cache, test_path, cachefile,
-                          ipaddr, port, logfile, loglevel, emailcfg,
-                          enable_pulse, repos, buildtypes, build_cache_port)
     signal.signal(signal.SIGTERM, sigterm_handler)
     autophone.run()
     # Drop pending messages and commands to prevent hangs on shutdown.
@@ -619,21 +728,20 @@ if __name__ == '__main__':
                       'multiple instances of autophone, this will have to be '
                       'different in each. Defaults to %d.' %
                       buildserver.DEFAULT_PORT)
+    parser.add_option('--config',
+                      dest='autophonecfg',
+                      action='store',
+                      type='string',
+                      default=None,
+                      help="""Optional autophone.py configuration ini file.
+                      The values of the settings in the ini file override
+                      any settings set on the command line.
+                      autophone.ini.example contains all of the currently
+                      available settings.""")
 
-    (options, args) = parser.parse_args()
-    if not options.repos:
-        options.repos = ['mozilla-central']
+    (cmd_options, args) = parser.parse_args()
+    options = load_autophone_options(cmd_options)
 
-    if not options.buildtypes:
-        options.buildtypes = ['opt']
-
-    exit_code = main(options.clear_cache,
-                     options.test_path, options.cachefile, options.ipaddr,
-                     options.port, options.logfile, options.loglevel,
-                     options.emailcfg, options.enable_pulse,
-                     options.enable_unittests,
-                     options.cache_dir, options.override_build_dir,
-                     options.repos, options.buildtypes,
-                     options.build_cache_port)
+    exit_code = main(options)
 
     sys.exit(exit_code)

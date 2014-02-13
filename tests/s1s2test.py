@@ -19,6 +19,7 @@ from time import sleep
 from logdecorator import LogDecorator
 from mozdevice import DMError
 from mozprofile import FirefoxProfile
+from options import *
 from phonetest import PhoneTest
 
 # STDERRP_THRESHOLD is the target maximum percentage standard error of
@@ -327,13 +328,13 @@ class S1S2Test(PhoneTest):
         appname = build_metadata['androidprocname']
         buildid = build_metadata['buildid']
         success = False
-        for attempt in range(self.retry_limit):
+        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             self.loggerdeco.debug('Attempt %d Initializing profile' % attempt)
             self.run_fennec_with_profile(appname, self._initialize_url)
             if self.wait_for_fennec(build_metadata):
                 success = True
                 break
-            sleep(self.wait_after_error)
+            sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
         if not success:
             self.loggerdeco.error('Failure initializing profile for '
@@ -342,7 +343,7 @@ class S1S2Test(PhoneTest):
 
     def install_local_pages(self):
         success = False
-        for attempt in range(self.retry_limit):
+        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
             try:
                 self.dm.mkDir(self._paths['dest'])
@@ -356,7 +357,7 @@ class S1S2Test(PhoneTest):
                 break
             except DMError:
                 self.loggerdeco.exception('Attempt %d Installing local pages' % attempt)
-                sleep(self.wait_after_error)
+                sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
         if not success:
             self.loggerdeco.error('Failure installing local pages')
@@ -364,26 +365,26 @@ class S1S2Test(PhoneTest):
         return success
 
     def is_fennec_running(self, appname):
-        for attempt in range(self.retry_limit):
+        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             try:
                 return self.dm.processExist(appname)
             except DMError:
                 self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
-                if attempt == self.retry_limit - 1:
+                if attempt == self.user_cfg[PHONE_RETRY_LIMIT] - 1:
                     raise
-                sleep(self.wait_after_error)
+                sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
     def get_logcat_throbbers(self):
-        for attempt in range(self.retry_limit):
+        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             try:
                 return [x.strip() for x in
                         self.dm.getLogcat(
                             filterSpecs=['GeckoToolbarDisplayLayout:*', 'SUTAgentAndroid:I', '*:S'])]
             except DMError:
                 self.loggerdeco.exception('Attempt %d get logcat throbbers' % attempt)
-                if attempt == self.retry_limit - 1:
+                if attempt == self.user_cfg[PHONE_RETRY_LIMIT] - 1:
                     raise
-                sleep(self.wait_after_error)
+                sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
     def analyze_logcat(self, build_metadata):
         self.loggerdeco.debug('analyzing logcat')
@@ -494,6 +495,12 @@ class S1S2Test(PhoneTest):
                                   (base_time, start_time,
                                    throbber_start_time, throbber_stop_time,
                                    throbber_stop_time - throbber_start_time))
+        else:
+            self.loggerdeco.warning(
+                'analyze_logcat: failed to get throbbers '
+                'start_time: %s, throbber start: %s, throbber stop: %s' % (
+                    start_time, throbber_start_time, throbber_stop_time))
+            start_time = throbber_start_time = throbber_stop_time = 0
 
         return (start_time, throbber_start_time, throbber_stop_time)
 

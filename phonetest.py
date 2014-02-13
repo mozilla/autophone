@@ -13,6 +13,7 @@ from logdecorator import LogDecorator
 from mozdevice import DMError
 from mozdevice import DroidSUT
 from mozprofile import FirefoxProfile
+from options import *
 
 class PhoneTestMessage(object):
 
@@ -68,8 +69,11 @@ class PhoneTest(object):
     TODO: Add in connection data here for programmable power so we can add a
     powercycle method to this class.
     """
-    def __init__(self, phone_cfg, user_cfg, config_file=None, status_cb=None):
+    def __init__(self, phone_cfg, user_cfg, config_file=None, status_cb=None,
+                 enable_unittests=False, test_devices_repos={}):
         self.config_file = config_file
+        self.enable_unittests = enable_unittests
+        self.test_devices_repos = test_devices_repos
         self.status_cb = status_cb
         self.phone_cfg = phone_cfg
         self.user_cfg = user_cfg
@@ -83,10 +87,6 @@ class PhoneTest(object):
         self._base_device_path = ''
         self.profile_path = '/data/local/tmp/profile'
         self._dm = None
-        # number of seconds to wait after an error before retrying
-        self.wait_after_error = 15
-        # number of retries before giving up on an operation
-        self.retry_limit = 2
 
     @property
     def dm(self):
@@ -96,13 +96,11 @@ class PhoneTest(object):
             # default retrylimit to match that used in worker.py.
             self._dm = DroidSUT(self.phone_cfg['ip'],
                                 self.phone_cfg['sutcmdport'],
-                                retryLimit=8,
+                                retryLimit=self.user_cfg[DEVICEMANAGER_RETRY_LIMIT],
                                 logLevel=self.user_cfg['debug'])
             # Give slow devices chance to mount all devices.
-            # Setting the reboot_settling_time is commented out
-            # pending a change to make this configurable via a
-            # configuration file.
-            #self._dm.reboot_settling_time = 0
+            if self.user_cfg[DEVICEMANAGER_SETTLING_TIME] is not None:
+                self._dm.reboot_settling_time =  self.user_cfg[DEVICEMANAGER_SETTLING_TIME]
             # Override mozlog.logger
             self._dm._logger = self.loggerdeco
         return self._dm
@@ -113,7 +111,7 @@ class PhoneTest(object):
             return self._base_device_path
         success = False
         e = None
-        for attempt in range(self.retry_limit):
+        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             self._base_device_path = self.dm.getDeviceRoot() + '/autophone'
             self.loggerdeco.debug('Attempt %d creating base device path' % attempt)
             try:
@@ -123,7 +121,7 @@ class PhoneTest(object):
                 break
             except DMError, e:
                 self.loggerdeco.exception('Attempt %d creating base device path' % attempt)
-                sleep(self.wait_after_error)
+                time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
         if not success:
             raise e
@@ -155,7 +153,7 @@ class PhoneTest(object):
             profile = FirefoxProfile()
 
         success = False
-        for attempt in range(self.retry_limit):
+        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             try:
                 self.loggerdeco.debug('Attempt %d installing profile' % attempt)
                 self.dm.removeDir(self.profile_path)
@@ -166,7 +164,7 @@ class PhoneTest(object):
                 break
             except:
                 self.loggerdeco.exception('Attempt %d Exception installing profile' % attempt)
-                time.sleep(self.wait_after_error)
+                time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
         if not success:
             self.loggerdeco.error('Failure installing profile')

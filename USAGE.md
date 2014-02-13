@@ -36,6 +36,43 @@ to see them. Some important ones are
 --loglevel: Log messages at or above this level. Can be set to
             DEBUG (default), INFO, WARNING, or ERROR.
 
+--config <configfile>: Use the specified configuration file to set various
+                       options. The values set in the config file override
+                       options set on the command line.
+
+                       Settings for command line options:
+
+                       clear_cache
+                       ipaddr
+                       port
+                       cachefile
+                       logfile
+                       loglevel
+                       test_path
+                       emailcfg
+                       enable_pulse
+                       enable_unittests
+                       cache_dir
+                       override_build_dir
+                       repos
+                       buildtypes
+                       build_cache_port
+
+                       Settings for internal parameters:
+
+                       build_cache_size
+                       build_cache_expires
+                       devicemanager_retry_limit
+                       devicemanager_settling_time
+                       phone_retry_limit
+                       phone_retry_wait
+                       phone_max_reboots
+                       phone_ping_interval
+                       phone_command_queue_timeout
+                       phone_command_queue_timeout
+                       phone_crash_window
+                       phone_crash_limit
+
 Running Unit Tests
 ------------------
 

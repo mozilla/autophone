@@ -40,11 +40,16 @@ class BuildCacheHandler(SocketServer.BaseRequestHandler):
                     continue
                 if line == 'quit' or line == 'exit':
                     return
-                cmd = line.split()
-                build = cmd[0]
-                force = (len(cmd) > 1 and cmd[1].lower() == 'force')
+                cmds = line.split()
+                build = cmds[0]
+                force = False
+                enable_unittests = False
+                cmds = cmds[1:]
+                for cmd in cmds:
+                    force = (cmd.lower() == 'force')
+                    enable_unittests = (cmd.lower() == 'enable_unittests')
                 self.server.cache_lock.acquire()
-                results = self.server.build_cache.get(build, force)
+                results = self.server.build_cache.get(build, force, enable_unittests)
                 self.server.cache_lock.release()
                 self.request.send(json.dumps(results) + '\n')
 
@@ -64,12 +69,14 @@ class BuildCacheClient(object):
         self.sock.close()
         self.sock = None
 
-    def get(self, url, force=False):
+    def get(self, url, force=False, enable_unittests=False):
         if not self.sock:
             self.connect()
         line = url
         if force:
             line += ' force'
+        if enable_unittests:
+            line += ' enable_unittests'
         self.sock.sendall(line + '\n')
         buf = ''
         while not '\n' in buf:

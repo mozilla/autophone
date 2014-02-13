@@ -458,12 +458,14 @@ class BuildCacheException(Exception):
 class BuildCache(object):
 
     MAX_NUM_BUILDS = 20
-    EXPIRE_AFTER_SECONDS = 60 * 60 * 24
+    EXPIRE_AFTER_DAYS = 1
 
     def __init__(self, repos, buildtypes,
                  product, build_platforms, buildfile_ext,
                  cache_dir='builds', override_build_dir=None,
-                 enable_unittests=False):
+                 enable_unittests=False,
+                 build_cache_size=MAX_NUM_BUILDS,
+                 build_cache_expires=EXPIRE_AFTER_DAYS):
         self.repos = repos
         self.buildtypes = buildtypes
         self.product = product
@@ -487,6 +489,8 @@ class BuildCache(object):
                                           override_build_dir)
         if not os.path.exists(self.cache_dir):
             os.mkdir(self.cache_dir)
+        self.build_cache_size = build_cache_size
+        self.build_cache_expires = build_cache_expires
 
     def build_location(self, s):
         if 'nightly' in s:
@@ -527,7 +531,7 @@ class BuildCache(object):
 
         return build_location.find_builds_by_revision(first_revision, last_revision)
 
-    def get(self, buildurl, force=False):
+    def get(self, buildurl, force=False, enable_unittests=False):
         """Returns info on a cached build, fetching it if necessary.
         Returns a dict with a boolean 'success' item.
         If 'success' is False, the dict also contains an 'error' item holding a
@@ -601,7 +605,7 @@ class BuildCache(object):
             os.unlink(tmpf.name)
 
         # tests
-        if self.enable_unittests:
+        if self.enable_unittests or enable_unittests:
             tests_path = os.path.join(cache_build_dir, 'tests')
             if force or not os.path.exists(tests_path):
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
@@ -663,7 +667,7 @@ class BuildCache(object):
                 return True
             if ((datetime.datetime.now() -
                  datetime.datetime.fromtimestamp(os.stat(lastused_path(d)).st_mtime) <=
-                 datetime.timedelta(microseconds=1000 * 1000 * self.EXPIRE_AFTER_SECONDS))):
+                 datetime.timedelta(days=self.build_cache_expires))):
                 # too new
                 return True
             return False
@@ -671,7 +675,7 @@ class BuildCache(object):
         builds = [(x, os.stat(lastused_path(x)).st_mtime) for x in
                   os.listdir(self.cache_dir) if not keep_build(x)]
         builds.sort(key=lambda x: x[1])
-        while len(builds) > self.MAX_NUM_BUILDS:
+        while len(builds) > self.build_cache_size:
             b = builds.pop(0)[0]
             logger.info('Expiring %s' % b)
             shutil.rmtree(os.path.join(self.cache_dir, b))
