@@ -12,6 +12,7 @@ import os
 import posixpath
 import re
 import sys
+import urllib
 import urllib2
 from math import sqrt
 from time import sleep
@@ -21,12 +22,6 @@ from mozdevice import DMError
 from mozprofile import FirefoxProfile
 from options import *
 from phonetest import PhoneTest
-
-# STDERRP_THRESHOLD is the target maximum percentage standard error of
-# the mean. We will continue to collect results until all of the
-# measurement's percentage standard errors of the mean are below this
-# value or until the number of iterations has been exceeded.
-STDERRP_THRESHOLD = 0
 
 def get_stats(values):
     """Calculate and return an object containing the count, mean,
@@ -40,21 +35,10 @@ def get_stats(values):
         r['stderrp'] = 0
     else:
         r['mean'] = sum(values) / float(r['count'])
-        r['stddev'] = sqrt(sum([(value - r['mean'])**2 for value in values])/float(r['count']-1))
+        r['stddev'] = sqrt(sum([(value - r['mean'])**2 for value in values])/float(r['count']-1.5))
         r['stderr'] = r['stddev']/sqrt(r['count'])
         r['stderrp'] = 100.0*r['stderr']/float(r['mean'])
     return r
-
-def is_stderr_acceptable(dataset):
-    """Return True if all of the measurements in the dataset have
-    standard errors of the mean below the threshold."""
-
-    for cachekey in ('uncached', 'cached'):
-        for measurement in ('throbberstart', 'throbberstop', 'throbbertime'):
-            stats = get_stats(dataset[cachekey][measurement])
-            if stats['count'] == 1 or stats['stderrp'] >= STDERRP_THRESHOLD:
-                return False
-    return True
 
 class S1S2Test(PhoneTest):
 
@@ -128,17 +112,59 @@ class S1S2Test(PhoneTest):
                     self._urls["%s-%s" % (test_location, test_name)] = test_url
             # [settings]
             self._iterations = cfg.getint('settings', 'iterations')
+            try:
+                self.stderrp_accept = cfg.getfloat('settings', 'stderrp_accept')
+            except ConfigParser.NoOptionError:
+                self.stderrp_accept = 0
+            try:
+                self.stderrp_reject = cfg.getfloat('settings', 'stderrp_reject')
+            except ConfigParser.NoOptionError:
+                self.stderrp_reject = 100
+            try:
+                self.stderrp_attempts = cfg.getint('settings', 'stderrp_attempts')
+            except ConfigParser.NoOptionError:
+                self.stderrp_attempts = 1
             self._resulturl = cfg.get('settings', 'resulturl')
             if not self._resulturl.endswith('/'):
                 self._resulturl += '/'
             self._initialize_url = 'file://' + self._paths['dest'] + 'initialize_profile.html'
 
-            self.clear_results(build_metadata)
             self.runtests(build_metadata, worker_subprocess)
         finally:
             self.logger = logger
             self.loggerdeco = loggerdeco
             self.dm._logger = loggerdeco
+
+    def is_stderr_below_threshold(self, dataset, threshold):
+        """Return True if all of the measurements in the dataset have
+        standard errors of the mean below the threshold.
+
+        Return False if at least one measurement is above the threshold
+        or if one or more datasets have only one value.
+
+        Return None if at least one measurement has no values.
+        """
+
+        self.loggerdeco.debug("is_stderr_below_threshold: %s" % dataset)
+
+        for cachekey in ('uncached', 'cached'):
+            for measurement in ('throbberstart', 'throbberstop'):
+                data = [datapoint[cachekey][measurement] - datapoint[cachekey]['starttime']
+                        for datapoint in dataset
+                        if datapoint and cachekey in datapoint]
+                if not data:
+                    return None
+                stats = get_stats(data)
+                self.loggerdeco.debug('%s %s count: %d, mean: %.2f, '
+                                      'stddev: %.2f, stderr: %.2f, '
+                                      'stderrp: %.2f' % (
+                                          cachekey, measurement,
+                                          stats['count'], stats['mean'],
+                                          stats['stddev'], stats['stderr'],
+                                          stats['stderrp']))
+                if stats['count'] == 1 or stats['stderrp'] >= threshold:
+                    return False
+        return True
 
     def runtests(self, build_metadata, worker_subprocess):
         self.loggerdeco = LogDecorator(self.logger,
@@ -171,79 +197,81 @@ class S1S2Test(PhoneTest):
                                            '%(phoneid)s|%(phoneip)s|%(buildid)s|'
                                            '%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
+            if self.check_results(build_metadata, testname):
+                # We already have good results for this test and build.
+                # No need to test it again.
+                self.loggerdeco.info('Skipping test (%d/%d) for %d iterations' %
+                                     (testnum, testcount, self._iterations))
+                continue
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
-                                 (testnum, len(self._urls.keys()),
-                                  self._iterations))
+                                 (testnum, testcount, self._iterations))
 
-            # Collect up to self._iterations measurements. Terminate
-            # measurements early if the percentage error of the mean
-            # of all measurements is below the threshold.
-            dataset = {
-                'uncached': {
-                    'throbberstart' : [],
-                    'throbberstop' : [],
-                    'throbbertime' : []
-                    },
-                'cached': {
-                    'throbberstart' : [],
-                    'throbberstop' : [],
-                    'throbbertime' : []
-                    }
-                }
-            iteration = 1
-            attempt = 0
-            while iteration <= self._iterations:
-                attempt += 1
-                if attempt > 3:
-                    self.set_status(msg='Too many attempts to get measurements. '
-                                    'Aborting test for build %s' %
-                                    build_metadata['buildid'])
-                    return
+            for attempt in range(self.stderrp_attempts):
+                # dataset is a list of the measurements made for the
+                # iterations for this test.
+                #
+                # An empty item in the dataset list represents a
+                # failure to obtain any measurement for that
+                # iteration.
+                #
+                # It is possible for an item in the dataset to have an
+                # uncached value and not have a corresponding cached
+                # value if the cached test failed to record the
+                # values.
 
-                data = {
-                    'uncached': {
-                        'starttime' : 0, 'throbberstart' : 0, 'throbberstop' : 0
-                        },
-                    'cached': {
-                        'starttime' : 0, 'throbberstart' : 0, 'throbberstop' : 0
-                        }
-                    }
+                dataset = []
+                for iteration in range(self._iterations):
+                    self.set_status(msg='Attempt %d/%d for Test %d/%d, '
+                                    'run %d, for url %s' %
+                                    (attempt+1, self.stderrp_attempts,
+                                     testnum, testcount, iteration+1, url))
 
-                if not self.create_profile(build_metadata):
-                    self.set_status(msg='Attempt %d Failed to initialize profile for build %s' %
-                                    (attempt, build_metadata['buildid']))
-                    continue
-                if not self.runtest(build_metadata, appname, data, 'uncached',
-                                    testname, testnum, testcount, iteration,
-                                    attempt, url):
-                    continue
-                if self.runtest(build_metadata, appname, data, 'cached',
-                                testname, testnum, testcount, iteration,
-                                attempt, url):
-                    self.loggerdeco.debug('publishing results')
-                    for cachekey in ('uncached', 'cached'):
-                        self.publish_results(starttime=data[cachekey]['starttime'],
-                                             tstrt=data[cachekey]['throbberstart'],
-                                             tstop=data[cachekey]['throbberstop'],
-                                             build_metadata=build_metadata,
-                                             testname=testname,
-                                             cache_enabled=(cachekey=='cached'))
-                        for measurement in ('throbberstart', 'throbberstop'):
-                            dataset[cachekey][measurement].append(
-                                data[cachekey][measurement] - data[cachekey]['starttime'])
-                        dataset[cachekey]['throbbertime'].append(data[cachekey]['throbberstop'] -
-                                                                 data[cachekey]['throbberstart'])
-                    if is_stderr_acceptable(dataset):
+                    dataset.append({})
+
+                    if not self.create_profile(build_metadata):
+                        continue
+
+                    measurement = self.runtest(build_metadata, appname, url)
+                    if not measurement:
+                        continue
+                    dataset[-1]['uncached'] = measurement
+
+                    measurement = self.runtest(build_metadata, appname, url)
+                    if not measurement:
+                        continue
+                    dataset[-1]['cached'] = measurement
+
+                    if self.is_stderr_below_threshold(dataset,
+                                                      self.stderrp_accept):
+                        self.loggerdeco.info(
+                            'Accepted test (%d/%d) after %d of %d iterations' %
+                            (testnum, testcount, iteration+1, self._iterations))
                         break
-                    iteration += 1
-                    attempt = 0
 
-    def runtest(self, build_metadata, appname, data, cachekey, testname, testnum,
-                testcount, iteration, attempt, url):
-        # Set status
-        self.set_status(msg='Test %d/%d, %s run %d, attempt %d for url %s' %
-                        (testnum, testcount, cachekey, iteration, attempt, url))
+                self.loggerdeco.debug('publishing results')
 
+                if self.is_stderr_below_threshold(dataset, self.stderrp_reject):
+                    rejected = False
+                else:
+                    rejected = True
+                    self.loggerdeco.info(
+                        'Rejected test (%d/%d) after %d/%d iterations' %
+                        (testnum, testcount, iteration+1, self._iterations))
+
+                for datapoint in dataset:
+                    for cachekey in datapoint:
+                        self.publish_results(
+                            starttime=datapoint[cachekey]['starttime'],
+                            tstrt=datapoint[cachekey]['throbberstart'],
+                            tstop=datapoint[cachekey]['throbberstop'],
+                            build_metadata=build_metadata,
+                            testname=testname,
+                            cache_enabled=(cachekey=='cached'),
+                            rejected=rejected)
+                if not rejected:
+                    break
+
+    def runtest(self, build_metadata, appname, url):
         # Clear logcat
         self.loggerdeco.debug('clearing logcat')
         self.dm.recordLogcat()
@@ -261,15 +289,13 @@ class S1S2Test(PhoneTest):
         self.wait_for_fennec(build_metadata)
 
         # Ensure we succeeded - no 0's reported
+        datapoint = {}
         if (throbberstart and throbberstop):
-            self.loggerdeco.debug('Successful %s throbber '
-                                  'measurement run %d attempt %d' %
-                                  (cachekey, iteration, attempt))
-            data[cachekey]['starttime'] = starttime
-            data[cachekey]['throbberstart'] = throbberstart
-            data[cachekey]['throbberstop'] = throbberstop
-            return True
-        return False
+            datapoint['starttime'] = starttime
+            datapoint['throbberstart'] = throbberstart
+            datapoint['throbberstop'] = throbberstop
+            datapoint['throbbertime'] = throbberstop - throbberstart
+        return datapoint
 
     def wait_for_fennec(self, build_metadata, max_wait_time=60, wait_time=5,
                         kill_wait_time=20):
@@ -337,8 +363,10 @@ class S1S2Test(PhoneTest):
             sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
         if not success:
-            self.loggerdeco.error('Failure initializing profile for '
-                                 'build %s' % buildid)
+            msg = 'Failure initializing profile for build %s' % buildid
+            self.loggerdeco.error(msg)
+            self.set_status(msg=msg)
+
         return success
 
     def install_local_pages(self):
@@ -504,23 +532,12 @@ class S1S2Test(PhoneTest):
 
         return (start_time, throbber_start_time, throbber_stop_time)
 
-    def clear_results(self, build_metadata):
-        data = json.dumps({'revision': build_metadata['revision'],
-                           'bldtype': build_metadata['bldtype'],
-                           'phoneid': self.phone_cfg['phoneid']})
-        req = urllib2.Request(self._resulturl + 'delete/', data,
-                              {'Content-Type': 'application/json'})
-        try:
-            urllib2.urlopen(req)
-        except urllib2.URLError, e:
-            self.loggerdeco.error('Could not clear previous results on server: %s'
-                                  % e)
-
     def publish_results(self, starttime=0, tstrt=0, tstop=0,
-                        build_metadata=None, testname='', cache_enabled=True):
+                        build_metadata=None, testname='', cache_enabled=True,
+                        rejected=False):
         msg = ('Cached: %s Start Time: %s Throbber Start: %s Throbber Stop: %s '
-               'Total Throbber Time %s' % (
-                cache_enabled, starttime, tstrt, tstop, tstop - tstrt))
+               'Total Throbber Time: %s Rejected: %s' % (
+                   cache_enabled, starttime, tstrt, tstop, tstop - tstrt, rejected))
         self.loggerdeco.info('RESULTS: %s' % msg)
 
         # Create JSON to send to webserver
@@ -532,6 +549,7 @@ class S1S2Test(PhoneTest):
         resultdata['throbberstop'] = tstop
         resultdata['blddate'] = build_metadata['blddate']
         resultdata['cached'] = cache_enabled
+        resultdata['rejected'] = rejected
 
         resultdata['revision'] = build_metadata['revision']
         resultdata['productname'] = build_metadata['androidprocname']
@@ -557,3 +575,34 @@ class S1S2Test(PhoneTest):
         else:
             f.read()
             f.close()
+
+    def check_results(self, build_metadata=None, testname=''):
+        """Return True if there already exist unrejected results for this device,
+        build and test.
+        """
+
+        # Create JSON to send to webserver
+        query = {}
+        query['phoneid'] = self.phone_cfg['phoneid']
+        query['test'] = testname
+        query['revision'] = build_metadata['revision']
+        query['product'] = build_metadata['androidprocname']
+
+        self.loggerdeco.debug('check_results for: %s' % query)
+
+        try:
+            url = self._resulturl + 'check/?' + urllib.urlencode(query)
+            f = urllib2.urlopen(url)
+        except urllib2.URLError, e:
+            self.loggerdeco.error(
+                'check_results: %s could not check: '
+                'phoneid: %s, test: %s, revision: %s, product: %s' % (
+                    e,
+                    query['phoneid'], query['test'],
+                    query['revision'], query['product']))
+            return False
+        data = f.read()
+        self.loggerdeco.debug('check_results: data: %s' % data)
+        f.close()
+        response = json.loads(data)
+        return response['result']
