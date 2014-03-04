@@ -6,6 +6,8 @@
 CLEAR_CACHE = 'clear_cache'
 IPADDR = 'ipaddr'
 PORT = 'port'
+USB_NETWORK = 'usb_network'
+USB_GATEWAY = 'usb_gateway'
 CACHEFILE = 'cachefile'
 LOGFILE = 'logfile'
 LOGLEVEL = 'loglevel'
@@ -20,6 +22,7 @@ BUILDTYPES = 'buildtypes'
 BUILD_CACHE_PORT = 'build_cache_port'
 
 # ini file internal options
+USB_IP = 'usb_ip'
 BUILD_CACHE_SIZE = 'build_cache_size'
 BUILD_CACHE_EXPIRES = 'build_cache_expires'
 DEVICEMANAGER_RETRY_LIMIT = 'devicemanager_retry_limit'
@@ -38,6 +41,8 @@ CMD_OPTION_NAMES = {
     CLEAR_CACHE: 'getboolean',
     IPADDR: 'get',
     PORT: 'getint',
+    USB_NETWORK: 'get',
+    USB_GATEWAY: 'get',
     CACHEFILE: 'get',
     LOGFILE: 'get',
     LOGLEVEL: 'get',
@@ -54,6 +59,7 @@ CMD_OPTION_NAMES = {
 
 # application configuration settings.
 INI_OPTION_NAMES = {
+    USB_IP: 'get',
     BUILD_CACHE_SIZE: 'getint',
     BUILD_CACHE_EXPIRES: 'getint',
     DEVICEMANAGER_RETRY_LIMIT: 'getint',
@@ -66,4 +72,3 @@ INI_OPTION_NAMES = {
     PHONE_CRASH_WINDOW: 'getint',
     PHONE_CRASH_LIMIT: 'getint'
 }
-

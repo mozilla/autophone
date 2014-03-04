@@ -15,6 +15,7 @@ import multiprocessing
 import os
 import signal
 import socket
+import subprocess
 import sys
 import threading
 import urlparse
@@ -34,6 +35,9 @@ from options import *
 from worker import Crashes, PhoneWorker
 
 class AutoPhone(object):
+
+    # The starting address to be used for usbnet.
+    USB_IP = '192.168.1.200'
 
     class CmdTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
@@ -334,6 +338,8 @@ class AutoPhone(object):
     def register_cmd(self, data):
         # Un-url encode it
         data = urlparse.parse_qs(data.lower())
+        autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
+        usbnet_script = '%s/usbnet.sh' % autophone_directory
 
         try:
             # Map MAC Address to ip and user name for phone
@@ -348,14 +354,30 @@ class AutoPhone(object):
                 machinetype=data['hardware'][0],
                 osver=data['os'][0],
                 abi=data['abi'][0],
-                ipaddr=self.options[IPADDR])
+                ipaddr=self.options[IPADDR],
+                usb_network=self.options[USB_NETWORK],
+                usb_gateway=self.options[USB_GATEWAY])
             if self.logger.getEffectiveLevel() == logging.DEBUG:
                 self.logger.debug('register_cmd: phone_cfg: %s' % phone_cfg)
             if phoneid in self.phone_workers:
                 self.logger.debug('Received registration message for known phone '
                                   '%s.' % phoneid)
                 worker = self.phone_workers[phoneid]
-                if worker.phone_cfg != phone_cfg:
+                if worker.phone_cfg == phone_cfg:
+                    if phone_cfg[USB_NETWORK]:
+                        usb_ip_parts = self.options[USB_IP].split('.')
+                        usb_ip_parts[-1] = str(int(usb_ip_parts[-1]) +
+                                               worker.worker_num + 1)
+                        phone_usb_ip = '.'.join(usb_ip_parts)
+                        output = subprocess.check_output([
+                            usbnet_script,
+                            '-s', phone_cfg['serial'],
+                            '-d', self.options[USB_GATEWAY],
+                            '-h', self.options[USB_IP],
+                            '-r', self.options[USB_NETWORK],
+                            '-p', phone_usb_ip])
+                        self.logger.debug(output)
+                else:
                     # This won't update the subprocess, but it will allow
                     # us to write out the updated values right away.
                     worker.phone_cfg = phone_cfg
@@ -520,6 +542,8 @@ def load_autophone_options(cmd_options):
         if p not in o:
             o[p] = v
 
+    set_value(options, USB_IP,
+              AutoPhone.USB_IP)
     set_value(options, BUILD_CACHE_SIZE,
               builds.BuildCache.MAX_NUM_BUILDS)
     set_value(options, BUILD_CACHE_EXPIRES,
@@ -670,6 +694,18 @@ if __name__ == '__main__':
                       default=28001,
                       help='Port to listen for incoming connections, defaults '
                       'to 28001')
+    parser.add_option('--usb-network', type='string', dest='usb_network',
+                      default=None,
+                      help='IP or network address for ppp over usb connections. '
+                      'If specified, set up adb ppp over usb connections '
+                      'so that all traffic from the devices to the host or network '
+                      'specified by usb_network passes through the '
+                      'ppp over usb connection. Otherwise, use the default '
+                      'network.')
+    parser.add_option('--usb-gateway', type='string', dest='usb_gateway',
+                      default=None,
+                      help='Ethernet device over which to route usb network '
+                      'traffic. ')
     parser.add_option('--cache', action='store', type='string', dest='cachefile',
                       default='autophone_cache.json',
                       help='Cache file to use, defaults to autophone_cache.json '

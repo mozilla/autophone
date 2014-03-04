@@ -28,6 +28,15 @@ to see them. Some important ones are
           if Autophone can't find one. (FIXME: This may no longer be
           needed?)
 
+--usb-network: IP or network address for ppp over usb connections.
+               If specified, set up adb ppp over usb
+               connections so that all traffic from the
+               devices to the host or network specified by
+               usb_network passes through the ppp over usb
+               connection. Otherwise, use the default 'network.
+
+--usb-gateway: Ethernet device over which to route usb network traffic.
+
 --logfile: Log main Autophone system messages to this file. Defaults to
            autophone.log. Devices will log to their own files in the
            format <logfile base>-<phone id>.<logfile extension>, e.g.
@@ -45,6 +54,8 @@ to see them. Some important ones are
                        clear_cache
                        ipaddr
                        port
+                       usb_network
+                       usb_gateway
                        cachefile
                        logfile
                        loglevel
@@ -60,6 +71,7 @@ to see them. Some important ones are
 
                        Settings for internal parameters:
 
+                       usb_ip
                        build_cache_size
                        build_cache_expires
                        devicemanager_retry_limit
