@@ -456,7 +456,7 @@ class S1S2Test(PhoneTest):
                     self.loggerdeco.debug('analyze_logcat: base_time: %s' % base_time)
                 # we want the first throbberstart and throbberstop.
                 match = re_start_time.match(line)
-                if match:
+                if match and not start_time:
                     start_time = match.group(1)
                     self.loggerdeco.debug('analyze_logcat: start_time: %s' % start_time)
                     continue
@@ -470,9 +470,11 @@ class S1S2Test(PhoneTest):
                     throbber_stop_time = match.group(1)
                     self.loggerdeco.debug('analyze_logcat: throbber_stop_time: %s' % throbber_stop_time)
                     continue
-                if throbber_start_time and throbber_stop_time:
+                if start_time and throbber_start_time and throbber_stop_time:
                     break
-            if throbber_start_time == 0 or throbber_stop_time == 0:
+            if (start_time == 0 or
+                throbber_start_time == 0 or
+                throbber_stop_time == 0):
                 sleep(wait_time)
                 attempt += 1
         if self.check_for_crashes():
@@ -500,6 +502,12 @@ class S1S2Test(PhoneTest):
             throbber_start_time = parse(year, throbber_start_time)
             throbber_stop_time = parse(year, throbber_stop_time)
 
+            self.loggerdeco.debug('analyze_logcat: before year adjustment '
+                                  'base: %s, start: %s, '
+                                  'throbber start: %s' %
+                                  (base_time, start_time,
+                                   throbber_start_time))
+
             if base_time > start_time:
                 base_time.replace(year=year-1)
             elif start_time > throbber_start_time:
@@ -509,6 +517,12 @@ class S1S2Test(PhoneTest):
                 base_time.replace(year=year-1)
                 start_time.replace(year=year-1)
                 throbber_start_time.replace(year-1)
+
+            self.loggerdeco.debug('analyze_logcat: after year adjustment '
+                                  'base: %s, start: %s, '
+                                  'throbber start: %s' %
+                                  (base_time, start_time,
+                                   throbber_start_time))
 
             # Convert the times to milliseconds from the base time.
             convert = lambda t1, t2: round((t2 - t1).total_seconds() * 1000.0)
@@ -523,9 +537,20 @@ class S1S2Test(PhoneTest):
                                   (base_time, start_time,
                                    throbber_start_time, throbber_stop_time,
                                    throbber_stop_time - throbber_start_time))
+
+            if (start_time > throbber_start_time or
+                start_time > throbber_stop_time or
+                throbber_start_time > throbber_stop_time):
+                self.loggerdeco.warning('analyze_logcat: inconsistent measurements: '
+                                        'start: %s, '
+                                        'throbber start: %s, throbber stop: %s ' %
+                                      (start_time,
+                                       throbber_start_time,
+                                       throbber_stop_time))
+                start_time = throbber_start_time = throbber_stop_time = 0
         else:
             self.loggerdeco.warning(
-                'analyze_logcat: failed to get throbbers '
+                'analyze_logcat: failed to get measurements '
                 'start_time: %s, throbber start: %s, throbber stop: %s' % (
                     start_time, throbber_start_time, throbber_stop_time))
             start_time = throbber_start_time = throbber_stop_time = 0
