@@ -2,6 +2,8 @@
 #clear_cache = False
 #ipaddr = ...
 #port = 28001
+#usb_network = 192.168.1.50
+#usb_gateway = br0
 #cachefile = autophone_cache.json
 #logfile = autophone.log
 #loglevel = DEBUG
@@ -15,6 +17,7 @@
 #buildtypes = opt
 #build_cache_port = 28008
 
+#usb_ip = 192.168.1.200
 #build_cache_size = 20
 #build_cache_expires = 7
 #devicemanager_retry_limit = 8

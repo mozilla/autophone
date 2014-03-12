@@ -205,7 +205,7 @@ class PhoneWorkerSubProcess(object):
     def stop(self):
         """Call from main process."""
         if self.is_alive():
-            self.cmd_queue.put_nowait(('stop', None))
+            self.p.terminate()
             self.p.join(self.user_cfg[PHONE_COMMAND_QUEUE_TIMEOUT]*2)
 
     def has_error(self):

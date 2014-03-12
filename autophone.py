@@ -337,23 +337,23 @@ class AutoPhone(object):
 
     def register_cmd(self, data):
         # Un-url encode it
-        data = urlparse.parse_qs(data.lower())
+        data = urlparse.parse_qs(data)
         autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
         usbnet_script = '%s/usbnet.sh' % autophone_directory
 
         try:
             # Map MAC Address to ip and user name for phone
             # The configparser does odd things with the :'s so remove them.
-            macaddr = data['name'][0].replace(':', '_')
-            phoneid = '%s_%s' % (macaddr, data['hardware'][0])
+            macaddr = data['NAME'][0].replace(':', '_')
+            phoneid = '%s_%s' % (macaddr, data['HARDWARE'][0])
             phone_cfg = dict(
                 phoneid=phoneid,
-                serial=data['pool'][0].upper(),
-                ip=data[IPADDR][0],
-                sutcmdport=int(data['cmdport'][0]),
-                machinetype=data['hardware'][0],
-                osver=data['os'][0],
-                abi=data['abi'][0],
+                serial=data['POOL'][0],
+                ip=data['IPADDR'][0],
+                sutcmdport=int(data['CMDPORT'][0]),
+                machinetype=data['HARDWARE'][0],
+                osver=data['OS'][0],
+                abi=data['ABI'][0],
                 ipaddr=self.options[IPADDR],
                 usb_network=self.options[USB_NETWORK],
                 usb_gateway=self.options[USB_GATEWAY])
@@ -366,17 +366,69 @@ class AutoPhone(object):
                 if worker.phone_cfg == phone_cfg:
                     if phone_cfg[USB_NETWORK]:
                         usb_ip_parts = self.options[USB_IP].split('.')
-                        usb_ip_parts[-1] = str(int(usb_ip_parts[-1]) +
-                                               worker.worker_num + 1)
+                        octet = int(usb_ip_parts[-1]) + 2*worker.worker_num
+                        usb_ip_parts[-1] = str(octet)
+                        host_usb_ip = '.'.join(usb_ip_parts)
+                        usb_ip_parts[-1] = str(octet + 1)
                         phone_usb_ip = '.'.join(usb_ip_parts)
-                        output = subprocess.check_output([
-                            usbnet_script,
-                            '-s', phone_cfg['serial'],
-                            '-d', self.options[USB_GATEWAY],
-                            '-h', self.options[USB_IP],
-                            '-r', self.options[USB_NETWORK],
-                            '-p', phone_usb_ip])
-                        self.logger.debug(output)
+                        self.logger.debug('register_cmd: usbnet options: '
+                                          'serial: %s, '
+                                          'gateway: %s, '
+                                          'usb_ip: %s, '
+                                          'usb_network: %s, '
+                                          'host_usb_ip: %s, '
+                                          'phone_usb_ip: %s' % (
+                                              phone_cfg['serial'],
+                                              self.options[USB_GATEWAY],
+                                              self.options[USB_IP],
+                                              self.options[USB_NETWORK],
+                                              host_usb_ip,
+                                              phone_usb_ip))
+                        try:
+                            output = subprocess.check_output(
+                                [
+                                    usbnet_script,
+                                    '-s', phone_cfg['serial'],
+                                    '-d', self.options[USB_GATEWAY],
+                                    '-h', host_usb_ip,
+                                    '-r', self.options[USB_NETWORK],
+                                    '-p', phone_usb_ip,
+                                    '-P', phone_cfg['ip']
+                                ],
+                                stderr=subprocess.STDOUT)
+                            self.logger.debug('register_cmd: usbnet output: %s' % output)
+                        except subprocess.CalledProcessError, e:
+                            self.logger.warning('register_cmd: usbnet error: '
+                                                'cmd: %s, returncode: %s, '
+                                                'output: %s' % (
+                                                    ' '.join(e.cmd),
+                                                    e.returncode,
+                                                    e.output))
+                            self.logger.error('Terminating Autophone due to usbnet '
+                                              'error on phone %s' % phoneid)
+                            msg_subj = ('Autophone terminated due to usbnet '
+                                        'error on phone %s' %
+                                        worker.phone_cfg['phoneid'])
+                            msg_body = ('Hello, this is Autophone. Just to let you know, '
+                                        'I have stopped due to a usbnet error on phone %s\n'
+                                        %
+                                        worker.phone_cfg['phoneid'])
+
+                            msg_body += ('usbnet error:\n'
+                                         'cmd: %s\n'
+                                         'returncode: %s\n'
+                                         'output:\n'
+                                         '%s\n' % (
+                                             ' '.join(e.cmd),
+                                             e.returncode,
+                                             e.output))
+                            self.logger.info('Sending notification...')
+                            try:
+                                self.mailer.send(msg_subj, msg_body)
+                                self.logger.info('Sent.')
+                            except socket.error:
+                                self.logger.exception('Failed to send dead-phone notification.')
+                            self.stop()
                 else:
                     # This won't update the subprocess, but it will allow
                     # us to write out the updated values right away.
@@ -494,9 +546,9 @@ class AutoPhone(object):
 
     def stop(self):
         self._stop = True
-        self.server.shutdown()
         for p in self.phone_workers.values():
             p.stop()
+        self.server.shutdown()
         self.server_thread.join()
 
 def load_autophone_options(cmd_options):
