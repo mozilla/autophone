@@ -507,7 +507,7 @@ class AutoPhone(object):
 
                     devices = [device for device in t if device not in
                                ('name', 'here', 'manifest', 'path', 'config',
-                                'relpath', 'unittest')]
+                                'relpath', 'unittest', 'subsuite')]
                     test_devices_repos = {}
                     for device in devices:
                         test_devices_repos[device] = t[device].split()
