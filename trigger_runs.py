@@ -7,6 +7,7 @@ import logging
 import pytz
 import re
 import socket
+import sys
 
 import builds
 
@@ -30,6 +31,16 @@ def command_str(build, devices):
 
 
 def main(args, options):
+    # Attempt to connect to the Autophone server early, so we don't
+    # waste time fetching builds if the server is not available.
+    print 'Connecting to autophone server...'
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.connect((options.ip, options.port))
+    except socket.error, e:
+        print "Unable to contact Autophone server. %s" % e
+        sys.exit(1)
+
     loglevel = e = None
     try:
         loglevel = getattr(logging, options.loglevel_name)
@@ -95,10 +106,7 @@ def main(args, options):
     if not build_urls:
         return 1
     commands = [command_str(b, options.devices) for b in build_urls]
-    logger.info('Connecting to autophone server...')
     commands.append('exit')
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((options.ip, options.port))
     logger.info('- %s' % s.recv(1024).strip())
     for c in commands:
         sc = '%s' % c
@@ -113,7 +121,6 @@ def main(args, options):
 
 if __name__ == '__main__':
     import errno
-    import sys
     from optparse import OptionParser
 
     usage = '''%prog [options] <datetime, date/datetime, or date/datetime range>

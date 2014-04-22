@@ -10,8 +10,7 @@ import os
 import time
 
 from logdecorator import LogDecorator
-from mozdevice import DMError
-from mozdevice import DroidSUT
+from adb import ADB, ADBError
 from mozprofile import FirefoxProfile
 from options import *
 
@@ -32,10 +31,12 @@ class PhoneTestMessage(object):
             return json.JSONEncoder.default(self, obj)
 
 
-    def __init__(self, phoneid, status, current_build=None, msg=None):
+    def __init__(self, phoneid, status, current_build=None, current_repo=None,
+                 msg=None):
         self.phoneid = phoneid
         self.status = status
         self.current_build = current_build
+        self.current_repo = current_repo
         self.msg = msg
         self.timestamp = datetime.datetime.now().replace(microsecond=0)
 
@@ -81,28 +82,36 @@ class PhoneTest(object):
         self.logger = logging.getLogger('autophone.phonetest')
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone_cfg['phoneid'],
-                                        'phoneip': self.phone_cfg['ip']},
-                                       '%(phoneid)s|%(phoneip)s|%(message)s')
+                                        'pid': os.getpid()},
+                                       '%(phoneid)s|%(pid)s|%(message)s')
         self.loggerdeco.info('init autophone.phonetest')
         self._base_device_path = ''
         self.profile_path = '/data/local/tmp/profile'
         self._dm = None
 
+    def _check_device(self):
+        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+            output = self._dm.get_state()
+            if output == 'device':
+                break
+            self.loggerdeco.warning(
+                'PhoneTest:_check_device Attempt: %d, rc=%s: %s' %
+                (attempt, proc.returncode, output))
+            time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
+        if output != 'device':
+            raise ADBError('PhoneTest:_check_device: Failed')
+
     @property
     def dm(self):
         if not self._dm:
-            # Droids and other slow phones can take a while to come back
-            # after a SUT crash or spontaneous reboot, so we up the
-            # default retrylimit to match that used in worker.py.
-            self._dm = DroidSUT(self.phone_cfg['ip'],
-                                self.phone_cfg['sutcmdport'],
-                                retryLimit=self.user_cfg[DEVICEMANAGER_RETRY_LIMIT],
-                                logLevel=self.user_cfg['debug'])
-            # Give slow devices chance to mount all devices.
-            if self.user_cfg[DEVICEMANAGER_SETTLING_TIME] is not None:
-                self._dm.reboot_settling_time =  self.user_cfg[DEVICEMANAGER_SETTLING_TIME]
+            self.loggerdeco.info('PhoneTest: Connecting to %s...' % self.phone_cfg['phoneid'])
+            self._dm = ADB(device_serial=self.phone_cfg['serial'],
+                           log_level=self.user_cfg['debug'],
+                           logger_name='autophone.phonetest.adb')
             # Override mozlog.logger
             self._dm._logger = self.loggerdeco
+            self.loggerdeco.info('PhoneTest: Connected.')
+        self._check_device()
         return self._dm
 
     @property
@@ -112,19 +121,21 @@ class PhoneTest(object):
         success = False
         e = None
         for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
-            self._base_device_path = self.dm.getDeviceRoot() + '/autophone'
-            self.loggerdeco.debug('Attempt %d creating base device path' % attempt)
+            self._base_device_path = self.dm.test_root + '/autophone'
+            self.loggerdeco.debug('Attempt %d creating base device path %s' % (attempt, self._base_device_path))
             try:
-                if not self.dm.dirExists(self._base_device_path):
-                    self.dm.mkDirs(self._base_device_path)
+                if not self.dm.is_dir(self._base_device_path):
+                    self.dm.mkdir(self._base_device_path, parents=True)
                 success = True
                 break
-            except DMError, e:
-                self.loggerdeco.exception('Attempt %d creating base device path' % attempt)
+            except ADBError, e:
+                self.loggerdeco.exception('Attempt %d creating base device path %s' % (attempt, self._base_device_path))
                 time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
         if not success:
             raise e
+
+        self.loggerdeco.debug('base_device_path is %s' % self._base_device_path)
 
         return self._base_device_path
 
@@ -134,7 +145,7 @@ class PhoneTest(object):
     def set_dm_debug(self, level):
         self.user_cfg['debug'] = level
         if self._dm:
-            self._dm.loglevel = level
+            self._dm.log_level = level
 
     """
     sets the status
@@ -144,7 +155,8 @@ class PhoneTest(object):
     """
     def set_status(self, status=PhoneTestMessage.WORKING, msg=None):
         self.status = PhoneTestMessage(self.phone_cfg['phoneid'], status,
-                                       self.current_build, msg)
+                                       self.current_build,
+                                       self.current_repo, msg)
         if self.status_cb:
             self.status_cb(self.status)
 
@@ -152,50 +164,47 @@ class PhoneTest(object):
         if not profile:
             profile = FirefoxProfile()
 
+        profile_path_parent = os.path.split(self.profile_path)[0]
         success = False
         for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             try:
                 self.loggerdeco.debug('Attempt %d installing profile' % attempt)
-                self.dm.removeDir(self.profile_path)
-                self.dm.mkDir(self.profile_path)
-                self.dm.pushDir(profile.profile, self.profile_path)
-                self.dm.chmodDir(self.profile_path)
+                if self.dm.is_dir(self.profile_path, root=True):
+                    self.dm.rm(self.profile_path, recursive=True, root=True)
+                self.dm.chmod(profile_path_parent, root=True)
+                self.dm.mkdir(self.profile_path, root=True)
+                self.dm.chmod(self.profile_path, root=True)
+                self.dm.push(profile.profile, self.profile_path)
+                self.dm.chmod(self.profile_path, recursive=True, root=True)
                 success = True
                 break
             except:
-                self.loggerdeco.exception('Attempt %d Exception installing profile' % attempt)
+                self.loggerdeco.exception('Attempt %d Exception installing profile to %s' % (attempt, self.profile_path))
                 time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
         if not success:
-            self.loggerdeco.error('Failure installing profile')
+            self.loggerdeco.error('Failure installing profile to %s' % self.profile_path)
 
         return success
 
     def run_fennec_with_profile(self, appname, url):
         self.loggerdeco.debug('run_fennec_with_profile: %s %s' % (appname, url))
         try:
-            self.dm.killProcess(appname)
-            # Get starttime just before we call launchFennec to
-            # minimize the delay between when the process is actually
-            # started and when we first measure the starttime. Since
-            # we have already killed the fennec process if it existed,
-            # we pass failIfRunning=False to prevent launchApplication
-            # from calling processExist which otherwise would have
-            # added overhead to times measured relative to starttime.
-            self.dm.launchFennec(appname,
+            self.dm.pkill(appname, root=True)
+            self.dm.launch_fennec(appname,
                                  intent="android.intent.action.VIEW",
-                                 mozEnv={'MOZ_CRASHREPORTER_NO_REPORT': '1'},
-                                 extraArgs=['--profile', self.profile_path],
+                                 moz_env={'MOZ_CRASHREPORTER_NO_REPORT': '1'},
+                                 extra_args=['--profile', self.profile_path],
                                  url=url,
                                  wait=False,
-                                 failIfRunning=False)
+                                 fail_if_running=False)
         except:
             self.loggerdeco.exception('run_fennec_with_profile: Exception:')
             raise
 
     def remove_sessionstore_files(self):
-        self.dm.removeFile(self.profile_path + '/sessionstore.js')
-        self.dm.removeFile(self.profile_path + '/sessionstore.bak')
+        self.dm.rm(self.profile_path + '/sessionstore.js', force=True)
+        self.dm.rm(self.profile_path + '/sessionstore.bak', force=True)
 
     def check_for_crashes(self):
         """

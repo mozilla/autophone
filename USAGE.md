@@ -7,6 +7,15 @@ Starting Autophone
 Autophone has a number of command-line options. Run "python autophone.py -h"
 to see them. Some important ones are
 
+--devices <devices>: Specifies an ini file which lists each device to be tested.
+                     The devices ini file has a section for each device in the form:
+
+                     [<devicename>]
+                     serialno=<deviceserialnumber>
+
+                     An example devices ini file can be found at devices.ini.example.
+
+
 --test-path <testpath>: Specifies the test manifest which will load the
                         appropriate phone test. Autophone will use
                         tests/manifest.ini by default.
@@ -28,15 +37,6 @@ to see them. Some important ones are
           if Autophone can't find one. (FIXME: This may no longer be
           needed?)
 
---usb-network: IP or network address for ppp over usb connections.
-               If specified, set up adb ppp over usb
-               connections so that all traffic from the
-               devices to the host or network specified by
-               usb_network passes through the ppp over usb
-               connection. Otherwise, use the default 'network.
-
---usb-gateway: Ethernet device over which to route usb network traffic.
-
 --logfile: Log main Autophone system messages to this file. Defaults to
            autophone.log. Devices will log to their own files in the
            format <logfile base>-<phone id>.<logfile extension>, e.g.
@@ -54,8 +54,6 @@ to see them. Some important ones are
                        clear_cache
                        ipaddr
                        port
-                       usb_network
-                       usb_gateway
                        cachefile
                        logfile
                        loglevel
@@ -71,7 +69,6 @@ to see them. Some important ones are
 
                        Settings for internal parameters:
 
-                       usb_ip
                        build_cache_size
                        build_cache_expires
                        devicemanager_retry_limit
@@ -106,11 +103,11 @@ For example,
 
 to run only the robocop tests:
 
-python autophone.py --enable-unittests --test-path=./tests/robocoptests_manifest.ini
+python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/robocoptests_manifest.ini
 
 to run all of the unit tests specified in the configs/unittests_settings.ini file:
 
-python autophone.py --enable-unittests --test-path=./tests/unittests_manifest.ini
+python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/unittests_manifest.ini
 
 
 Running Tests

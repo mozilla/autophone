@@ -8,20 +8,17 @@ import SocketServer
 import datetime
 import errno
 import inspect
-import json
 import logging
 import logging.handlers
 import multiprocessing
 import os
 import signal
 import socket
-import subprocess
 import sys
 import threading
-import urlparse
 
 from manifestparser import TestManifest
-from mozdevice.devicemanager import NetworkTools
+from adb import ADB
 from pulsebuildmonitor import start_pulse_monitor
 
 import builds
@@ -34,10 +31,8 @@ from multiprocessinghandlers import MultiprocessingStreamHandler, Multiprocessin
 from options import *
 from worker import Crashes, PhoneWorker
 
-class AutoPhone(object):
 
-    # The starting address to be used for usbnet.
-    USB_IP = '192.168.1.200'
+class AutoPhone(object):
 
     class CmdTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
@@ -76,11 +71,6 @@ class AutoPhone(object):
         self.logger = logging.getLogger('autophone')
         self.console_logger = logging.getLogger('autophone.console')
         self.options = options
-        if not options.get(IPADDR, None):
-            nt = NetworkTools()
-            self.options[IPADDR] = nt.getLanIp()
-            self.logger.info('IP address for phone callbacks not provided; using '
-                             '%s.' % self.options[IPADDR])
         self.loglevel = loglevel
         self.mailer = Mailer(options[EMAILCFG], '[autophone] ')
 
@@ -91,29 +81,20 @@ class AutoPhone(object):
         self.worker_lock = threading.Lock()
         self.cmd_lock = threading.Lock()
         self._tests = []
+        self._devices = {} # hash indexed by serialno of devices found in devices ini file
+        self.server = None
+        self.server_thread = None
+        self.pulsemonitor = None
+        self.restart_workers = {}
+
         self.logger.info('Starting autophone.')
+        self.console_logger.info('Starting autophone.')
 
         # queue for listening to status updates from tests
         self.worker_msg_queue = multiprocessing.Queue()
 
         self.read_tests()
-
-        if not os.path.exists(options[CACHEFILE]):
-            # If we don't have a cache you aren't restarting
-            open(options[CACHEFILE], 'wb')
-        elif options[CLEAR_CACHE]:
-            # If the clear cache option is specified, then blow it away and
-            # recreate it
-            os.remove(options[CACHEFILE])
-        else:
-            # Otherwise assume cache is valid and read from it
-            self.read_cache()
-
-        if options[CLEAR_CACHE]:
-            self.jobs.clear_all()
-
-        self.server = None
-        self.server_thread = None
+        self.read_devices()
 
         if options[ENABLE_PULSE]:
             self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
@@ -123,10 +104,6 @@ class AutoPhone(object):
                                                                'android-x86'],
                                                     buildtypes=options[BUILDTYPES],
                                                     logger=self.logger)
-        else:
-            self.pulsemonitor = None
-
-        self.restart_workers = {}
 
         self.logger.debug('autophone_options: %s' % self.options)
 
@@ -254,19 +231,22 @@ class AutoPhone(object):
             self.logger.info(params)
         elif cmd == 'triggerjobs':
             response = self.trigger_jobs(params)
-        elif cmd == 'register':
-            self.register_cmd(params)
         elif cmd == 'status':
             response = ''
             now = datetime.datetime.now().replace(microsecond=0)
-            for i, w in self.phone_workers.iteritems():
-                response += 'phone %s (%s):\n' % (i, w.phone_cfg['ip'])
+            phoneids = self.phone_workers.keys()
+            phoneids.sort()
+            for i in phoneids:
+                w = self.phone_workers[i]
+                response += 'phone %s (%s):\n' % (i, w.phone_cfg['serial'])
                 response += '  debug level %d\n' % w.user_cfg.get('debug', 3)
                 if not w.last_status_msg:
                     response += '  no updates\n'
                 else:
                     if w.last_status_msg.current_build:
-                        response += '  current build: %s\n' % datetime.datetime.fromtimestamp(float(w.last_status_msg.current_build))
+                        response += '  current build: %s %s\n' % (
+                            datetime.datetime.fromtimestamp(float(w.last_status_msg.current_build)),
+                            w.last_status_msg.current_repo)
                     else:
                         response += '  no build loaded\n'
                     response += '  last update %s ago:\n    %s\n' % (now - w.last_status_msg.timestamp, w.last_status_msg.short_desc())
@@ -290,7 +270,6 @@ class AutoPhone(object):
                     else:
                         f()
                     response = 'ok'
-                    self.update_phone_cache()
         else:
             response = 'Unknown command "%s"\n' % cmd
         return response
@@ -336,104 +315,27 @@ class AutoPhone(object):
         return user_cfg
 
     def register_cmd(self, data):
-        # Un-url encode it
-        data = urlparse.parse_qs(data)
-        autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
-        usbnet_script = '%s/usbnet.sh' % autophone_directory
-
         try:
             # Map MAC Address to ip and user name for phone
             # The configparser does odd things with the :'s so remove them.
-            macaddr = data['NAME'][0].replace(':', '_')
-            phoneid = '%s_%s' % (macaddr, data['HARDWARE'][0])
+            phoneid = data['device_name']
             phone_cfg = dict(
                 phoneid=phoneid,
-                serial=data['POOL'][0],
-                ip=data['IPADDR'][0],
-                sutcmdport=int(data['CMDPORT'][0]),
-                machinetype=data['HARDWARE'][0],
-                osver=data['OS'][0],
-                abi=data['ABI'][0],
-                ipaddr=self.options[IPADDR],
-                usb_network=self.options[USB_NETWORK],
-                usb_gateway=self.options[USB_GATEWAY])
+                serial=data['serialno'],
+                machinetype=data['hardware'],
+                osver=data['osver'],
+                abi=data['abi'],
+                ipaddr=self.options[IPADDR]) # XXX IPADDR no longer needed?
             if self.logger.getEffectiveLevel() == logging.DEBUG:
                 self.logger.debug('register_cmd: phone_cfg: %s' % phone_cfg)
             if phoneid in self.phone_workers:
                 self.logger.debug('Received registration message for known phone '
                                   '%s.' % phoneid)
                 worker = self.phone_workers[phoneid]
-                if worker.phone_cfg == phone_cfg:
-                    if phone_cfg[USB_NETWORK]:
-                        usb_ip_parts = self.options[USB_IP].split('.')
-                        octet = int(usb_ip_parts[-1]) + 2*worker.worker_num
-                        usb_ip_parts[-1] = str(octet)
-                        host_usb_ip = '.'.join(usb_ip_parts)
-                        usb_ip_parts[-1] = str(octet + 1)
-                        phone_usb_ip = '.'.join(usb_ip_parts)
-                        self.logger.debug('register_cmd: usbnet options: '
-                                          'serial: %s, '
-                                          'gateway: %s, '
-                                          'usb_ip: %s, '
-                                          'usb_network: %s, '
-                                          'host_usb_ip: %s, '
-                                          'phone_usb_ip: %s' % (
-                                              phone_cfg['serial'],
-                                              self.options[USB_GATEWAY],
-                                              self.options[USB_IP],
-                                              self.options[USB_NETWORK],
-                                              host_usb_ip,
-                                              phone_usb_ip))
-                        try:
-                            output = subprocess.check_output(
-                                [
-                                    usbnet_script,
-                                    '-s', phone_cfg['serial'],
-                                    '-d', self.options[USB_GATEWAY],
-                                    '-h', host_usb_ip,
-                                    '-r', self.options[USB_NETWORK],
-                                    '-p', phone_usb_ip,
-                                    '-P', phone_cfg['ip']
-                                ],
-                                stderr=subprocess.STDOUT)
-                            self.logger.debug('register_cmd: usbnet output: %s' % output)
-                        except subprocess.CalledProcessError, e:
-                            self.logger.warning('register_cmd: usbnet error: '
-                                                'cmd: %s, returncode: %s, '
-                                                'output: %s' % (
-                                                    ' '.join(e.cmd),
-                                                    e.returncode,
-                                                    e.output))
-                            self.logger.error('Terminating Autophone due to usbnet '
-                                              'error on phone %s' % phoneid)
-                            msg_subj = ('Autophone terminated due to usbnet '
-                                        'error on phone %s' %
-                                        worker.phone_cfg['phoneid'])
-                            msg_body = ('Hello, this is Autophone. Just to let you know, '
-                                        'I have stopped due to a usbnet error on phone %s\n'
-                                        %
-                                        worker.phone_cfg['phoneid'])
-
-                            msg_body += ('usbnet error:\n'
-                                         'cmd: %s\n'
-                                         'returncode: %s\n'
-                                         'output:\n'
-                                         '%s\n' % (
-                                             ' '.join(e.cmd),
-                                             e.returncode,
-                                             e.output))
-                            self.logger.info('Sending notification...')
-                            try:
-                                self.mailer.send(msg_subj, msg_body)
-                                self.logger.info('Sent.')
-                            except socket.error:
-                                self.logger.exception('Failed to send dead-phone notification.')
-                            self.stop()
-                else:
+                if worker.phone_cfg != phone_cfg:
                     # This won't update the subprocess, but it will allow
                     # us to write out the updated values right away.
                     worker.phone_cfg = phone_cfg
-                    self.update_phone_cache()
                     self.logger.info('Registration info has changed; restarting '
                                      'worker.')
                     if phoneid in self.restart_workers:
@@ -447,35 +349,33 @@ class AutoPhone(object):
                 user_cfg['debug'] = 3
                 self.create_worker(phone_cfg, user_cfg)
                 self.logger.info('Registered phone %s.' % phone_cfg['phoneid'])
-                self.update_phone_cache()
         except:
-            self.logger.exception('Could not write cache file, exiting')
+            self.logger.exception('register_cmd:')
             self.stop()
 
-    def read_cache(self):
-        self.phone_workers.clear()
-        try:
-            with open(self.options[CACHEFILE]) as f:
-                try:
-                    cache = json.loads(f.read())
-                except ValueError:
-                    cache = {}
+    def read_devices(self):
+        cfg = ConfigParser.RawConfigParser()
+        cfg.read(self.options['devicescfg'])
 
-                for cfg in cache.get('phones', []):
-                    # ignore the cached runtime options saved in the cache.
-                    new_user_cfg = self.get_user_cfg()
-                    new_user_cfg['debug'] = cfg['user_cfg']['debug']
-                    self.create_worker(cfg['phone_cfg'], new_user_cfg)
-        except IOError, err:
-            if err.errno != errno.ENOENT:
-                raise err
+        for device_name in cfg.sections():
+            # failure for a device to have a serialno option is fatal.
+            serialno = cfg.get(device_name, 'serialno')
+            self.logger.debug("device name=%s, serialno=%s" % (device_name, serialno))
+            # XXX: We should be able to continue if a device isn't available immediately
+            # or to add/remove devices but this will work for now.
+            dm = ADB(device_serial=serialno,
+                      log_level=self.loglevel,
+                      logger_name='autophone.adb')
+            dm.power_on()
+            device = {"device_name": device_name,
+                      "serialno": serialno,
+                      "dm" : dm}
+            device['osver'] = dm.get_prop('ro.build.version.release')
+            device['hardware'] = dm.get_prop('ro.product.model')
+            device['abi'] = dm.get_prop('ro.product.cpu.abi')
+            self._devices[serialno] = device
+            self.register_cmd(device)
 
-    def update_phone_cache(self):
-        cache = {}
-        cache['phones'] = [{'phone_cfg': x.phone_cfg, 'user_cfg': x.user_cfg}
-                           for x in self.phone_workers.values()]
-        with open(self.options[CACHEFILE], 'w') as f:
-            f.write(json.dumps(cache))
 
     def read_tests(self):
         self._tests = []
@@ -548,11 +448,13 @@ class AutoPhone(object):
         self._stop = True
         for p in self.phone_workers.values():
             p.stop()
-        self.server.shutdown()
-        self.server_thread.join()
+        if self.server:
+            self.server.shutdown()
+        if self.server_thread:
+            self.server_thread.join()
 
 def load_autophone_options(cmd_options):
-    options = {}
+    options = {"devicescfg" : cmd_options.devicescfg}
 
     if not cmd_options.repos:
         cmd_options.repos = ['mozilla-central']
@@ -594,8 +496,6 @@ def load_autophone_options(cmd_options):
         if p not in o:
             o[p] = v
 
-    set_value(options, USB_IP,
-              AutoPhone.USB_IP)
     set_value(options, BUILD_CACHE_SIZE,
               builds.BuildCache.MAX_NUM_BUILDS)
     set_value(options, BUILD_CACHE_EXPIRES,
@@ -660,8 +560,6 @@ def main(options):
     console_logger.addHandler(streamhandler)
 
     console_logger.info('Starting server on port %d.' % options[PORT])
-    autophone = AutoPhone(loglevel, options)
-
     console_logger.info('Starting build-cache server on port %d.' %
                         options[BUILD_CACHE_PORT])
     product = 'fennec'
@@ -701,6 +599,8 @@ unpacked tests package for the build.
     build_cache_server_thread.daemon = True
     build_cache_server_thread.start()
 
+    autophone = AutoPhone(loglevel, options)
+
     signal.signal(signal.SIGTERM, sigterm_handler)
     autophone.run()
     # Drop pending messages and commands to prevent hangs on shutdown.
@@ -734,10 +634,6 @@ if __name__ == '__main__':
     from optparse import OptionParser
 
     parser = OptionParser()
-    parser.add_option('--clear-cache', action='store_true', dest='clear_cache',
-                      default=False,
-                      help='If specified, we clear the information in the '
-                      'autophone cache before starting')
     parser.add_option('--ipaddr', action='store', type='string', dest='ipaddr',
                       default=None, help='IP address of interface to use for '
                       'phone callbacks, e.g. after rebooting. If not given, '
@@ -746,22 +642,6 @@ if __name__ == '__main__':
                       default=28001,
                       help='Port to listen for incoming connections, defaults '
                       'to 28001')
-    parser.add_option('--usb-network', type='string', dest='usb_network',
-                      default=None,
-                      help='IP or network address for ppp over usb connections. '
-                      'If specified, set up adb ppp over usb connections '
-                      'so that all traffic from the devices to the host or network '
-                      'specified by usb_network passes through the '
-                      'ppp over usb connection. Otherwise, use the default '
-                      'network.')
-    parser.add_option('--usb-gateway', type='string', dest='usb_gateway',
-                      default=None,
-                      help='Ethernet device over which to route usb network '
-                      'traffic. ')
-    parser.add_option('--cache', action='store', type='string', dest='cachefile',
-                      default='autophone_cache.json',
-                      help='Cache file to use, defaults to autophone_cache.json '
-                      'in local dir')
     parser.add_option('--logfile', action='store', type='string',
                       dest='logfile', default='autophone.log',
                       help='Log file to store logging from entire system. '
@@ -816,6 +696,13 @@ if __name__ == '__main__':
                       'multiple instances of autophone, this will have to be '
                       'different in each. Defaults to %d.' %
                       buildserver.DEFAULT_PORT)
+    parser.add_option('--devices',
+                      dest='devicescfg',
+                      action='store',
+                      type='string',
+                      default='devices.ini',
+                      help="""Devices configuration ini file.
+                      Each device is listed by name in the sections of the ini file.""")
     parser.add_option('--config',
                       dest='autophonecfg',
                       action='store',

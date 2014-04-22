@@ -35,10 +35,8 @@ class UnitTest(PhoneTest):
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone_cfg['phoneid'],
-                                        'phoneip': self.phone_cfg['ip'],
                                         'buildid': build_metadata['buildid']},
-                                       '%(phoneid)s|%(phoneip)s|%(buildid)s|'
-                                       '%(message)s')
+                                       '%(phoneid)s|%(buildid)s|%(message)s')
         try:
             self.setup_and_runtest(build_metadata, worker_subprocess)
         finally:
@@ -53,8 +51,7 @@ class UnitTest(PhoneTest):
         self.worker_subprocess.check_sdcard()
 
         host_ip_address = self.phone_cfg['ipaddr']
-        phone_ip_address = self.phone_cfg['ip']
-        device_port = self.phone_cfg['sutcmdport']
+        phoneid = self.phone_cfg['phoneid']
 
         cache_build_dir = os.path.abspath(build_metadata["cache_build_dir"])
         symbols_path = os.path.join(cache_build_dir, 'symbols')
@@ -99,8 +96,7 @@ class UnitTest(PhoneTest):
             try:
                 test_parameters = {
                     'host_ip_address': host_ip_address,
-                    'phone_ip_address': phone_ip_address,
-                    'device_port': device_port,
+                    'phoneid': phoneid,
                     'androidprocname': androidprocname,
                     'cache_build_dir': cache_build_dir,
                     'symbols_path': symbols_path,
@@ -245,9 +241,14 @@ class UnitTest(PhoneTest):
         test_parameters['http_port'] = test_parameters['port_manager'].reserve()
         test_parameters['ssl_port'] = test_parameters['port_manager'].reserve()
 
+        # XXX: Temporarily set --deviceIP=dummy since --deviceIP is currently
+        # a required parameter in the remote test runners. This can be removed
+        # when the test runners are updated to support specifying device by
+        # serial number.
+
         common_args = [
-            '--deviceIP=%s' % test_parameters['phone_ip_address'],
-            '--devicePort=%s' % test_parameters['device_port'],
+            '--dm_trans=adb',
+            '--deviceIP=dummy',
             '--app=%s' % test_parameters['androidprocname'],
             '--xre-path=%s' % test_parameters['xre_path'],
             '--utility-path=%s' % test_parameters['utility_path'],
@@ -256,8 +257,8 @@ class UnitTest(PhoneTest):
             '--ssl-port=%s' % test_parameters['port_manager'].use(test_parameters['ssl_port']),
             '--total-chunks=%d' % test_parameters['total_chunks'],
             '--this-chunk=%d' % test_parameters['this_chunk'],
-            '--log-file=%s-%s.log' % (test_parameters['test_name'], test_parameters['phone_ip_address']),
-            '--pidfile=%s-%s.pid' % (test_parameters['test_name'], test_parameters['phone_ip_address']),
+            '--log-file=%s-%s.log' % (test_parameters['test_name'], test_parameters['phoneid']),
+            '--pidfile=%s-%s.pid' % (test_parameters['test_name'], test_parameters['phoneid']),
         ]
         for pref in test_parameters['prefs']:
             common_args.append('--setpref=%s' % pref)
@@ -281,12 +282,12 @@ class UnitTest(PhoneTest):
             try:
                 # Turn off verbose logging for the log parser
                 logger = logging.getLogger('logparser')
-                logger_effectiveLevel = logger.getEffectiveLevel()
+                logger_effective_level = logger.getEffectiveLevel()
                 logger.setLevel(logging.WARN)
                 test_log = newlogparser.parse_log(logfilehandle)
                 test_runs = test_log.convert(test_parameters['include_pass'])
             finally:
-                logger.setLevel(logger_effectiveLevel)
+                logger.setLevel(logger_effective_level)
                 logfilehandle.close()
         else:
             lp = LogParser([logfilehandle.name],
@@ -379,10 +380,9 @@ class UnitTest(PhoneTest):
 
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone_cfg['phoneid'],
-                                        'phoneip': self.phone_cfg['ip'],
                                         'buildid': test_parameters['buildid'],
                                         'testname': test_parameters['test_name']},
-                                       '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                       '%(phoneid)s|%(buildid)s|'
                                        '%(testname)s|%(message)s')
 
         if self.logger.getEffectiveLevel() == logging.DEBUG:
@@ -397,21 +397,21 @@ class UnitTest(PhoneTest):
 
         if test_parameters['test_name'] == 'robocoptest':
             test_parameters['harness_type'] = 'mochitest'
-            robocop_apk_path = posixpath.join(self.dm.getDeviceRoot(), 'robocop.apk')
+            robocop_apk_path = posixpath.join(self.dm.test_root, 'robocop.apk')
 
             # XXX: FIXME. When bug 792072 lands, change to have
-            # installApp() push the file
+            # install_app() push the file
 
-            self.dm.pushFile(os.path.join(test_parameters['cache_build_dir'],
-                                          'robocop.apk'),
+            self.dm.push(os.path.join(test_parameters['cache_build_dir'],
+                                      'robocop.apk'),
                              robocop_apk_path)
             try:
-                self.dm.uninstallApp('org.mozilla.roboexample.test')
+                self.dm.uninstall_app('org.mozilla.roboexample.test')
             except DMError:
                 self.loggerdeco.exception('runtestsremote.py:runtest: Exception running test.')
 
-            self.dm.installApp(robocop_apk_path)
-            self.dm.removeFile(robocop_apk_path)
+            self.dm.install_app(robocop_apk_path)
+            self.dm.rm(robocop_apk_path)
 
         test_parameters['port_manager'] = PortManager(test_parameters['host_ip_address'])
 
@@ -435,17 +435,17 @@ class UnitTest(PhoneTest):
                     self.set_status(msg='Running test %s chunk %d of %d' %
                                     (test_parameters['test_name'],
                                      this_chunk, test_parameters['total_chunks']))
-                    if self.dm.processExist(test_parameters['androidprocname']):
+                    if self.dm.process_exist(test_parameters['androidprocname']):
                         max_kill_attempts = 3
                         for kill_attempt in range(max_kill_attempts):
                             self.loggerdeco.debug(
                                 'Process %s exists. Attempt %d to kill.' % (
                                     test_parameters['androidprocname'], kill_attempt + 1))
-                            self.dm.killProcess(test_parameters['androidprocname'])
-                            if not self.dm.processExist(test_parameters['androidprocname']):
+                            self.dm.pkill(test_parameters['androidprocname'])
+                            if not self.dm.process_exist(test_parameters['androidprocname']):
                                 break
                         if kill_attempt == max_kill_attempts - 1 and \
-                                self.dm.processExist(test_parameters['androidprocname']):
+                                self.dm.process_exist(test_parameters['androidprocname']):
                             self.loggerdeco.warning(
                                 'Could not kill process %s.' % (
                                     test_parameters['androidprocname']))
@@ -463,10 +463,10 @@ class UnitTest(PhoneTest):
                                           proc.returncode)
 
                     logfilehandle.close()
-                    reSocketError = re.compile('socket\.error:')
+                    re_socket_error = re.compile('socket\.error:')
                     logfilehandle = open(logfilehandle.name)
                     for logline in logfilehandle:
-                        if reSocketError.search(logline):
+                        if re_socket_error.search(logline):
                             socket_collision = True
                             break
                     logfilehandle.close()

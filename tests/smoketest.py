@@ -71,7 +71,7 @@ class SmokeTest(PhoneTest):
 
         self.loggerdeco.debug('killing fennec')
         # Get rid of the browser and session store files
-        self.dm.killProcess(build_metadata['androidprocname'])
+        self.dm.pkill(build_metadata['androidprocname'])
 
         self.loggerdeco.debug('removing sessionstore files')
         self.remove_sessionstore_files()
@@ -89,7 +89,7 @@ class SmokeTest(PhoneTest):
         self.install_profile(profile)
 
     def analyze_logcat(self, build_metadata):
-        buf = self.dm.getLogcat()
+        buf = self.dm.get_logcat()
         got_start = False
         got_end = False
 

@@ -18,7 +18,7 @@ from math import sqrt
 from time import sleep
 
 from logdecorator import LogDecorator
-from mozdevice import DMError
+from adb import ADBError
 from mozprofile import FirefoxProfile
 from options import *
 from phonetest import PhoneTest
@@ -48,9 +48,9 @@ class S1S2Test(PhoneTest):
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone_cfg['phoneid'],
-                                        'phoneip': self.phone_cfg['ip'],
+                                        'pid': os.getpid(),
                                         'buildid': build_metadata['buildid']},
-                                       '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                       '%(phoneid)s|%(pid)s|%(buildid)s|'
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
 
@@ -169,9 +169,9 @@ class S1S2Test(PhoneTest):
     def runtests(self, build_metadata, worker_subprocess):
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone_cfg['phoneid'],
-                                        'phoneip': self.phone_cfg['ip'],
+                                        'pid': os.getpid(),
                                         'buildid': build_metadata['buildid']},
-                                       '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                       '%(phoneid)s|%(pid)s|%(buildid)s|'
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
         appname = build_metadata['androidprocname']
@@ -191,10 +191,10 @@ class S1S2Test(PhoneTest):
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
             self.loggerdeco = LogDecorator(self.logger,
                                            {'phoneid': self.phone_cfg['phoneid'],
-                                            'phoneip': self.phone_cfg['ip'],
+                                            'pid': os.getpid(),
                                             'buildid': build_metadata['buildid'],
                                             'testname': testname},
-                                           '%(phoneid)s|%(phoneip)s|%(buildid)s|'
+                                           '%(phoneid)s|%(pid)s|%(buildid)s|'
                                            '%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
             if self.check_results(build_metadata, testname):
@@ -273,10 +273,7 @@ class S1S2Test(PhoneTest):
 
     def runtest(self, build_metadata, appname, url):
         # Clear logcat
-        self.loggerdeco.debug('clearing logcat')
-        self.dm.recordLogcat()
-        self.loggerdeco.debug('logcat cleared')
-        self.loggerdeco.debug('running fennec')
+        self.dm.clear_logcat()
 
         # Run test
         self.run_fennec_with_profile(appname, url)
@@ -308,16 +305,16 @@ class S1S2Test(PhoneTest):
         # Re-raise the last exception if fennec can not be killed.
         max_wait_attempts = max_wait_time / wait_time
         for wait_attempt in range(max_wait_attempts):
-            if not self.dm.processExist(build_metadata['androidprocname']):
+            if not self.dm.process_exist(build_metadata['androidprocname']):
                 return True
             sleep(wait_time)
         self.loggerdeco.debug('killing fennec')
         max_killattempts = 3
         for kill_attempt in range(max_killattempts):
             try:
-                self.dm.killProcess(build_metadata['androidprocname'])
+                self.dm.pkill(build_metadata['androidprocname'], root=True)
                 break
-            except DMError:
+            except ADBError:
                 self.loggerdeco.exception('Attempt %d to kill fennec failed' %
                                           kill_attempt)
                 if kill_attempt == max_killattempts - 1:
@@ -328,6 +325,11 @@ class S1S2Test(PhoneTest):
     def create_profile(self, build_metadata, custom_prefs=None):
         # Create, install and initialize the profile to be
         # used in the test.
+
+        # make sure firefox isn't running when we try to
+        # install the profile.
+
+        self.dm.pkill(build_metadata['androidprocname'], root=True)
 
         telemetry_prompt = 999
         if build_metadata['blddate'] < '2013-01-03':
@@ -374,16 +376,17 @@ class S1S2Test(PhoneTest):
         for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
             try:
-                self.dm.mkDir(self._paths['dest'])
+                self.dm.rm(self._paths['dest'], recursive=True, force=True)
+                self.dm.mkdir(self._paths['dest'], parents=True)
                 for push_source in self._pushes:
                     push_dest = self._pushes[push_source]
                     if os.path.isdir(push_source):
-                        self.dm.pushDir(push_source, push_dest)
+                        self.dm.push(push_source, push_dest)
                     else:
-                        self.dm.pushFile(push_source, push_dest)
+                        self.dm.push(push_source, push_dest)
                 success = True
                 break
-            except DMError:
+            except ADBError:
                 self.loggerdeco.exception('Attempt %d Installing local pages' % attempt)
                 sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
@@ -395,8 +398,8 @@ class S1S2Test(PhoneTest):
     def is_fennec_running(self, appname):
         for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             try:
-                return self.dm.processExist(appname)
-            except DMError:
+                return self.dm.process_exist(appname)
+            except ADBError:
                 self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
                 if attempt == self.user_cfg[PHONE_RETRY_LIMIT] - 1:
                     raise
@@ -405,10 +408,8 @@ class S1S2Test(PhoneTest):
     def get_logcat_throbbers(self):
         for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             try:
-                return [x.strip() for x in
-                        self.dm.getLogcat(
-                            filterSpecs=['GeckoToolbarDisplayLayout:*', 'SUTAgentAndroid:I', '*:S'])]
-            except DMError:
+                return [x.strip() for x in self.dm.get_logcat()]
+            except ADBError:
                 self.loggerdeco.exception('Attempt %d get logcat throbbers' % attempt)
                 if attempt == self.user_cfg[PHONE_RETRY_LIMIT] - 1:
                     raise
@@ -417,23 +418,15 @@ class S1S2Test(PhoneTest):
     def analyze_logcat(self, build_metadata):
         self.loggerdeco.debug('analyzing logcat')
 
-        app_name = build_metadata['androidprocname']
         logcat_prefix = '(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})'
-        throbber_prefix = 'I/GeckoToolbarDisplayLayout.* zerdatime (\d+) - Throbber'
+        throbber_prefix = 'I/GeckoToolbarDisplayLayout.*zerdatime (\d+) - Throbber'
         re_base_time = re.compile('%s' % logcat_prefix)
-        re_start_time = re.compile('%s I/SUTAgentAndroid.* '
-                                   'exec am start\s+.*-n %s/.App '
-                                   '-a android.intent.action.VIEW' %
-                                   (logcat_prefix, app_name))
+        re_start_time = re.compile('%s .*(Gecko|fennec)' %
+                                   logcat_prefix)
         re_throbber_start_time = re.compile('%s %s start' %
                                             (logcat_prefix, throbber_prefix))
         re_throbber_stop_time = re.compile('%s %s stop' %
                                            (logcat_prefix, throbber_prefix))
-
-        self.loggerdeco.debug('analyze_logcat: re_base_time: %s' % re_base_time.pattern)
-        self.loggerdeco.debug('analyze_logcat: re_start_time: %s' % re_start_time.pattern)
-        self.loggerdeco.debug('analyze_logcat: re_throbber_start_time: %s' % re_throbber_start_time.pattern)
-        self.loggerdeco.debug('analyze_logcat: re_throbber_stop_time: %s' % re_throbber_stop_time.pattern)
 
         base_time = 0
         start_time = 0
@@ -563,7 +556,7 @@ class S1S2Test(PhoneTest):
         msg = ('Cached: %s Start Time: %s Throbber Start: %s Throbber Stop: %s '
                'Total Throbber Time: %s Rejected: %s' % (
                    cache_enabled, starttime, tstrt, tstop, tstop - tstrt, rejected))
-        self.loggerdeco.info('RESULTS: %s' % msg)
+        self.loggerdeco.debug('RESULTS: %s' % msg)
 
         # Create JSON to send to webserver
         resultdata = {}
