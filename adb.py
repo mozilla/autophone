@@ -194,10 +194,12 @@ class ADB(object):
 
         :param cmds:    list containing the command and its arguments to be
                         executed.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
 
         command() provides a low level interface for executing
         commands on the host via adb.  For executing shell commands on
@@ -267,10 +269,12 @@ class ADB(object):
 
         :param cmds:    list containing the command and its arguments to be
                         executed.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
 
         Exceptions:
 
@@ -309,10 +313,12 @@ class ADB(object):
                         values.
         :param cwd:     optional string containing the directory from which to
                         execute.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
 
@@ -416,10 +422,12 @@ class ADB(object):
                         values.
         :param cwd:     optional string containing the directory from which to
                         execute.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
 
@@ -465,10 +473,12 @@ class ADB(object):
                         values.
         :param cwd:     optional string containing the directory from which to
                         execute.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
 
@@ -496,10 +506,12 @@ class ADB(object):
         :param recursive: boolean specifying if the command should be executed
                           recursively.
         :param mask:      optional string containing the octal permissions.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
         """
@@ -537,10 +549,12 @@ class ADB(object):
         Returns True if the path exists on the device.
 
         :param path: string containing the directory name on the device.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
         """
@@ -552,10 +566,12 @@ class ADB(object):
         Returns True if path is an existing directory on the device.
 
         :param path: string containing the path on the device.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
         """
@@ -567,10 +583,12 @@ class ADB(object):
         Returns True if path is an existing file on the device.
 
         :param path: string containing the file name on the device.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
         """
@@ -597,10 +615,12 @@ class ADB(object):
                             included.
         :param format: optional logcat format.
         :param filterOutRexps: optional list of logcat messages to be excluded.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         """
         cmds = ["logcat", "-v", format, "-d"] + filter_specs
         lines = self.command_output(cmds, timeout=timeout).split('\r')
@@ -616,10 +636,12 @@ class ADB(object):
 
         :param pids: list of process ids to be killed.
         :param sig:     optional signal to be sent to the process.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
         """
@@ -636,10 +658,12 @@ class ADB(object):
         :param appname: string containing the app name of the process to be
                         killed.
         :param sig:     optional signal to be sent to the process.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
         """
@@ -739,10 +763,12 @@ class ADB(object):
         device.
 
         :param path: string containing the directory name on the device.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
         """
@@ -769,10 +795,12 @@ class ADB(object):
                      be created.
         :param parents: boolean indicating if the parent directories are also
                         to be created. Think mkdir -p path.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
         """
@@ -806,10 +834,12 @@ class ADB(object):
         Returns True if process with name process_name is running on device.
 
         :param process_name: string containing the name of the process to check.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         """
         if not isinstance(process_name, basestring):
             raise TypeError("Process name %s is not a string" % process_name)
@@ -846,10 +876,12 @@ class ADB(object):
         Returns list of tuples (pid, name, user) for running
         processes on device.
 
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         """
         result = None
         try:
@@ -897,10 +929,12 @@ class ADB(object):
                       directory name.
         :param remote: string containing the name of the remote file or
                         directory name.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         """
         self.command_output(["push", os.path.realpath(local), remote],
                             timeout=timeout)
@@ -909,14 +943,17 @@ class ADB(object):
         """
         Reboots the device.
 
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used. reboot() returns True if
-                        get_state() returns device.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
+
 
         reboot() reboots the device, waits for it to reboot and the waits
-        for an additional ADB._reboot_settling_time before returning.
+        for an additional ADB._reboot_settling_time before returning True if
+        get_state() returns device.
         """
         self.command_output(["reboot"], timeout)
         self.command_output(["wait-for-device"], timeout=timeout)
@@ -927,10 +964,12 @@ class ADB(object):
         """
         Clears logcat.
 
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         """
         self.command_output(["logcat", "-c"], timeout=timeout)
 
@@ -939,10 +978,12 @@ class ADB(object):
         Delete empty directory on the device.
 
         :param path: string containing the directory name on the device.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
 
@@ -964,10 +1005,12 @@ class ADB(object):
         :param force: optional boolean which if True will not raise an error
                       when attempting to delete a non-existent file. Default
                       is False.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         :param root:    optional boolean specifying if the command should be
                         executed as root.
 
@@ -986,16 +1029,35 @@ class ADB(object):
             if not force and 'No such file or directory' in e.result['stdout']:
                 raise
 
+    def is_app_installed(self, app_name, timeout=None):
+        """
+        Returns True if an app is installed on the device.
+
+        :param app_name: string containing the name of the app to be checked.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
+        """
+        data = self.shell_output("pm list package %s" % app_name, timeout=timeout)
+        if data.find(app_name) == -1:
+            return False
+        return True
+
     def install_app(self, apk_path, timeout=None):
         """
         Installs an app on the device.
 
         :param apk_path: string containing the apk file name to be
                               installed.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
 
         Exceptions:
 
@@ -1008,31 +1070,37 @@ class ADB(object):
 
     def uninstall_app(self, app_name, timeout=None):
         """
-        UniInstalls an app on the device.
+        Uninstalls an app on the device.
 
         :param app_name: string containing the name of the app to be uninstalled.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
 
         Exceptions:
 
-        ADBError - raised if the app could not be uninstalled.
+        ADBError - raised if the app could not be uninstalled. No error is
+                   raised if the app is not already installed on the device.
         """
-        data = self.command_output(["uninstall", app_name], timeout=timeout)
-        if data.find('Success') == -1:
-            raise ADBError("uninstall failed for %s. Got: %s" % (app_name, data))
+        if self.is_app_installed(app_name, timeout=timeout):
+            data = self.command_output(["uninstall", app_name], timeout=timeout)
+            if data.find('Success') == -1:
+                raise ADBError("uninstall failed for %s. Got: %s" % (app_name, data))
 
     def update_app(self, app_bundle_path, timeout=None):
         """
         Updates an app on the device.
 
         :param app_bundle_path: string containing the apk file name to be updated.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         """
         return self.command_output(["install", "-r", app_bundle_path],
                                    timeout=timeout)
@@ -1042,10 +1110,12 @@ class ADB(object):
         Gets value of a property from the device.
 
         :param prop: string containing the propery name.
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         """
         output = self.shell_output('getprop %s' % prop, timeout=timeout)
         return output
@@ -1054,10 +1124,12 @@ class ADB(object):
         """
         Sets the device's power stayon value.
 
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
 
         Exceptions:
 
@@ -1076,10 +1148,12 @@ class ADB(object):
         """
         Returns the device's state.
 
-        :param timeout: optional integer specifying the maximum time for the
-                        command to complete before throwing an ADBTimeout.
-                        If it is not specified, the value set in the ADB
-                        constructor is used.
+        :param timeout: optional integer specifying the maximum time in seconds
+                        for any spawned adb process to complete before throwing
+                        an ADBTimeout.
+                        This timeout is per adb call. The total time spent
+                        may exceed this value. If it is not specified, the value
+                        set in the ADB constructor is used.
         """
         output = self.command_output(["get-state"], timeout=timeout).strip()
         return output

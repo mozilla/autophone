@@ -400,6 +400,7 @@ the "enable" command.
                 self.dm.install_app(os.path.join(build_metadata['cache_build_dir'],
                                                 'build.apk'))
                 success = True
+                break
             except ADBError:
                 exc = 'Exception installing fennec attempt %d!\n\n%s' % (attempt, traceback.format_exc())
                 self.loggerdeco.exception('Exception installing fennec attempt %d!' % attempt)
