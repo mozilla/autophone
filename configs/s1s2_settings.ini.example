@@ -2,6 +2,12 @@
 #source = files/
 #dest = /mnt/sdcard/tests/autophone/s1test/
 #profile = /data/local/tmp/profile
+
+[locations]
+# test locations can be empty to specify a local
+# path on the device or can be a url to specify
+# a web server.
+local = 
 remote = http://phonedash.mozilla.org/
 
 [tests]

@@ -77,9 +77,8 @@ class S1S2Test(PhoneTest):
             self._paths = {}
             self._paths['source'] = os.path.join(autophone_directory, 'files/')
             self._paths['dest'] = posixpath.join(self.base_device_path, 's1test/')
-            self._paths['remote'] = 'http://phonedash.mozilla.org/'
             try:
-                for opt in ('source', 'dest', 'profile', 'remote'):
+                for opt in ('source', 'dest', 'profile'):
                     try:
                         self._paths[opt] = cfg.get('paths', opt)
                         if not self._paths[opt].endswith('/'):
@@ -103,12 +102,12 @@ class S1S2Test(PhoneTest):
                 self._tests[t[0]] = t[1]
             # Map URLS - {urlname: url} - urlname serves as testname
             self._urls = {}
-            for test_location in ('local', 'remote'):
+            for test_location, test_path in cfg.items('locations'):
                 for test_name in self._tests:
-                    if test_location == 'local':
-                        test_url = 'file://' + self._paths['dest'] + self._tests[test_name]
+                    if test_path:
+                        test_url = test_path + self._tests[test_name]
                     else:
-                        test_url = self._paths['remote'] + self._tests[test_name]
+                        test_url = 'file://' + self._paths['dest'] + self._tests[test_name]
                     self._urls["%s-%s" % (test_location, test_name)] = test_url
             # [settings]
             self._iterations = cfg.getint('settings', 'iterations')
