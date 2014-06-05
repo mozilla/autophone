@@ -10,7 +10,8 @@ import os
 import time
 
 from logdecorator import LogDecorator
-from adb import ADB, ADBError
+from adb_android import ADBAndroid as ADBDevice
+from adb import ADBError
 from mozprofile import FirefoxProfile
 from options import *
 
@@ -95,8 +96,8 @@ class PhoneTest(object):
             if output == 'device':
                 break
             self.loggerdeco.warning(
-                'PhoneTest:_check_device Attempt: %d, rc=%s: %s' %
-                (attempt, proc.returncode, output))
+                'PhoneTest:_check_device Attempt: %d: %s' %
+                (attempt, output))
             time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
         if output != 'device':
             raise ADBError('PhoneTest:_check_device: Failed')
@@ -105,9 +106,11 @@ class PhoneTest(object):
     def dm(self):
         if not self._dm:
             self.loggerdeco.info('PhoneTest: Connecting to %s...' % self.phone_cfg['phoneid'])
-            self._dm = ADB(device_serial=self.phone_cfg['serial'],
-                           log_level=self.user_cfg['debug'],
-                           logger_name='autophone.phonetest.adb')
+            self._dm = ADBDevice(device_serial=self.phone_cfg['serial'],
+                                 log_level=self.user_cfg['debug'],
+                                 logger_name='autophone.phonetest.adb',
+                                 device_ready_retry_wait=self.user_cfg[DEVICE_READY_RETRY_WAIT],
+                                 device_ready_retry_attempts=self.user_cfg[DEVICE_READY_RETRY_ATTEMPTS])
             # Override mozlog.logger
             self._dm._logger = self.loggerdeco
             self.loggerdeco.info('PhoneTest: Connected.')
@@ -128,7 +131,7 @@ class PhoneTest(object):
                     self.dm.mkdir(self._base_device_path, parents=True)
                 success = True
                 break
-            except ADBError, e:
+            except ADBError:
                 self.loggerdeco.exception('Attempt %d creating base device path %s' % (attempt, self._base_device_path))
                 time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
@@ -178,7 +181,7 @@ class PhoneTest(object):
                 self.dm.chmod(self.profile_path, recursive=True, root=True)
                 success = True
                 break
-            except:
+            except ADBError:
                 self.loggerdeco.exception('Attempt %d Exception installing profile to %s' % (attempt, self.profile_path))
                 time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
 

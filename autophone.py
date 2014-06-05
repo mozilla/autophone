@@ -18,7 +18,7 @@ import sys
 import threading
 
 from manifestparser import TestManifest
-from adb import ADB
+from adb_android import ADBAndroid as ADBDevice
 from pulsebuildmonitor import start_pulse_monitor
 
 import builds
@@ -93,7 +93,13 @@ class AutoPhone(object):
         # queue for listening to status updates from tests
         self.worker_msg_queue = multiprocessing.Queue()
 
+        self.logger.info('Loading tests.')
+        self.console_logger.info('Loading tests.')
         self.read_tests()
+
+        self.logger.info('Initializing devices.')
+        self.console_logger.info('Initializing devices.')
+
         self.read_devices()
 
         if options[ENABLE_PULSE]:
@@ -106,6 +112,9 @@ class AutoPhone(object):
                                                     logger=self.logger)
 
         self.logger.debug('autophone_options: %s' % self.options)
+
+        self.logger.info('Autophone started.')
+        self.console_logger.info('Autophone started.')
 
     @property
     def next_worker_num(self):
@@ -360,12 +369,13 @@ class AutoPhone(object):
         for device_name in cfg.sections():
             # failure for a device to have a serialno option is fatal.
             serialno = cfg.get(device_name, 'serialno')
-            self.logger.debug("device name=%s, serialno=%s" % (device_name, serialno))
+            self.logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
+            self.console_logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
             # XXX: We should be able to continue if a device isn't available immediately
             # or to add/remove devices but this will work for now.
-            dm = ADB(device_serial=serialno,
-                      log_level=self.loglevel,
-                      logger_name='autophone.adb')
+            dm = ADBDevice(device_serial=serialno,
+                           log_level=self.loglevel,
+                           logger_name='autophone.adb')
             dm.power_on()
             device = {"device_name": device_name,
                       "serialno": serialno,
@@ -500,10 +510,10 @@ def load_autophone_options(cmd_options):
               builds.BuildCache.MAX_NUM_BUILDS)
     set_value(options, BUILD_CACHE_EXPIRES,
               builds.BuildCache.EXPIRE_AFTER_DAYS)
-    set_value(options, DEVICEMANAGER_RETRY_LIMIT,
-              PhoneWorker.DEVICEMANAGER_RETRY_LIMIT)
-    set_value(options, DEVICEMANAGER_SETTLING_TIME,
-              PhoneWorker.DEVICEMANAGER_SETTLING_TIME)
+    set_value(options, DEVICE_READY_RETRY_WAIT,
+              PhoneWorker.DEVICE_READY_RETRY_WAIT)
+    set_value(options, DEVICE_READY_RETRY_ATTEMPTS,
+              PhoneWorker.DEVICE_READY_RETRY_ATTEMPTS)
     set_value(options, PHONE_RETRY_LIMIT,
               PhoneWorker.PHONE_RETRY_LIMIT)
     set_value(options, PHONE_RETRY_WAIT,

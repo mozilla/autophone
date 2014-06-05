@@ -20,8 +20,8 @@ BUILD_CACHE_PORT = 'build_cache_port'
 # ini file internal options
 BUILD_CACHE_SIZE = 'build_cache_size'
 BUILD_CACHE_EXPIRES = 'build_cache_expires'
-DEVICEMANAGER_RETRY_LIMIT = 'devicemanager_retry_limit'
-DEVICEMANAGER_SETTLING_TIME = 'devicemanager_settling_time'
+DEVICE_READY_RETRY_WAIT = 'device_ready_retry_wait'
+DEVICE_READY_RETRY_ATTEMPTS = 'device_ready_retry_attempts'
 PHONE_RETRY_LIMIT = 'phone_retry_limit'
 PHONE_RETRY_WAIT = 'phone_retry_wait'
 PHONE_MAX_REBOOTS = 'phone_max_reboots'
@@ -52,8 +52,8 @@ CMD_OPTION_NAMES = {
 INI_OPTION_NAMES = {
     BUILD_CACHE_SIZE: 'getint',
     BUILD_CACHE_EXPIRES: 'getint',
-    DEVICEMANAGER_RETRY_LIMIT: 'getint',
-    DEVICEMANAGER_SETTLING_TIME: 'getint',
+    DEVICE_READY_RETRY_WAIT: 'getint',
+    DEVICE_READY_RETRY_ATTEMPTS: 'getint',
     PHONE_RETRY_LIMIT: 'getint',
     PHONE_RETRY_WAIT: 'getint',
     PHONE_MAX_REBOOTS: 'getint',

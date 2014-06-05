@@ -20,7 +20,8 @@ import traceback
 import buildserver
 import phonetest
 from logdecorator import LogDecorator
-from adb import ADB, ADBError, ADBTimeout
+from adb import ADBError, ADBTimeoutError
+from adb_android import ADBAndroid as ADBDevice
 from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
 from options import *
 
@@ -50,8 +51,8 @@ class PhoneWorker(object):
     This is the interface to the subprocess, accessible by the main
     process."""
 
-    DEVICEMANAGER_RETRY_LIMIT = 8
-    DEVICEMANAGER_SETTLING_TIME = 60
+    DEVICE_READY_RETRY_WAIT = 20
+    DEVICE_READY_RETRY_ATTEMPTS = 3
     PHONE_RETRY_LIMIT = 2
     PHONE_RETRY_WAIT = 15
     PHONE_MAX_REBOOTS = 3
@@ -177,12 +178,15 @@ class PhoneWorkerSubProcess(object):
                                         'pid': os.getpid()},
                                        '%(phoneid)s|%(pid)s|%(message)s')
 
-        # Moved this from a @property since having the ADB initialized on the fly
+        # Moved this from a @property since having the ADBDevice initialized on the fly
         # can cause problems.
         self.loggerdeco.info('Worker: Connecting to %s...' % self.phone_cfg['phoneid'])
-        self.dm = ADB(device_serial=self.phone_cfg['serial'],
-                      log_level=self.loglevel,
-                      logger_name='autophone.worker.adb')
+        self.dm = ADBDevice(device_serial=self.phone_cfg['serial'],
+                            log_level=self.loglevel,
+                            logger_name='autophone.worker.adb',
+                            device_ready_retry_wait=self.user_cfg[DEVICE_READY_RETRY_WAIT],
+                            device_ready_retry_attempts=self.user_cfg[DEVICE_READY_RETRY_ATTEMPTS])
+
         # Override mozlog.logger
         self.dm._logger = self.loggerdeco
         self.loggerdeco.info('Worker: Connected.')
@@ -254,7 +258,7 @@ class PhoneWorkerSubProcess(object):
                 self.dm.push(tmp.name,
                              posixpath.join(d, 'sdcard_check'))
             self.dm.rm(d, recursive=True)
-        except (ADBError, ADBTimeout):
+        except (ADBError, ADBTimeoutError):
             self.loggerdeco.exception('Exception while checking SD card!')
             success = False
         return success
@@ -296,7 +300,7 @@ class PhoneWorkerSubProcess(object):
                     self.loggerdeco.info('Failed SD card check.')
                 else:
                     self.loggerdeco.info('Phone did not reboot successfully.')
-            except (ADBError, ADBTimeout):
+            except (ADBError, ADBTimeoutError):
                 self.loggerdeco.exception('Exception while rebooting!')
 
         self.loggerdeco.info('Phone has been rebooted %d times; giving up.' %
@@ -392,7 +396,7 @@ the "enable" command.
         success = False
         for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             try:
-                self.dm.uninstall_app(build_metadata['androidprocname'])
+                self.dm.uninstall_app(build_metadata['androidprocname'], reboot=True)
             except ADBError, e:
                 if e.message.find('Failure') == -1:
                     raise
@@ -429,14 +433,17 @@ the "enable" command.
             t.current_build = build_metadata['blddate']
             t.current_repo = build_metadata['tree']
             try:
-                t.runjob(build_metadata, self)
-            except (ADBError, ADBTimeout):
+                t.setup_job(build_metadata, self)
+                t.run_job()
+            except (ADBError, ADBTimeoutError):
                 exc = 'Uncaught device error while running test!\n\n%s' % \
                     traceback.format_exc()
                 self.loggerdeco.exception('Uncaught device error while '
                                           'running test!')
                 self.phone_disconnected(exc)
                 return False
+            finally:
+                t.teardown_job()
         return True
 
     def handle_timeout(self):

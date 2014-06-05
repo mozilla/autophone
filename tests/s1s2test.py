@@ -5,185 +5,72 @@
 import ConfigParser
 import datetime
 import glob
-import json
-import jwt
-import logging
 import os
 import posixpath
 import re
 import sys
-import urllib
-import urllib2
-from math import sqrt
 from time import sleep
 
 from logdecorator import LogDecorator
 from adb import ADBError
 from mozprofile import FirefoxProfile
 from options import *
-from phonetest import PhoneTest
+from perftest import PerfTest
 
-def get_stats(values):
-    """Calculate and return an object containing the count, mean,
-    standard deviation, standard error of the mean and percentage
-    standard error of the mean of the values list."""
-    r = {'count': len(values)}
-    if r['count'] == 1:
-        r['mean'] = values[0]
-        r['stddev'] = 0
-        r['stderr'] = 0
-        r['stderrp'] = 0
-    else:
-        r['mean'] = sum(values) / float(r['count'])
-        r['stddev'] = sqrt(sum([(value - r['mean'])**2 for value in values])/float(r['count']-1.5))
-        r['stderr'] = r['stddev']/sqrt(r['count'])
-        r['stderrp'] = 100.0*r['stderr']/float(r['mean'])
-    return r
+class S1S2Test(PerfTest):
 
-class S1S2Test(PhoneTest):
+    def setup_job(self, build_metadata, worker_subprocess):
+        PerfTest.setup_job(self, build_metadata, worker_subprocess)
 
-    def runjob(self, build_metadata, worker_subprocess):
-        logger = self.logger
-        loggerdeco = self.loggerdeco
-        self.logger = logging.getLogger('autophone.worker.subprocess.test')
-        self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
-                                        'pid': os.getpid(),
-                                        'buildid': build_metadata['buildid']},
-                                       '%(phoneid)s|%(pid)s|%(buildid)s|'
-                                       '%(message)s')
-        self.dm._logger = self.loggerdeco
-
+        # [paths]
+        autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
+        self._paths = {}
+        self._paths['source'] = os.path.join(autophone_directory, 'files/')
+        self._paths['dest'] = posixpath.join(self.base_device_path, 's1test/')
         try:
-            # Read our config file which gives us our number of
-            # iterations and urls that we will be testing
-            cfg = ConfigParser.RawConfigParser()
-            cfg.read(self.config_file)
-            # [signature]
-            self._signer = None
-            self._jwt = {'id': '', 'key': None}
-            for opt in self._jwt.keys():
+            for opt in ('source', 'dest', 'profile'):
                 try:
-                    self._jwt[opt] = cfg.get('signature', opt)
-                except (ConfigParser.NoSectionError,
-                        ConfigParser.NoOptionError):
-                    break
-            # phonedash requires both an id and a key.
-            if self._jwt['id'] and self._jwt['key']:
-                self._signer = jwt.jws.HmacSha(key=self._jwt['key'],
-                                               key_id=self._jwt['id'])
-            # [paths]
-            autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
-            self._paths = {}
-            self._paths['source'] = os.path.join(autophone_directory, 'files/')
-            self._paths['dest'] = posixpath.join(self.base_device_path, 's1test/')
-            try:
-                for opt in ('source', 'dest', 'profile'):
-                    try:
-                        self._paths[opt] = cfg.get('paths', opt)
-                        if not self._paths[opt].endswith('/'):
-                            self._paths[opt] += '/'
-                    except ConfigParser.NoOptionError:
-                        pass
-            except ConfigParser.NoSectionError:
-                pass
-            if 'profile' in self._paths:
-                self.profile_path = self._paths['profile']
-            # _pushes = {'sourcepath' : 'destpath', ...}
-            self._pushes = {}
-            for push in glob.glob(self._paths['source'] + '*'):
-                if push.endswith('~') or push.endswith('.bak'):
-                    continue
-                push_dest = posixpath.join(self._paths['dest'], os.path.basename(push))
-                self._pushes[push] = push_dest
-            # [tests]
-            self._tests = {}
-            for t in cfg.items('tests'):
-                self._tests[t[0]] = t[1]
-            # Map URLS - {urlname: url} - urlname serves as testname
-            self._urls = {}
-            for test_location, test_path in cfg.items('locations'):
-                for test_name in self._tests:
-                    if test_path:
-                        test_url = test_path + self._tests[test_name]
-                    else:
-                        test_url = 'file://' + self._paths['dest'] + self._tests[test_name]
-                    self._urls["%s-%s" % (test_location, test_name)] = test_url
-            # [settings]
-            self._iterations = cfg.getint('settings', 'iterations')
-            try:
-                self.stderrp_accept = cfg.getfloat('settings', 'stderrp_accept')
-            except ConfigParser.NoOptionError:
-                self.stderrp_accept = 0
-            try:
-                self.stderrp_reject = cfg.getfloat('settings', 'stderrp_reject')
-            except ConfigParser.NoOptionError:
-                self.stderrp_reject = 100
-            try:
-                self.stderrp_attempts = cfg.getint('settings', 'stderrp_attempts')
-            except ConfigParser.NoOptionError:
-                self.stderrp_attempts = 1
-            self._resulturl = cfg.get('settings', 'resulturl')
-            if not self._resulturl.endswith('/'):
-                self._resulturl += '/'
-            self._initialize_url = 'file://' + self._paths['dest'] + 'initialize_profile.html'
+                    self._paths[opt] = self.cfg.get('paths', opt)
+                    if not self._paths[opt].endswith('/'):
+                        self._paths[opt] += '/'
+                except ConfigParser.NoOptionError:
+                    pass
+        except ConfigParser.NoSectionError:
+            pass
+        if 'profile' in self._paths:
+            self.profile_path = self._paths['profile']
+        # _pushes = {'sourcepath' : 'destpath', ...}
+        self._pushes = {}
+        for push in glob.glob(self._paths['source'] + '*'):
+            if push.endswith('~') or push.endswith('.bak'):
+                continue
+            push_dest = posixpath.join(self._paths['dest'], os.path.basename(push))
+            self._pushes[push] = push_dest
+        # [tests]
+        self._tests = {}
+        for t in self.cfg.items('tests'):
+            self._tests[t[0]] = t[1]
+        # Map URLS - {urlname: url} - urlname serves as testname
+        self._urls = {}
+        for test_location, test_path in self.cfg.items('locations'):
+            for test_name in self._tests:
+                if test_path:
+                    test_url = test_path + self._tests[test_name]
+                else:
+                    test_url = 'file://' + self._paths['dest'] + self._tests[test_name]
+                self._urls["%s-%s" % (test_location, test_name)] = test_url
+        self._initialize_url = 'file://' + self._paths['dest'] + 'initialize_profile.html'
 
-            self.runtests(build_metadata, worker_subprocess)
-        finally:
-            self.logger = logger
-            self.loggerdeco = loggerdeco
-            self.dm._logger = loggerdeco
-
-    def is_stderr_below_threshold(self, dataset, threshold):
-        """Return True if all of the measurements in the dataset have
-        standard errors of the mean below the threshold.
-
-        Return False if at least one measurement is above the threshold
-        or if one or more datasets have only one value.
-
-        Return None if at least one measurement has no values.
-        """
-
-        self.loggerdeco.debug("is_stderr_below_threshold: %s" % dataset)
-
-        for cachekey in ('uncached', 'cached'):
-            for measurement in ('throbberstart', 'throbberstop'):
-                data = [datapoint[cachekey][measurement] - datapoint[cachekey]['starttime']
-                        for datapoint in dataset
-                        if datapoint and cachekey in datapoint]
-                if not data:
-                    return None
-                stats = get_stats(data)
-                self.loggerdeco.debug('%s %s count: %d, mean: %.2f, '
-                                      'stddev: %.2f, stderr: %.2f, '
-                                      'stderrp: %.2f' % (
-                                          cachekey, measurement,
-                                          stats['count'], stats['mean'],
-                                          stats['stddev'], stats['stderr'],
-                                          stats['stderrp']))
-                if stats['count'] == 1 or stats['stderrp'] >= threshold:
-                    return False
-        return True
-
-    def runtests(self, build_metadata, worker_subprocess):
-        self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
-                                        'pid': os.getpid(),
-                                        'buildid': build_metadata['buildid']},
-                                       '%(phoneid)s|%(pid)s|%(buildid)s|'
-                                       '%(message)s')
-        self.dm._logger = self.loggerdeco
-        appname = build_metadata['androidprocname']
-
+    def run_tests(self):
         if not self.install_local_pages():
             self.set_status(msg='Could not install local pages on phone. '
                             'Aborting test for '
-                            'build %s' % build_metadata['buildid'])
+                            'build %s' % self.buildid)
             return
 
-        if not self.create_profile(build_metadata):
+        if not self.create_profile():
             self.set_status(msg='Could not run Fennec. Aborting test for '
-                            'build %s' % build_metadata['buildid'])
+                            'build %s' % self.buildid)
             return
 
         testcount = len(self._urls.keys())
@@ -191,12 +78,12 @@ class S1S2Test(PhoneTest):
             self.loggerdeco = LogDecorator(self.logger,
                                            {'phoneid': self.phone_cfg['phoneid'],
                                             'pid': os.getpid(),
-                                            'buildid': build_metadata['buildid'],
+                                            'buildid': self.buildid,
                                             'testname': testname},
                                            '%(phoneid)s|%(pid)s|%(buildid)s|'
                                            '%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
-            if self.check_results(build_metadata, testname):
+            if self.check_results(testname):
                 # We already have good results for this test and build.
                 # No need to test it again.
                 self.loggerdeco.info('Skipping test (%d/%d) for %d iterations' %
@@ -227,21 +114,24 @@ class S1S2Test(PhoneTest):
 
                     dataset.append({})
 
-                    if not self.create_profile(build_metadata):
+                    if not self.create_profile():
                         continue
 
-                    measurement = self.runtest(build_metadata, appname, url)
+                    measurement = self.runtest(url)
                     if not measurement:
                         continue
                     dataset[-1]['uncached'] = measurement
 
-                    measurement = self.runtest(build_metadata, appname, url)
+                    measurement = self.runtest(url)
                     if not measurement:
                         continue
                     dataset[-1]['cached'] = measurement
 
-                    if self.is_stderr_below_threshold(dataset,
-                                                      self.stderrp_accept):
+                    if self.is_stderr_below_threshold(
+                            ('throbberstart',
+                             'throbberstop'),
+                            dataset,
+                            self.stderrp_accept):
                         self.loggerdeco.info(
                             'Accepted test (%d/%d) after %d of %d iterations' %
                             (testnum, testcount, iteration+1, self._iterations))
@@ -249,7 +139,11 @@ class S1S2Test(PhoneTest):
 
                 self.loggerdeco.debug('publishing results')
 
-                if self.is_stderr_below_threshold(dataset, self.stderrp_reject):
+                if self.is_stderr_below_threshold(
+                        ('throbberstart',
+                         'throbberstop'),
+                        dataset,
+                        self.stderrp_reject):
                     rejected = False
                 else:
                     rejected = True
@@ -263,26 +157,24 @@ class S1S2Test(PhoneTest):
                             starttime=datapoint[cachekey]['starttime'],
                             tstrt=datapoint[cachekey]['throbberstart'],
                             tstop=datapoint[cachekey]['throbberstop'],
-                            build_metadata=build_metadata,
                             testname=testname,
                             cache_enabled=(cachekey=='cached'),
                             rejected=rejected)
                 if not rejected:
                     break
 
-    def runtest(self, build_metadata, appname, url):
+    def runtest(self, url):
         # Clear logcat
         self.dm.clear_logcat()
 
         # Run test
-        self.run_fennec_with_profile(appname, url)
+        self.run_fennec_with_profile(self.fennec_appname, url)
 
         # Get results - do this now so we don't have as much to
         # parse in logcat.
-        starttime, throbberstart, throbberstop = self.analyze_logcat(
-            build_metadata)
+        starttime, throbberstart, throbberstop = self.analyze_logcat()
 
-        self.wait_for_fennec(build_metadata)
+        self.wait_for_fennec()
 
         # Ensure we succeeded - no 0's reported
         datapoint = {}
@@ -293,7 +185,7 @@ class S1S2Test(PhoneTest):
             datapoint['throbbertime'] = throbberstop - throbberstart
         return datapoint
 
-    def wait_for_fennec(self, build_metadata, max_wait_time=60, wait_time=5,
+    def wait_for_fennec(self, max_wait_time=60, wait_time=5,
                         kill_wait_time=20):
         # Wait for up to a max_wait_time seconds for fennec to close
         # itself in response to the quitter request. Check that fennec
@@ -304,14 +196,14 @@ class S1S2Test(PhoneTest):
         # Re-raise the last exception if fennec can not be killed.
         max_wait_attempts = max_wait_time / wait_time
         for wait_attempt in range(max_wait_attempts):
-            if not self.dm.process_exist(build_metadata['androidprocname']):
+            if not self.dm.process_exist(self.fennec_appname):
                 return True
             sleep(wait_time)
         self.loggerdeco.debug('killing fennec')
         max_killattempts = 3
         for kill_attempt in range(max_killattempts):
             try:
-                self.dm.pkill(build_metadata['androidprocname'], root=True)
+                self.dm.pkill(self.fennec_appname, root=True)
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d to kill fennec failed' %
@@ -321,17 +213,17 @@ class S1S2Test(PhoneTest):
                 sleep(kill_wait_time)
         return False
 
-    def create_profile(self, build_metadata, custom_prefs=None):
+    def create_profile(self, custom_prefs=None):
         # Create, install and initialize the profile to be
         # used in the test.
 
         # make sure firefox isn't running when we try to
         # install the profile.
 
-        self.dm.pkill(build_metadata['androidprocname'], root=True)
+        self.dm.pkill(self.fennec_appname, root=True)
 
         telemetry_prompt = 999
-        if build_metadata['blddate'] < '2013-01-03':
+        if self.build_metadata['blddate'] < '2013-01-03':
             telemetry_prompt = 2
         prefs = {
             'browser.firstrun.show.localepicker': False,
@@ -352,13 +244,13 @@ class S1S2Test(PhoneTest):
         if not self.install_profile(profile):
             return False
 
-        appname = build_metadata['androidprocname']
-        buildid = build_metadata['buildid']
+        appname = self.fennec_appname
+        buildid = self.buildid
         success = False
         for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
             self.loggerdeco.debug('Attempt %d Initializing profile' % attempt)
-            self.run_fennec_with_profile(appname, self._initialize_url)
-            if self.wait_for_fennec(build_metadata):
+            self.run_fennec_with_profile(self.fennec_appname, self._initialize_url)
+            if self.wait_for_fennec():
                 success = True
                 break
             sleep(self.user_cfg[PHONE_RETRY_WAIT])
@@ -404,17 +296,7 @@ class S1S2Test(PhoneTest):
                     raise
                 sleep(self.user_cfg[PHONE_RETRY_WAIT])
 
-    def get_logcat_throbbers(self):
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
-            try:
-                return [x.strip() for x in self.dm.get_logcat()]
-            except ADBError:
-                self.loggerdeco.exception('Attempt %d get logcat throbbers' % attempt)
-                if attempt == self.user_cfg[PHONE_RETRY_LIMIT] - 1:
-                    raise
-                sleep(self.user_cfg[PHONE_RETRY_WAIT])
-
-    def analyze_logcat(self, build_metadata):
+    def analyze_logcat(self):
         self.loggerdeco.debug('analyzing logcat')
 
         logcat_prefix = '(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})'
@@ -439,7 +321,7 @@ class S1S2Test(PhoneTest):
 
         while (attempt < max_attempts and (throbber_start_time == 0 or
                                            throbber_stop_time == 0)):
-            buf = self.get_logcat_throbbers()
+            buf = self.get_logcat()
             for line in buf:
                 self.loggerdeco.debug('analyze_logcat: %s' % line)
                 match = re_base_time.match(line)
@@ -549,77 +431,4 @@ class S1S2Test(PhoneTest):
 
         return (start_time, throbber_start_time, throbber_stop_time)
 
-    def publish_results(self, starttime=0, tstrt=0, tstop=0,
-                        build_metadata=None, testname='', cache_enabled=True,
-                        rejected=False):
-        msg = ('Cached: %s Start Time: %s Throbber Start: %s Throbber Stop: %s '
-               'Total Throbber Time: %s Rejected: %s' % (
-                   cache_enabled, starttime, tstrt, tstop, tstop - tstrt, rejected))
-        self.loggerdeco.debug('RESULTS: %s' % msg)
 
-        # Create JSON to send to webserver
-        resultdata = {}
-        resultdata['phoneid'] = self.phone_cfg['phoneid']
-        resultdata['testname'] = testname
-        resultdata['starttime'] = starttime
-        resultdata['throbberstart'] = tstrt
-        resultdata['throbberstop'] = tstop
-        resultdata['blddate'] = build_metadata['blddate']
-        resultdata['cached'] = cache_enabled
-        resultdata['rejected'] = rejected
-
-        resultdata['revision'] = build_metadata['revision']
-        resultdata['productname'] = build_metadata['androidprocname']
-        resultdata['productversion'] = build_metadata['version']
-        resultdata['osver'] = self.phone_cfg['osver']
-        resultdata['bldtype'] = build_metadata['bldtype']
-        resultdata['machineid'] = self.phone_cfg['machinetype']
-
-        result = {'data': resultdata}
-        # Upload
-        if self._signer:
-            encoded_result = jwt.encode(result, signer=self._signer)
-            content_type = 'application/jwt'
-        else:
-            encoded_result = json.dumps(result)
-            content_type = 'application/json; charset=utf-8'
-        req = urllib2.Request(self._resulturl + 'add/', encoded_result,
-                              {'Content-Type': content_type})
-        try:
-            f = urllib2.urlopen(req)
-        except urllib2.URLError, e:
-            self.loggerdeco.error('Could not send results to server: %s' % e)
-        else:
-            f.read()
-            f.close()
-
-    def check_results(self, build_metadata=None, testname=''):
-        """Return True if there already exist unrejected results for this device,
-        build and test.
-        """
-
-        # Create JSON to send to webserver
-        query = {}
-        query['phoneid'] = self.phone_cfg['phoneid']
-        query['test'] = testname
-        query['revision'] = build_metadata['revision']
-        query['product'] = build_metadata['androidprocname']
-
-        self.loggerdeco.debug('check_results for: %s' % query)
-
-        try:
-            url = self._resulturl + 'check/?' + urllib.urlencode(query)
-            f = urllib2.urlopen(url)
-        except urllib2.URLError, e:
-            self.loggerdeco.error(
-                'check_results: %s could not check: '
-                'phoneid: %s, test: %s, revision: %s, product: %s' % (
-                    e,
-                    query['phoneid'], query['test'],
-                    query['revision'], query['product']))
-            return False
-        data = f.read()
-        self.loggerdeco.debug('check_results: data: %s' % data)
-        f.close()
-        response = json.loads(data)
-        return response['result']

@@ -17,8 +17,8 @@
 
 #build_cache_size = 20
 #build_cache_expires = 7
-#devicemanager_retry_limit = 8
-#devicemanager_settling_time = 60
+#device_ready_retry_wait = 20
+#device_ready_retry_attempts = 3
 #phone_retry_limit = 2
 #phone_retry_wait = 15
 #phone_max_reboots = 3
