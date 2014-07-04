@@ -18,6 +18,7 @@ from options import *
 class PhoneTestMessage(object):
 
     IDLE = 'IDLE'
+    CHARGING = 'CHARGING'
     INSTALLING = 'INSTALLING BUILD'
     WORKING = 'WORKING'
     REBOOTING = 'REBOOTING'

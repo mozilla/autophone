@@ -22,6 +22,8 @@ BUILD_CACHE_SIZE = 'build_cache_size'
 BUILD_CACHE_EXPIRES = 'build_cache_expires'
 DEVICE_READY_RETRY_WAIT = 'device_ready_retry_wait'
 DEVICE_READY_RETRY_ATTEMPTS = 'device_ready_retry_attempts'
+DEVICE_BATTERY_MIN = 'device_battery_min'
+DEVICE_BATTERY_MAX = 'device_battery_max'
 PHONE_RETRY_LIMIT = 'phone_retry_limit'
 PHONE_RETRY_WAIT = 'phone_retry_wait'
 PHONE_MAX_REBOOTS = 'phone_max_reboots'
@@ -54,6 +56,8 @@ INI_OPTION_NAMES = {
     BUILD_CACHE_EXPIRES: 'getint',
     DEVICE_READY_RETRY_WAIT: 'getint',
     DEVICE_READY_RETRY_ATTEMPTS: 'getint',
+    DEVICE_BATTERY_MIN: 'getint',
+    DEVICE_BATTERY_MAX: 'getint',
     PHONE_RETRY_LIMIT: 'getint',
     PHONE_RETRY_WAIT: 'getint',
     PHONE_MAX_REBOOTS: 'getint',

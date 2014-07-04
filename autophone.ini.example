@@ -19,6 +19,8 @@
 #build_cache_expires = 7
 #device_ready_retry_wait = 20
 #device_ready_retry_attempts = 3
+#device_battery_min = 90
+#device_battery_max = 95
 #phone_retry_limit = 2
 #phone_retry_wait = 15
 #phone_max_reboots = 3

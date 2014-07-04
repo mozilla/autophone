@@ -53,6 +53,8 @@ class PhoneWorker(object):
 
     DEVICE_READY_RETRY_WAIT = 20
     DEVICE_READY_RETRY_ATTEMPTS = 3
+    DEVICE_BATTERY_MIN = 90
+    DEVICE_BATTERY_MAX = 95
     PHONE_RETRY_LIMIT = 2
     PHONE_RETRY_WAIT = 15
     PHONE_MAX_REBOOTS = 3
@@ -385,6 +387,15 @@ the "enable" command.
         repo = build_metadata['tree']
         build_date = datetime.datetime.fromtimestamp(
             float(build_metadata['blddate']))
+
+        if self.dm.get_battery_percentage() < self.user_cfg[DEVICE_BATTERY_MIN]:
+            while self.dm.get_battery_percentage() < self.user_cfg[DEVICE_BATTERY_MAX]:
+                self.status_update(phonetest.PhoneTestMessage(
+                    self.phone_cfg['phoneid'],
+                    phonetest.PhoneTestMessage.CHARGING,
+                    build_metadata['blddate'],
+                    repo))
+                time.sleep(900)
 
         self.status_update(phonetest.PhoneTestMessage(
             self.phone_cfg['phoneid'],

@@ -514,6 +514,10 @@ def load_autophone_options(cmd_options):
               PhoneWorker.DEVICE_READY_RETRY_WAIT)
     set_value(options, DEVICE_READY_RETRY_ATTEMPTS,
               PhoneWorker.DEVICE_READY_RETRY_ATTEMPTS)
+    set_value(options, DEVICE_BATTERY_MIN,
+              PhoneWorker.DEVICE_BATTERY_MIN)
+    set_value(options, DEVICE_BATTERY_MAX,
+              PhoneWorker.DEVICE_BATTERY_MAX)
     set_value(options, PHONE_RETRY_LIMIT,
               PhoneWorker.PHONE_RETRY_LIMIT)
     set_value(options, PHONE_RETRY_WAIT,
