@@ -92,6 +92,11 @@ class S1S2Test(PerfTest):
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
                                  (testnum, testcount, self._iterations))
 
+            # success == False indicates that none of the attempts
+            # were successful in getting any measurement. This is
+            # typically due to a regression in the brower which should
+            # be reported.
+            success = False
             for attempt in range(self.stderrp_attempts):
                 # dataset is a list of the measurements made for the
                 # iterations for this test.
@@ -121,6 +126,7 @@ class S1S2Test(PerfTest):
                     if not measurement:
                         continue
                     dataset[-1]['uncached'] = measurement
+                    success = True
 
                     measurement = self.runtest(url)
                     if not measurement:
@@ -162,6 +168,19 @@ class S1S2Test(PerfTest):
                             rejected=rejected)
                 if not rejected:
                     break
+
+            if not success:
+                revision = self.build_metadata['revision']
+                self.worker_subprocess.mailer.send(
+                    'S1S2Test %s failed for Build %s %s on Phone %s' %
+                    (testname, self.current_repo, self.buildid,
+                     self.phone_cfg['phoneid']),
+                    'No measurements were detected for test %s.\n\n'
+                    'Repository: %s\n'
+                    'Build Id:   %s\n'
+                    'Revision:   %s\n' %
+                    (testname, self.current_repo, self.buildid, revision))
+
 
     def runtest(self, url):
         # Clear logcat

@@ -51,6 +51,11 @@ class WebappStartupTest(PerfTest):
         self.loggerdeco.info('Running test for %d iterations' %
                              self._iterations)
 
+        # success == False indicates that none of the attempts
+        # were successful in getting any measurement. This is
+        # typically due to a regression in the brower which should
+        # be reported.
+        success = False
         for attempt in range(self.stderrp_attempts):
             # dataset is a list of the measurements made for the
             # iterations for this test.
@@ -84,6 +89,7 @@ class WebappStartupTest(PerfTest):
                 if not measurement:
                     continue
                 dataset[-1]['uncached'] = measurement
+                success = True
 
                 measurement = self.runtest()
                 if not measurement:
@@ -125,6 +131,17 @@ class WebappStartupTest(PerfTest):
                         rejected=rejected)
             if not rejected:
                 break
+
+        if not success:
+            revision = self.build_metadata['revision']
+            self.worker_subprocess.mailer.send(
+                'Webappstartup test failed for Build %s %s on Phone %s' %
+                (self.current_repo, self.buildid, self.phone_cfg['phoneid']),
+                'No measurements were detected for test webappstartup.\n\n'
+                'Repository: %s\n'
+                'Build Id:   %s\n'
+                'Revision:   %s\n' %
+                (self.current_repo, self.buildid, revision))
 
     def kill_webappstartup(self):
         re_webapp = re.compile(r'%s|%s|%s:%s.Webapp0' % (
