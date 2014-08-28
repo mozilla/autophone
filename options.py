@@ -2,67 +2,46 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-# command line options
-IPADDR = 'ipaddr'
-PORT = 'port'
-LOGFILE = 'logfile'
-LOGLEVEL = 'loglevel'
-TEST_PATH = 'test_path'
-EMAILCFG = 'emailcfg'
-ENABLE_PULSE = 'enable_pulse'
-ENABLE_UNITTESTS = 'enable_unittests'
-CACHE_DIR = 'cache_dir'
-OVERRIDE_BUILD_DIR = 'override_build_dir'
-REPOS = 'repos'
-BUILDTYPES = 'buildtypes'
-BUILD_CACHE_PORT = 'build_cache_port'
+from builds import BuildCache
+from worker import Crashes, PhoneWorker
 
-# ini file internal options
-BUILD_CACHE_SIZE = 'build_cache_size'
-BUILD_CACHE_EXPIRES = 'build_cache_expires'
-DEVICE_READY_RETRY_WAIT = 'device_ready_retry_wait'
-DEVICE_READY_RETRY_ATTEMPTS = 'device_ready_retry_attempts'
-DEVICE_BATTERY_MIN = 'device_battery_min'
-DEVICE_BATTERY_MAX = 'device_battery_max'
-PHONE_RETRY_LIMIT = 'phone_retry_limit'
-PHONE_RETRY_WAIT = 'phone_retry_wait'
-PHONE_MAX_REBOOTS = 'phone_max_reboots'
-PHONE_PING_INTERVAL = 'phone_ping_interval'
-PHONE_COMMAND_QUEUE_TIMEOUT = 'phone_command_queue_timeout'
-PHONE_CRASH_WINDOW = 'phone_crash_window'
-PHONE_CRASH_LIMIT = 'phone_crash_limit'
+class AutophoneOptions(object):
+    """Encapsulate the command line and ini file options used to configure
+    Autophone. Each attribute is initialized to an 'empty' value which also
+    is of the same type as the final option value so that the appropriate
+    getters can be determined."""
+    def __init__(self):
+        # command line options
+        self.ipaddr = ''
+        self.port = -1
+        self.devicescfg = ''
+        self.logfile = ''
+        self.loglevel = ''
+        self.test_path = ''
+        self.emailcfg = ''
+        self.enable_pulse = False
+        self.enable_unittests = False
+        self.cache_dir = ''
+        self.override_build_dir = ''
+        self.repos = []
+        self.buildtypes = []
+        self.build_cache_port = -1
+        # ini options
+        self.build_cache_size = BuildCache.MAX_NUM_BUILDS
+        self.build_cache_expires = BuildCache.EXPIRE_AFTER_DAYS
+        self.device_ready_retry_wait = PhoneWorker.DEVICE_READY_RETRY_WAIT
+        self.device_ready_retry_attempts = PhoneWorker.DEVICE_READY_RETRY_ATTEMPTS
+        self.device_battery_min = PhoneWorker.DEVICE_BATTERY_MIN
+        self.device_battery_max = PhoneWorker.DEVICE_BATTERY_MAX
+        self.phone_retry_limit = PhoneWorker.DEVICE_READY_RETRY_ATTEMPTS
+        self.phone_retry_wait = PhoneWorker.DEVICE_READY_RETRY_WAIT
+        self.phone_max_reboots = PhoneWorker.PHONE_MAX_REBOOTS
+        self.phone_ping_interval = PhoneWorker.PHONE_PING_INTERVAL
+        self.phone_command_queue_timeout = PhoneWorker.PHONE_COMMAND_QUEUE_TIMEOUT
+        self.phone_crash_window = Crashes.CRASH_WINDOW
+        self.phone_crash_limit = Crashes.CRASH_LIMIT
+        # other
+        self.debug = 3
 
-
-# application command line options
-CMD_OPTION_NAMES = {
-    IPADDR: 'get',
-    PORT: 'getint',
-    LOGFILE: 'get',
-    LOGLEVEL: 'get',
-    TEST_PATH: 'get',
-    EMAILCFG: 'get',
-    ENABLE_PULSE: 'getboolean',
-    ENABLE_UNITTESTS: 'getboolean',
-    CACHE_DIR: 'get',
-    OVERRIDE_BUILD_DIR: 'get',
-    REPOS: 'get',
-    BUILDTYPES: 'get',
-    BUILD_CACHE_PORT: 'getint'
-}
-
-# application configuration settings.
-INI_OPTION_NAMES = {
-    BUILD_CACHE_SIZE: 'getint',
-    BUILD_CACHE_EXPIRES: 'getint',
-    DEVICE_READY_RETRY_WAIT: 'getint',
-    DEVICE_READY_RETRY_ATTEMPTS: 'getint',
-    DEVICE_BATTERY_MIN: 'getint',
-    DEVICE_BATTERY_MAX: 'getint',
-    PHONE_RETRY_LIMIT: 'getint',
-    PHONE_RETRY_WAIT: 'getint',
-    PHONE_MAX_REBOOTS: 'getint',
-    PHONE_PING_INTERVAL: 'getint',
-    PHONE_COMMAND_QUEUE_TIMEOUT: 'getint',
-    PHONE_CRASH_WINDOW: 'getint',
-    PHONE_CRASH_LIMIT: 'getint'
-}
+    def __str__(self):
+        return '%s' % self.__dict__

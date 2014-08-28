@@ -27,7 +27,7 @@ class LogDecorator(object):
             else:
                 extradict['message'] = unicode(message, errors='replace')
             extramessage = self._extraformat % extradict
-        except UnicodeDecodeError, e:
+        except UnicodeDecodeError:
             etype, evalue, etraceback = sys.exc_info()
             extramessage = ''.join(traceback.format_exception(etype, evalue, etraceback))
             print extramessage

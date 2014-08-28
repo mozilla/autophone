@@ -7,31 +7,31 @@ import logging
 import os
 from time import sleep
 
-from logdecorator import LogDecorator
 from mozprofile import FirefoxProfile
-from phonetest import PhoneTest
 
+from logdecorator import LogDecorator
+from phonetest import PhoneTest
 
 class SmokeTest(PhoneTest):
 
-    def runjob(self, build_metadata, worker_subprocess):
+    def run_job(self):
         logger = self.logger
         loggerdeco = self.loggerdeco
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
-                                        'phoneip': self.phone_cfg['ip'],
-                                        'buildid': build_metadata['buildid']},
+                                       {'phoneid': self.phone.id,
+                                        'phoneip': self.phone.ip, # XXX: not set!
+                                        'buildid': self.build.id},
                                        '%(phoneid)s|%(phoneip)s|%(buildid)s|'
                                        '%(message)s')
 
         try:
-            self.runtest(build_metadata, worker_subprocess)
+            self.runtest()
         finally:
             self.logger = logger
             self.loggerdeco = loggerdeco
 
-    def runtest(self, build_metadata, worker_subprocess):
+    def runtest(self):
         try:
             os.unlink('smoketest_pass')
         except OSError:
@@ -43,9 +43,9 @@ class SmokeTest(PhoneTest):
 
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
-        self.prepare_phone(build_metadata)
+        self.prepare_phone()
 
-        appname = build_metadata['androidprocname']
+        appname = self.build.app_name
 
         # Clear logcat
         self.dm.recordLogcat()
@@ -55,12 +55,12 @@ class SmokeTest(PhoneTest):
         self.run_fennec_with_profile(appname, 'about:fennec')
 
         self.loggerdeco.debug('analyzing logcat...')
-        fennec_launched = self.analyze_logcat(build_metadata)
+        fennec_launched = self.analyze_logcat()
         start = datetime.datetime.now()
         while (not fennec_launched and (datetime.datetime.now() - start
                                         <= datetime.timedelta(seconds=60))):
             sleep(3)
-            fennec_launched = self.analyze_logcat(build_metadata)
+            fennec_launched = self.analyze_logcat()
 
         if fennec_launched:
             self.loggerdeco.info('fennec successfully launched')
@@ -71,12 +71,12 @@ class SmokeTest(PhoneTest):
 
         self.loggerdeco.debug('killing fennec')
         # Get rid of the browser and session store files
-        self.dm.pkill(build_metadata['androidprocname'])
+        self.dm.pkill(self.build.app_name)
 
         self.loggerdeco.debug('removing sessionstore files')
         self.remove_sessionstore_files()
 
-    def prepare_phone(self, build_metadata):
+    def prepare_phone(self):
         prefs = { 'browser.firstrun.show.localepicker': False,
                   'browser.sessionstore.resume_from_crash': False,
                   'browser.firstrun.show.uidiscovery': False,
@@ -88,7 +88,7 @@ class SmokeTest(PhoneTest):
         profile = FirefoxProfile(preferences=prefs)
         self.install_profile(profile)
 
-    def analyze_logcat(self, build_metadata):
+    def analyze_logcat(self):
         buf = self.dm.get_logcat()
         got_start = False
         got_end = False

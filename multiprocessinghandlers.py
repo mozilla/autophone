@@ -75,7 +75,7 @@ class MultiprocessingTimedRotatingFileHandler(logging.handlers.TimedRotatingFile
         self.stream.flush()
         try:
             bf_stat = os.stat(self.baseFilename)
-        except OSError, oserror:
+        except OSError:
             sys.stderr.write('OSError Exception during os.stat(%s):\n\n%s' %
                              (self.baseFilename, traceback.format_exc()))
             raise

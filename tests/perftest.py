@@ -4,7 +4,6 @@
 
 import ConfigParser
 import json
-import jwt
 import logging
 import os
 import urllib
@@ -12,36 +11,26 @@ import urllib2
 from math import sqrt
 from time import sleep
 
+from jot import jwt, jws
+
 from logdecorator import LogDecorator
 from adb import ADBError
-from options import *
 from phonetest import PhoneTest
 
 class PerfTest(PhoneTest):
 
-    def setup_job(self, build_metadata, worker_subprocess):
-        self.build_metadata = build_metadata
-        self.worker_subprocess = worker_subprocess
-        self.fennec_appname = build_metadata['androidprocname']
-        self.buildid = build_metadata['buildid']
-
-        self.logger_original = self.logger
-        self.loggerdeco_original = self.loggerdeco
-        self.dm_logger_original = self.dm._logger
+    def setup_job(self, worker_subprocess):
+        PhoneTest.setup_job(self, worker_subprocess)
 
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
+                                       {'phoneid': self.phone.id,
                                         'pid': os.getpid(),
-                                        'buildid': self.buildid},
+                                        'buildid': self.build.id},
                                        '%(phoneid)s|%(pid)s|%(buildid)s|'
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
 
-        # Read our config file which gives us our number of
-        # iterations and urls that we will be testing
-        self.cfg = ConfigParser.RawConfigParser()
-        self.cfg.read(self.config_file)
         # [signature]
         self._signer = None
         self._jwt = {'id': '', 'key': None}
@@ -53,8 +42,8 @@ class PerfTest(PhoneTest):
                 break
         # phonedash requires both an id and a key.
         if self._jwt['id'] and self._jwt['key']:
-            self._signer = jwt.jws.HmacSha(key=self._jwt['key'],
-                                           key_id=self._jwt['id'])
+            self._signer = jws.HmacSha(key=self._jwt['key'],
+                                       key_id=self._jwt['id'])
         # [settings]
         self._iterations = self.cfg.getint('settings', 'iterations')
         try:
@@ -78,24 +67,22 @@ class PerfTest(PhoneTest):
         self.run_tests()
 
     def teardown_job(self):
-        self.logger = self.logger_original
-        self.loggerdeco = self.loggerdeco_original
-        self.dm._logger = self.dm_logger_original
+        PhoneTest.teardown_job(self)
 
     def run_tests(self):
         pass
 
     def get_logcat(self):
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             try:
                 return [x.strip() for x in self.dm.get_logcat(
                     filter_specs=['*:V']
                 )]
             except ADBError:
                 self.loggerdeco.exception('Attempt %d get logcat throbbers' % attempt)
-                if attempt == self.user_cfg[PHONE_RETRY_LIMIT] - 1:
+                if attempt == self.options.phone_retry_limit - 1:
                     raise
-                sleep(self.user_cfg[PHONE_RETRY_WAIT])
+                sleep(self.options.phone_retry_wait)
 
     def publish_results(self, starttime=0, tstrt=0, tstop=0,
                         testname='', cache_enabled=True,
@@ -107,20 +94,20 @@ class PerfTest(PhoneTest):
 
         # Create JSON to send to webserver
         resultdata = {
-            'phoneid': self.phone_cfg['phoneid'],
+            'phoneid': self.phone.id,
             'testname': testname,
             'starttime': starttime,
             'throbberstart': tstrt,
             'throbberstop': tstop,
-            'blddate': self.build_metadata['blddate'],
+            'blddate': self.build.date,
             'cached': cache_enabled,
             'rejected': rejected,
-            'revision': self.build_metadata['revision'],
-            'productname': self.fennec_appname,
-            'productversion': self.build_metadata['version'],
-            'osver': self.phone_cfg['osver'],
-            'bldtype': self.build_metadata['bldtype'],
-            'machineid': self.phone_cfg['machinetype']
+            'revision': self.build.revision,
+            'productname': self.build.app_name,
+            'productversion': self.build.version,
+            'osver': self.phone.osver,
+            'bldtype': self.build.type,
+            'machineid': self.phone.machinetype
         }
 
         result = {'data': resultdata}
@@ -148,10 +135,10 @@ class PerfTest(PhoneTest):
 
         # Create JSON to send to webserver
         query = {
-            'phoneid': self.phone_cfg['phoneid'],
+            'phoneid': self.phone.id,
             'test': testname,
-            'revision': self.build_metadata['revision'],
-            'product': self.fennec_appname
+            'revision': self.build.revision,
+            'product': self.build.app_name
         }
 
         self.loggerdeco.debug('check_results for: %s' % query)

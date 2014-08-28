@@ -8,16 +8,14 @@ import re
 import sys
 from time import sleep
 
-from logdecorator import LogDecorator
 from adb import ADBError
-from mozprofile import FirefoxProfile
-from options import *
+from logdecorator import LogDecorator
 from perftest import PerfTest
 
 class WebappStartupTest(PerfTest):
 
-    def setup_job(self, build_metadata, worker_subprocess):
-        PerfTest.setup_job(self, build_metadata, worker_subprocess)
+    def setup_job(self, worker_subprocess):
+        PerfTest.setup_job(self, worker_subprocess)
         # [paths]
         autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
         self._paths = {}
@@ -34,9 +32,9 @@ class WebappStartupTest(PerfTest):
 
         self.testname = 'webappstartup'
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
+                                       {'phoneid': self.phone.id,
                                         'pid': os.getpid(),
-                                        'buildid': self.buildid,
+                                        'buildid': self.build.id,
                                         'testname': self.testname},
                                        '%(phoneid)s|%(pid)s|%(buildid)s|'
                                        '%(testname)s|%(message)s')
@@ -71,18 +69,18 @@ class WebappStartupTest(PerfTest):
 
             dataset = []
             for iteration in range(self._iterations):
-                self.set_status(msg='Attempt %d/%d for Test %s, '
-                                'run %d' %
-                                (attempt+1, self.stderrp_attempts,
-                                 self.testname, iteration+1))
+                self.update_status(message='Attempt %d/%d for Test %s, '
+                                   'run %d' %
+                                   (attempt+1, self.stderrp_attempts,
+                                    self.testname, iteration+1))
 
                 dataset.append({})
 
                 if not self.install_webappstartup():
-                    self.set_status(msg='Attempt %d/%d for Test %s, '
-                                    'run %d failed to install webappstartup' %
-                                    (attempt+1, self.stderrp_attempts,
-                                     self.testname, iteration+1))
+                    self.update_status(message='Attempt %d/%d for Test %s, '
+                                       'run %d failed to install webappstartup' %
+                                       (attempt+1, self.stderrp_attempts,
+                                        self.testname, iteration+1))
                     continue
 
                 measurement = self.runtest()
@@ -133,21 +131,20 @@ class WebappStartupTest(PerfTest):
                 break
 
         if not success:
-            revision = self.build_metadata['revision']
             self.worker_subprocess.mailer.send(
                 'Webappstartup test failed for Build %s %s on Phone %s' %
-                (self.current_repo, self.buildid, self.phone_cfg['phoneid']),
+                (self.build.tree, self.build.id, self.phone.id),
                 'No measurements were detected for test webappstartup.\n\n'
                 'Repository: %s\n'
                 'Build Id:   %s\n'
                 'Revision:   %s\n' %
-                (self.current_repo, self.buildid, revision))
+                (self.build.tree, self.build.id, self.build.revision))
 
     def kill_webappstartup(self):
         re_webapp = re.compile(r'%s|%s|%s:%s.Webapp0' % (
             self.webappstartup_name[:75],
-            self.fennec_appname,
-            self.fennec_appname, self.fennec_appname))
+            self.build.app_name,
+            self.build.app_name, self.build.app_name))
 
         procs = self.dm.get_process_list()
         pids = [proc[0] for proc in procs if re_webapp.match(proc[1])]
@@ -181,7 +178,7 @@ class WebappStartupTest(PerfTest):
         if extra_args:
             extras['args'] = " ".join(extra_args)
 
-        self.loggerdeco.debug('run_webappstartup: %s' % self.fennec_appname)
+        self.loggerdeco.debug('run_webappstartup: %s' % self.build.app_name)
         try:
             # need to kill the fennec process and the webapp process
             # org.mozilla.fennec:org.mozilla.fennec.Webapp0'
@@ -258,7 +255,7 @@ class WebappStartupTest(PerfTest):
 
     def install_webappstartup(self):
         success = False
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             self.loggerdeco.debug('Attempt %d Installing webappstartup' % attempt)
             try:
                 if self.webappstartup_name and self.dm.is_app_installed(self.webappstartup_name):
@@ -268,7 +265,7 @@ class WebappStartupTest(PerfTest):
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d Installing webappstartup' % attempt)
-                sleep(self.user_cfg[PHONE_RETRY_WAIT])
+                sleep(self.options.phone_retry_wait)
 
         if not success:
             self.loggerdeco.error('Failure installing webappstartup')
@@ -277,17 +274,17 @@ class WebappStartupTest(PerfTest):
         return success
 
     def is_webapp_running(self):
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             try:
-                return (self.dm.process_exist(self.fennec_appname) or
+                return (self.dm.process_exist(self.build.app_name) or
                         self.dm.process_exist(self.webappstartup_name) or
                         self.dm.process_exist('%s:%s.Webapp0' % (
-                            self.fennec_appname, self.fennec_appname)))
+                            self.build.app_name, self.build.app_name)))
             except ADBError:
                 self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
-                if attempt == self.user_cfg[PHONE_RETRY_LIMIT] - 1:
+                if attempt == self.options.phone_retry_limit - 1:
                     raise
-                sleep(self.user_cfg[PHONE_RETRY_WAIT])
+                sleep(self.options.phone_retry_wait)
 
     def analyze_logcat(self):
         self.loggerdeco.debug('analyzing logcat')

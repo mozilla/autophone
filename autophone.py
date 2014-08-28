@@ -16,20 +16,32 @@ import signal
 import socket
 import sys
 import threading
+from multiprocessinghandlers import MultiprocessingStreamHandler, MultiprocessingTimedRotatingFileHandler
 
 from manifestparser import TestManifest
-from adb_android import ADBAndroid as ADBDevice
 from pulsebuildmonitor import start_pulse_monitor
 
 import builds
 import buildserver
 import jobs
-import phonetest
-
+from adb_android import ADBAndroid as ADBDevice
 from mailer import Mailer
-from multiprocessinghandlers import MultiprocessingStreamHandler, MultiprocessingTimedRotatingFileHandler
-from options import *
-from worker import Crashes, PhoneWorker
+from options import AutophoneOptions
+from phonestatus import PhoneStatus
+from phonetest import PhoneTest
+from worker import PhoneWorker
+
+class PhoneData(object):
+    def __init__(self, phoneid, serial, machinetype, osver, abi, ipaddr):
+        self.id = phoneid
+        self.serial = serial
+        self.machinetype = machinetype
+        self.osver = osver
+        self.abi = abi
+        self.host_ip = ipaddr
+
+    def __str__(self):
+        return '%s' % self.__dict__
 
 
 class AutoPhone(object):
@@ -72,7 +84,7 @@ class AutoPhone(object):
         self.console_logger = logging.getLogger('autophone.console')
         self.options = options
         self.loglevel = loglevel
-        self.mailer = Mailer(options[EMAILCFG], '[autophone] ')
+        self.mailer = Mailer(options.emailcfg, '[autophone] ')
 
         self._stop = False
         self._next_worker_num = 0
@@ -102,13 +114,12 @@ class AutoPhone(object):
 
         self.read_devices()
 
-        if options[ENABLE_PULSE]:
+        if options.enable_pulse:
             self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
-                                                    trees=options[REPOS],
+                                                    trees=options.repos,
                                                     platforms=['android',
-                                                               'android-armv6',
                                                                'android-x86'],
-                                                    buildtypes=options[BUILDTYPES],
+                                                    buildtypes=options.buildtypes,
                                                     logger=self.logger)
 
         self.logger.debug('autophone_options: %s' % self.options)
@@ -123,7 +134,7 @@ class AutoPhone(object):
         return n
 
     def run(self):
-        self.server = self.CmdTCPServer(('0.0.0.0', self.options[PORT]),
+        self.server = self.CmdTCPServer(('0.0.0.0', self.options.port),
                                         self.CmdTCPHandler)
         self.server.cmd_cb = self.route_cmd
         self.server_thread = threading.Thread(target=self.server.serve_forever)
@@ -137,8 +148,7 @@ class AutoPhone(object):
                 if phoneid in self.restart_workers:
                     self.logger.info('Worker %s exited; restarting with new '
                                      'values.' % phoneid)
-                    self.create_worker(self.restart_workers[phoneid],
-                                       worker.user_cfg)
+                    self.create_worker(self.restart_workers[phoneid])
                     del self.restart_workers[phoneid]
                     continue
 
@@ -147,17 +157,17 @@ class AutoPhone(object):
                 worker.stop()
                 worker.crashes.add_crash()
                 msg_subj = 'Worker for phone %s died' % \
-                    worker.phone_cfg['phoneid']
+                    worker.phone.id
                 msg_body = 'Hello, this is Autophone. Just to let you know, ' \
                     'the worker process\nfor phone %s died.\n' % \
-                    worker.phone_cfg['phoneid']
+                    worker.phone.id
                 if worker.crashes.too_many_crashes():
-                    initial_state = phonetest.PhoneTestMessage.DISABLED
+                    initial_state = PhoneStatus.DISABLED
                     msg_subj += ' and was disabled'
                     msg_body += 'It looks really crashy, so I disabled it. ' \
                         'Sorry about that.\n'
                 else:
-                    initial_state = phonetest.PhoneTestMessage.DISCONNECTED
+                    initial_state = PhoneStatus.DISCONNECTED
                 worker.start(initial_state)
                 self.logger.info('Sending notification...')
                 try:
@@ -177,7 +187,7 @@ class AutoPhone(object):
                 except IOError, e:
                     if e.errno == errno.EINTR:
                         continue
-                self.phone_workers[msg.phoneid].process_msg(msg)
+                self.phone_workers[msg.phone.id].process_msg(msg)
         except KeyboardInterrupt:
             self.stop()
 
@@ -186,10 +196,10 @@ class AutoPhone(object):
         self.worker_lock.acquire()
         try:
             for p in self.phone_workers.values():
-                phoneid = p.phone_cfg['phoneid']
+                phoneid = p.phone.id
                 if devices and phoneid not in devices:
                     continue
-                abi = p.phone_cfg['abi']
+                abi = p.phone.abi
                 incompatible_job = False
                 if abi == 'x86':
                     if 'x86' not in build_url:
@@ -198,7 +208,7 @@ class AutoPhone(object):
                     if 'armv6' in build_url:
                         incompatible_job = True
                 else:
-                    if 'x86' in build_url or 'armv6' in build_url:
+                    if 'x86' in build_url:
                         incompatible_job = True
                 if incompatible_job:
                     self.logger.debug('Ignoring incompatible job %s '
@@ -247,19 +257,22 @@ class AutoPhone(object):
             phoneids.sort()
             for i in phoneids:
                 w = self.phone_workers[i]
-                response += 'phone %s (%s):\n' % (i, w.phone_cfg['serial'])
-                response += '  debug level %d\n' % w.user_cfg.get('debug', 3)
+                response += 'phone %s (%s):\n' % (i, w.phone.serial)
+                response += '  debug level %d\n' % w.options.debug
                 if not w.last_status_msg:
                     response += '  no updates\n'
                 else:
-                    if w.last_status_msg.current_build:
+                    if w.last_status_msg.build and w.last_status_msg.build.id:
+                        d = w.last_status_msg.build.id
+                        d = '%s-%s-%s %s:%s:%s' % (d[0:4], d[4:6], d[6:8],
+                                                   d[8:10], d[10:12], d[12:14])
                         response += '  current build: %s %s\n' % (
-                            datetime.datetime.fromtimestamp(float(w.last_status_msg.current_build)),
-                            w.last_status_msg.current_repo)
+                            d,
+                            w.last_status_msg.build.tree)
                     else:
                         response += '  no build loaded\n'
                     response += '  last update %s ago:\n    %s\n' % (now - w.last_status_msg.timestamp, w.last_status_msg.short_desc())
-                    response += '  %s for %s\n' % (w.last_status_msg.status, now - w.first_status_of_type.timestamp)
+                    response += '  %s for %s\n' % (w.last_status_msg.phone_status, now - w.first_status_of_type.timestamp)
                     if w.last_status_of_previous_type:
                         response += '  previous state %s ago:\n    %s\n' % (now - w.last_status_of_previous_type.timestamp, w.last_status_of_previous_type.short_desc())
             response += 'ok'
@@ -271,8 +284,8 @@ class AutoPhone(object):
             response = 'error: phone not found'
             for worker in self.phone_workers.values():
                 if (phoneid.lower() == 'all' or
-                    worker.phone_cfg['serial'] == phoneid or
-                    worker.phone_cfg['phoneid'] == phoneid):
+                    worker.phone.serial == phoneid or
+                    worker.phone.id == phoneid):
                     f = getattr(worker, cmd)
                     if params:
                         f(params)
@@ -283,9 +296,8 @@ class AutoPhone(object):
             response = 'Unknown command "%s"\n' % cmd
         return response
 
-    def create_worker(self, phone_cfg, user_cfg):
-        phoneid = phone_cfg['phoneid']
-        self.logger.info('Creating worker for %s: %s, %s.' % (phoneid, phone_cfg, user_cfg))
+    def create_worker(self, phone):
+        self.logger.info('Creating worker for %s: %s.' % (phone, self.options))
         tests = []
         for test_class, config_file, enable_unittests, test_devices_repos in self._tests:
             skip_test = True
@@ -293,78 +305,69 @@ class AutoPhone(object):
                 # There is no restriction on this test being run by
                 # specific devices.
                 skip_test = False
-            elif phoneid in test_devices_repos:
+            elif phone.id in test_devices_repos:
                 # This test is to be run by this device on test_repos
                 skip_test = False
             if not skip_test:
-                tests.append(test_class(phone_cfg=phone_cfg,
-                                        user_cfg=user_cfg,
+                tests.append(test_class(phone=phone,
+                                        options=self.options,
                                         config_file=config_file,
                                         enable_unittests=enable_unittests,
                                         test_devices_repos=test_devices_repos))
         if not tests:
                 self.logger.warning('Not creating worker: No tests defined for '
-                                    'worker for %s: %s, %s.' %
-                                    (phoneid, phone_cfg, user_cfg))
+                                    'worker for %s: %s.' %
+                                    (phone, self.options))
                 return
-        logfile_prefix = os.path.splitext(self.options[LOGFILE])[0]
-        worker = PhoneWorker(self.next_worker_num, self.options[IPADDR],
-                             tests, phone_cfg, user_cfg,
+        logfile_prefix = os.path.splitext(self.options.logfile)[0]
+        worker = PhoneWorker(self.next_worker_num,
+                             tests, phone, self.options,
                              self.worker_msg_queue,
-                             '%s-%s' % (logfile_prefix, phoneid),
-                             self.loglevel, self.mailer,
-                             self.options[BUILD_CACHE_PORT])
-        self.phone_workers[phoneid] = worker
+                             '%s-%s' % (logfile_prefix, phone.id),
+                             self.loglevel, self.mailer)
+        self.phone_workers[phone.id] = worker
         worker.start()
-
-    def get_user_cfg(self):
-        user_cfg = {}
-        for option_name in INI_OPTION_NAMES:
-            user_cfg[option_name] = self.options[option_name]
-        return user_cfg
 
     def register_cmd(self, data):
         try:
             # Map MAC Address to ip and user name for phone
             # The configparser does odd things with the :'s so remove them.
             phoneid = data['device_name']
-            phone_cfg = dict(
-                phoneid=phoneid,
-                serial=data['serialno'],
-                machinetype=data['hardware'],
-                osver=data['osver'],
-                abi=data['abi'],
-                ipaddr=self.options[IPADDR]) # XXX IPADDR no longer needed?
+            phone = PhoneData(
+                phoneid,
+                data['serialno'],
+                data['hardware'],
+                data['osver'],
+                data['abi'],
+                self.options.ipaddr) # XXX IPADDR no longer needed?
             if self.logger.getEffectiveLevel() == logging.DEBUG:
-                self.logger.debug('register_cmd: phone_cfg: %s' % phone_cfg)
+                self.logger.debug('register_cmd: phone: %s' % phone)
             if phoneid in self.phone_workers:
                 self.logger.debug('Received registration message for known phone '
                                   '%s.' % phoneid)
                 worker = self.phone_workers[phoneid]
-                if worker.phone_cfg != phone_cfg:
+                if worker.phone.__dict_ != phone.__dict__:
                     # This won't update the subprocess, but it will allow
                     # us to write out the updated values right away.
-                    worker.phone_cfg = phone_cfg
+                    worker.phone = phone
                     self.logger.info('Registration info has changed; restarting '
                                      'worker.')
                     if phoneid in self.restart_workers:
                         self.logger.info('Phone worker is already scheduled to be '
                                      'restarted!')
                     else:
-                        self.restart_workers[phoneid] = phone_cfg
+                        self.restart_workers[phoneid] = phone
                         worker.stop()
             else:
-                user_cfg = self.get_user_cfg()
-                user_cfg['debug'] = 3
-                self.create_worker(phone_cfg, user_cfg)
-                self.logger.info('Registered phone %s.' % phone_cfg['phoneid'])
+                self.create_worker(phone)
+                self.logger.info('Registered phone %s.' % phone.id)
         except:
             self.logger.exception('register_cmd:')
             self.stop()
 
     def read_devices(self):
         cfg = ConfigParser.RawConfigParser()
-        cfg.read(self.options['devicescfg'])
+        cfg.read(self.options.devicescfg)
 
         for device_name in cfg.sections():
             # failure for a device to have a serialno option is fatal.
@@ -390,7 +393,7 @@ class AutoPhone(object):
     def read_tests(self):
         self._tests = []
         manifest = TestManifest()
-        manifest.read(self.options[TEST_PATH])
+        manifest.read(self.options.test_path)
         tests_info = manifest.get()
         for t in tests_info:
             if not t['here'] in sys.path:
@@ -403,7 +406,7 @@ class AutoPhone(object):
             for member_name, member_value in inspect.getmembers(__import__(t['name']),
                                                                 inspect.isclass):
                 if (member_name != 'PhoneTest' and
-                    issubclass(member_value, phonetest.PhoneTest)):
+                    issubclass(member_value, PhoneTest)):
                     config = os.path.join(t['here'],
                                           t.get('config', ''))
                     # The config file can contain additional options
@@ -464,74 +467,35 @@ class AutoPhone(object):
             self.server_thread.join()
 
 def load_autophone_options(cmd_options):
-    options = {"devicescfg" : cmd_options.devicescfg}
+    options = AutophoneOptions()
+    option_tuples = [(option_name, type(option_value))
+                     for option_name, option_value in inspect.getmembers(options)
+                     if not option_name.startswith('_')]
+    getter_map = {str: 'get', int: 'getint', bool: 'getboolean', list: 'get'}
 
-    if not cmd_options.repos:
-        cmd_options.repos = ['mozilla-central']
-
-    if not cmd_options.buildtypes:
-        cmd_options.buildtypes = ['opt']
+    for option_name, option_type in option_tuples:
+        try:
+            value = getattr(cmd_options, option_name)
+            if value is not None:
+                value = option_type(value)
+            setattr(options, option_name, value)
+        except AttributeError:
+            pass
 
     if cmd_options.autophonecfg:
         cfg = ConfigParser.RawConfigParser()
         cfg.read(cmd_options.autophonecfg)
 
-        for setting_name in CMD_OPTION_NAMES:
+        for option_name, option_type in option_tuples:
             try:
                 getter = getattr(ConfigParser.RawConfigParser,
-                                 CMD_OPTION_NAMES[setting_name])
-                value = getter(cfg, 'settings', setting_name)
-                if setting_name == REPOS:
+                                 getter_map[option_type])
+                value = getter(cfg, 'settings', option_name)
+                if option_type == list:
                     value = value.split()
-                elif setting_name == BUILDTYPES:
-                    value = value.split()
-                options[setting_name] = value
+                setattr(options, option_name, option_type(value))
             except ConfigParser.NoOptionError:
                 pass
-        for setting_name in INI_OPTION_NAMES:
-            try:
-                getter = getattr(ConfigParser.RawConfigParser,
-                                 INI_OPTION_NAMES[setting_name])
-                value = getter(cfg, 'settings', setting_name)
-                options[setting_name] = value
-            except ConfigParser.NoOptionError:
-                pass
-
-    for setting_name in CMD_OPTION_NAMES:
-        if setting_name not in options:
-            options[setting_name] = getattr(cmd_options, setting_name)
-
-    # Force defaults if they were not explicitly set.
-    def set_value(o, p, v):
-        if p not in o:
-            o[p] = v
-
-    set_value(options, BUILD_CACHE_SIZE,
-              builds.BuildCache.MAX_NUM_BUILDS)
-    set_value(options, BUILD_CACHE_EXPIRES,
-              builds.BuildCache.EXPIRE_AFTER_DAYS)
-    set_value(options, DEVICE_READY_RETRY_WAIT,
-              PhoneWorker.DEVICE_READY_RETRY_WAIT)
-    set_value(options, DEVICE_READY_RETRY_ATTEMPTS,
-              PhoneWorker.DEVICE_READY_RETRY_ATTEMPTS)
-    set_value(options, DEVICE_BATTERY_MIN,
-              PhoneWorker.DEVICE_BATTERY_MIN)
-    set_value(options, DEVICE_BATTERY_MAX,
-              PhoneWorker.DEVICE_BATTERY_MAX)
-    set_value(options, PHONE_RETRY_LIMIT,
-              PhoneWorker.PHONE_RETRY_LIMIT)
-    set_value(options, PHONE_RETRY_WAIT,
-              PhoneWorker.PHONE_RETRY_WAIT)
-    set_value(options, PHONE_MAX_REBOOTS,
-              PhoneWorker.PHONE_MAX_REBOOTS)
-    set_value(options, PHONE_PING_INTERVAL,
-              PhoneWorker.PHONE_PING_INTERVAL)
-    set_value(options, PHONE_COMMAND_QUEUE_TIMEOUT,
-              PhoneWorker.PHONE_COMMAND_QUEUE_TIMEOUT)
-    set_value(options, PHONE_CRASH_WINDOW,
-              Crashes.CRASH_WINDOW)
-    set_value(options, PHONE_CRASH_LIMIT,
-              Crashes.CRASH_LIMIT)
 
     return options
 
@@ -543,19 +507,19 @@ def main(options):
 
     loglevel = e = None
     try:
-        loglevel = getattr(logging, options[LOGLEVEL])
+        loglevel = getattr(logging, options.loglevel)
     except AttributeError, e:
         pass
     finally:
-        if e or logging.getLevelName(loglevel) != options[LOGLEVEL]:
-            print 'Invalid log level %s' % options[LOGLEVEL]
+        if e or logging.getLevelName(loglevel) != options.loglevel:
+            print 'Invalid log level %s' % options.loglevel
             return errno.EINVAL
 
     logger = logging.getLogger('autophone')
     logger.propagate = False
     logger.setLevel(loglevel)
 
-    filehandler = MultiprocessingTimedRotatingFileHandler(options[LOGFILE],
+    filehandler = MultiprocessingTimedRotatingFileHandler(options.logfile,
                                                           when='midnight',
                                                           backupCount=7)
     fileformatstring = ('%(asctime)s|%(levelname)s'
@@ -573,24 +537,24 @@ def main(options):
     streamhandler.setFormatter(streamformatter)
     console_logger.addHandler(streamhandler)
 
-    console_logger.info('Starting server on port %d.' % options[PORT])
+    console_logger.info('Starting server on port %d.' % options.port)
     console_logger.info('Starting build-cache server on port %d.' %
-                        options[BUILD_CACHE_PORT])
+                        options.build_cache_port)
     product = 'fennec'
-    build_platforms = ['android', 'android-armv6', 'android-x86']
+    build_platforms = ['android', 'android-x86']
     buildfile_ext = '.apk'
     try:
         build_cache = builds.BuildCache(
-            options[REPOS],
-            options[BUILDTYPES],
+            options.repos,
+            options.buildtypes,
             product,
             build_platforms,
             buildfile_ext,
-            cache_dir=options[CACHE_DIR],
-            override_build_dir=options[OVERRIDE_BUILD_DIR],
-            enable_unittests=options[ENABLE_UNITTESTS],
-            build_cache_size=options[BUILD_CACHE_SIZE],
-            build_cache_expires=options[BUILD_CACHE_EXPIRES])
+            cache_dir=options.cache_dir,
+            override_build_dir=options.override_build_dir,
+            enable_unittests=options.enable_unittests,
+            build_cache_size=options.build_cache_size,
+            build_cache_expires=options.build_cache_expires)
     except builds.BuildCacheException, e:
         print '''%s
 
@@ -605,7 +569,7 @@ unpacked tests package for the build.
         raise
 
     build_cache_server = buildserver.BuildCacheServer(
-        ('127.0.0.1', options[BUILD_CACHE_PORT]),
+        ('127.0.0.1', options.build_cache_port),
         buildserver.BuildCacheHandler)
     build_cache_server.build_cache = build_cache
     build_cache_server_thread = threading.Thread(
@@ -690,6 +654,7 @@ if __name__ == '__main__':
     parser.add_option('--repo',
                       dest='repos',
                       action='append',
+                      default=['mozilla-central'],
                       help='The repos to test. '
                       'One of mozilla-central, mozilla-inbound, mozilla-aurora, '
                       'mozilla-beta, fx-team, b2g-inbound. To specify multiple '
@@ -698,6 +663,7 @@ if __name__ == '__main__':
     parser.add_option('--buildtype',
                       dest='buildtypes',
                       action='append',
+                      default=['opt'],
                       help='The build types to test. '
                       'One of opt or debug. To specify multiple build types, '
                       'specify them with additional --buildtype options. '

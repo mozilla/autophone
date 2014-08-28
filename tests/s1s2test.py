@@ -11,16 +11,16 @@ import re
 import sys
 from time import sleep
 
-from logdecorator import LogDecorator
-from adb import ADBError
 from mozprofile import FirefoxProfile
-from options import *
+
+from adb import ADBError
+from logdecorator import LogDecorator
 from perftest import PerfTest
 
 class S1S2Test(PerfTest):
 
-    def setup_job(self, build_metadata, worker_subprocess):
-        PerfTest.setup_job(self, build_metadata, worker_subprocess)
+    def setup_job(self, worker_subprocess):
+        PerfTest.setup_job(self, worker_subprocess)
 
         # [paths]
         autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -63,22 +63,20 @@ class S1S2Test(PerfTest):
 
     def run_tests(self):
         if not self.install_local_pages():
-            self.set_status(msg='Could not install local pages on phone. '
-                            'Aborting test for '
-                            'build %s' % self.buildid)
+            self.update_status(message='Aborting test - '
+                               'Could not install local pages on phone.')
             return
 
         if not self.create_profile():
-            self.set_status(msg='Could not run Fennec. Aborting test for '
-                            'build %s' % self.buildid)
+            self.update_status(message='Aborting test - Could not run Fennec.')
             return
 
         testcount = len(self._urls.keys())
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
             self.loggerdeco = LogDecorator(self.logger,
-                                           {'phoneid': self.phone_cfg['phoneid'],
+                                           {'phoneid': self.phone.id,
                                             'pid': os.getpid(),
-                                            'buildid': self.buildid,
+                                            'buildid': self.build.id,
                                             'testname': testname},
                                            '%(phoneid)s|%(pid)s|%(buildid)s|'
                                            '%(testname)s|%(message)s')
@@ -112,10 +110,10 @@ class S1S2Test(PerfTest):
 
                 dataset = []
                 for iteration in range(self._iterations):
-                    self.set_status(msg='Attempt %d/%d for Test %d/%d, '
-                                    'run %d, for url %s' %
-                                    (attempt+1, self.stderrp_attempts,
-                                     testnum, testcount, iteration+1, url))
+                    self.update_status(message='Attempt %d/%d for Test %d/%d, '
+                                       'run %d, for url %s' %
+                                       (attempt+1, self.stderrp_attempts,
+                                        testnum, testcount, iteration+1, url))
 
                     dataset.append({})
 
@@ -170,16 +168,15 @@ class S1S2Test(PerfTest):
                     break
 
             if not success:
-                revision = self.build_metadata['revision']
                 self.worker_subprocess.mailer.send(
                     'S1S2Test %s failed for Build %s %s on Phone %s' %
-                    (testname, self.current_repo, self.buildid,
-                     self.phone_cfg['phoneid']),
+                    (testname, self.build.tree, self.build.id,
+                     self.phone.id),
                     'No measurements were detected for test %s.\n\n'
                     'Repository: %s\n'
                     'Build Id:   %s\n'
                     'Revision:   %s\n' %
-                    (testname, self.current_repo, self.buildid, revision))
+                    (testname, self.build.tree, self.build.id, self.build.revision))
 
 
     def runtest(self, url):
@@ -187,7 +184,7 @@ class S1S2Test(PerfTest):
         self.dm.clear_logcat()
 
         # Run test
-        self.run_fennec_with_profile(self.fennec_appname, url)
+        self.run_fennec_with_profile(self.build.app_name, url)
 
         # Get results - do this now so we don't have as much to
         # parse in logcat.
@@ -215,14 +212,14 @@ class S1S2Test(PerfTest):
         # Re-raise the last exception if fennec can not be killed.
         max_wait_attempts = max_wait_time / wait_time
         for wait_attempt in range(max_wait_attempts):
-            if not self.dm.process_exist(self.fennec_appname):
+            if not self.dm.process_exist(self.build.app_name):
                 return True
             sleep(wait_time)
         self.loggerdeco.debug('killing fennec')
         max_killattempts = 3
         for kill_attempt in range(max_killattempts):
             try:
-                self.dm.pkill(self.fennec_appname, root=True)
+                self.dm.pkill(self.build.app_name, root=True)
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d to kill fennec failed' %
@@ -239,10 +236,10 @@ class S1S2Test(PerfTest):
         # make sure firefox isn't running when we try to
         # install the profile.
 
-        self.dm.pkill(self.fennec_appname, root=True)
+        self.dm.pkill(self.build.app_name, root=True)
 
         telemetry_prompt = 999
-        if self.build_metadata['blddate'] < '2013-01-03':
+        if self.build.id < '20130103':
             telemetry_prompt = 2
         prefs = {
             'browser.firstrun.show.localepicker': False,
@@ -263,27 +260,25 @@ class S1S2Test(PerfTest):
         if not self.install_profile(profile):
             return False
 
-        appname = self.fennec_appname
-        buildid = self.buildid
         success = False
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             self.loggerdeco.debug('Attempt %d Initializing profile' % attempt)
-            self.run_fennec_with_profile(self.fennec_appname, self._initialize_url)
+            self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
             if self.wait_for_fennec():
                 success = True
                 break
-            sleep(self.user_cfg[PHONE_RETRY_WAIT])
+            sleep(self.options.phone_retry_wait)
 
         if not success:
-            msg = 'Failure initializing profile for build %s' % buildid
+            msg = 'Aborting Test - Failure initializing profile.'
             self.loggerdeco.error(msg)
-            self.set_status(msg=msg)
+            self.update_status(message=msg)
 
         return success
 
     def install_local_pages(self):
         success = False
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
             try:
                 self.dm.rm(self._paths['dest'], recursive=True, force=True)
@@ -298,7 +293,7 @@ class S1S2Test(PerfTest):
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d Installing local pages' % attempt)
-                sleep(self.user_cfg[PHONE_RETRY_WAIT])
+                sleep(self.options.phone_retry_wait)
 
         if not success:
             self.loggerdeco.error('Failure installing local pages')
@@ -306,14 +301,14 @@ class S1S2Test(PerfTest):
         return success
 
     def is_fennec_running(self, appname):
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             try:
                 return self.dm.process_exist(appname)
             except ADBError:
                 self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
-                if attempt == self.user_cfg[PHONE_RETRY_LIMIT] - 1:
+                if attempt == self.options.phone_retry_limit - 1:
                     raise
-                sleep(self.user_cfg[PHONE_RETRY_WAIT])
+                sleep(self.options.phone_retry_wait)
 
     def analyze_logcat(self):
         self.loggerdeco.debug('analyzing logcat')

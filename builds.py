@@ -104,8 +104,6 @@ class BuildLocation(object):
         for platform in self.build_platforms:
             if platform == 'android':
                 buildfile_pattern += 'android-arm|'
-            elif platform == 'android-armv6':
-                buildfile_pattern += 'android-arm-armv6|'
             elif platform == 'android-x86':
                 buildfile_pattern += 'android-i386|'
             else:
@@ -299,7 +297,7 @@ class BuildLocation(object):
 
                         # Since Autophone requires returning builds
                         # for each of its supported platforms, arm,
-                        # armv6 or x86, we need to search each to get
+                        # or x86, we need to search each to get
                         # all of the builds. That is why we don't
                         # terminate this loop when we find the first
                         # build which matches the ending revision.
@@ -538,19 +536,22 @@ class BuildCache(object):
         If 'success' is False, the dict also contains an 'error' item holding a
         descriptive string.
         If 'success' is True, the dict also contains a 'metadata' item, which is
-        a dict of build metadata.  The path to the build is the
-        'cache_build_dir' item, which is a directory containing build.apk,
+        a json encoding of BuildMetadata.  The path to the build is the
+        'dir' item, which is a directory containing build.apk,
         symbols/, and, if self.enable_unittests is true, robocop.apk and tests/.
         If not found, fetches them, assuming a standard file structure.
         Cleans the cache before getting started.
-        If self.override_build_dir is set, 'cache_build_dir' is set to
+        If self.override_build_dir is set, 'dir' is set to
         that value without verifying the contents nor fetching anything (though
         it will still try to open build.apk to read in the metadata).
-        See BuildCache.build_metadata() for the other metadata items.
+        See BuildMetadata and BuildCache.build_metadata() for the other
+        metadata items.
         """
         if self.override_build_dir:
-            return {'success': True,
-                    'metadata': self.build_metadata(self.override_build_dir)}
+            return {
+                'success': True,
+                'metadata': self.build_metadata(self.override_build_dir).to_json()
+            }
         build_dir = base64.b64encode(buildurl)
         self.clean_cache([build_dir])
         cache_build_dir = os.path.join(self.cache_dir, build_dir)
@@ -652,8 +653,10 @@ class BuildCache(object):
                     return {'success': False, 'error': err}
                 shutil.move(tmpf.name, fennec_ids_path)
 
-        return {'success': True,
-                'metadata': self.build_metadata(cache_build_dir)}
+        return {
+            'success': True,
+            'metadata': self.build_metadata(cache_build_dir).to_json()
+        }
 
     def clean_cache(self, preserve=[]):
         def lastused_path(d):
@@ -685,7 +688,8 @@ class BuildCache(object):
         build_metadata_path = os.path.join(build_dir, 'metadata.json')
         if os.path.exists(build_metadata_path):
             try:
-                return json.loads(file(build_metadata_path).read())
+                return BuildMetadata().from_json(
+                    json.loads(file(build_metadata_path).read()))
             except (ValueError, IOError):
                 pass
         tmpdir = tempfile.mkdtemp()
@@ -705,8 +709,6 @@ class BuildCache(object):
         ver = cfg.get('App', 'Version')
         repo = cfg.get('App', 'SourceRepository')
         buildid = cfg.get('App', 'BuildID')
-        blddate = datetime.datetime.strptime(buildid,
-                                             '%Y%m%d%H%M%S')
         tree = None
         procname = None
         for temp_tree, temp_procname in (
@@ -724,14 +726,69 @@ class BuildCache(object):
             raise BuildCacheException('build %s contains an unknown SourceRepository %s' %
                                       (apkfile, repo))
 
-        metadata = {'cache_build_dir': build_dir,
-                    'tree': tree,
-                    'blddate': math.trunc(time.mktime(blddate.timetuple())),
-                    'buildid': buildid,
-                    'revision': '%srev/%s' % (repo_urls[tree], rev),
-                    'androidprocname': procname,
-                    'version': ver,
-                    'bldtype': 'opt'}
+        metadata = BuildMetadata(dir=build_dir,
+                                 tree=tree,
+                                 id=buildid,
+                                 revision='%srev/%s' % (repo_urls[tree], rev),
+                                 app_name=procname,
+                                 version=ver,
+                                 build_type='opt')
         shutil.rmtree(tmpdir)
-        file(build_metadata_path, 'w').write(json.dumps(metadata))
+        file(build_metadata_path, 'w').write(json.dumps(metadata.to_json()))
         return metadata
+
+
+class BuildMetadata(object):
+    def __init__(self,
+                 dir=None,
+                 tree=None,
+                 id=None,
+                 revision=None,
+                 app_name=None,
+                 version=None,
+                 build_type=None):
+        self._date = None
+        self.dir = dir
+        self.tree = tree
+        self.id = id
+        self.type = build_type
+        self.revision = revision
+        self.app_name = app_name
+        self.version = version
+
+    @property
+    def date(self):
+        if not self._date:
+            d = datetime.datetime.strptime(self.id, '%Y%m%d%H%M%S')
+            self._date = math.trunc(time.mktime(d.timetuple()))
+        return self._date
+
+    def __str__(self):
+        d = self.__dict__.copy()
+        d['date'] = self.date
+        del d['_date']
+        return '%s' % d
+
+    def to_json(self):
+        return {
+            '__class__': 'BuildMetadata',
+            'dir': self.dir,
+            'tree': self.tree,
+            'type': self.type,
+            'id': self.id,
+            'revision': self.revision,
+            'app_name': self.app_name,
+            'version': self.version,
+        }
+
+    def from_json(self, j):
+        if '__class__' not in j or j['__class__'] != 'BuildMetadata':
+            raise ValueError
+        self.dir = j['dir']
+        self.tree = j['tree']
+        self.type = j['type']
+        self.id = j['id']
+        self.revision = j['revision']
+        self.app_name = j['app_name']
+        self.version = j['version']
+        return self

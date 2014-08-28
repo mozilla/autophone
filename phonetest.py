@@ -2,59 +2,18 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import datetime
+import ConfigParser
 import glob
-import json
 import logging
 import os
 import time
 
-from logdecorator import LogDecorator
-from adb_android import ADBAndroid as ADBDevice
-from adb import ADBError
 from mozprofile import FirefoxProfile
-from options import *
 
-class PhoneTestMessage(object):
-
-    IDLE = 'IDLE'
-    CHARGING = 'CHARGING'
-    INSTALLING = 'INSTALLING BUILD'
-    WORKING = 'WORKING'
-    REBOOTING = 'REBOOTING'
-    DISCONNECTED = 'DISCONNECTED'  # temporary error
-    DISABLED = 'DISABLED'  # permanent error
-
-    class JsonEncoder(json.JSONEncoder):
-        def default(self, obj):
-            if isinstance(obj, PhoneTestMessage):
-                return { 'phoneid': obj.phoneid, 'online': obj.online,
-                         'msg': obj.msg, 'timestamp': obj.timestamp }
-            return json.JSONEncoder.default(self, obj)
-
-
-    def __init__(self, phoneid, status, current_build=None, current_repo=None,
-                 msg=None):
-        self.phoneid = phoneid
-        self.status = status
-        self.current_build = current_build
-        self.current_repo = current_repo
-        self.msg = msg
-        self.timestamp = datetime.datetime.now().replace(microsecond=0)
-
-    def __str__(self):
-        s = '<%s> %s (%s)' % (self.timestamp.isoformat(), self.phoneid,
-                              self.status)
-        if self.msg:
-            s += ': %s' % self.msg
-        return s
-
-    def short_desc(self):
-        s = self.status
-        if self.msg:
-            s += ': %s' % self.msg
-        return s
-
+from adb import ADBError
+from adb_android import ADBAndroid as ADBDevice
+from logdecorator import LogDecorator
+from phonestatus import PhoneStatus
 
 class PhoneTest(object):
 
@@ -72,18 +31,20 @@ class PhoneTest(object):
     TODO: Add in connection data here for programmable power so we can add a
     powercycle method to this class.
     """
-    def __init__(self, phone_cfg, user_cfg, config_file=None, status_cb=None,
+    def __init__(self, phone, options, config_file=None,
                  enable_unittests=False, test_devices_repos={}):
         self.config_file = config_file
+        self.cfg = ConfigParser.RawConfigParser()
+        self.cfg.read(self.config_file)
         self.enable_unittests = enable_unittests
         self.test_devices_repos = test_devices_repos
-        self.status_cb = status_cb
-        self.phone_cfg = phone_cfg
-        self.user_cfg = user_cfg
-        self.status = None
+        self.update_status_cb = None
+        self.phone = phone
+        self.worker_subprocess = None
+        self.options = options
         self.logger = logging.getLogger('autophone.phonetest')
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
+                                       {'phoneid': self.phone.id,
                                         'pid': os.getpid()},
                                        '%(phoneid)s|%(pid)s|%(message)s')
         self.loggerdeco.info('init autophone.phonetest')
@@ -92,26 +53,26 @@ class PhoneTest(object):
         self._dm = None
 
     def _check_device(self):
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             output = self._dm.get_state()
             if output == 'device':
                 break
             self.loggerdeco.warning(
                 'PhoneTest:_check_device Attempt: %d: %s' %
                 (attempt, output))
-            time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
+            time.sleep(self.options.phone_retry_wait)
         if output != 'device':
             raise ADBError('PhoneTest:_check_device: Failed')
 
     @property
     def dm(self):
         if not self._dm:
-            self.loggerdeco.info('PhoneTest: Connecting to %s...' % self.phone_cfg['phoneid'])
-            self._dm = ADBDevice(device_serial=self.phone_cfg['serial'],
-                                 log_level=self.user_cfg['debug'],
+            self.loggerdeco.info('PhoneTest: Connecting to %s...' % self.phone.id)
+            self._dm = ADBDevice(device_serial=self.phone.serial,
+                                 log_level=self.options.debug,
                                  logger_name='autophone.phonetest.adb',
-                                 device_ready_retry_wait=self.user_cfg[DEVICE_READY_RETRY_WAIT],
-                                 device_ready_retry_attempts=self.user_cfg[DEVICE_READY_RETRY_ATTEMPTS])
+                                 device_ready_retry_wait=self.options.device_ready_retry_wait,
+                                 device_ready_retry_attempts=self.options.device_ready_retry_attempts)
             # Override mozlog.logger
             self._dm._logger = self.loggerdeco
             self.loggerdeco.info('PhoneTest: Connected.')
@@ -124,7 +85,7 @@ class PhoneTest(object):
             return self._base_device_path
         success = False
         e = None
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             self._base_device_path = self.dm.test_root + '/autophone'
             self.loggerdeco.debug('Attempt %d creating base device path %s' % (attempt, self._base_device_path))
             try:
@@ -134,7 +95,7 @@ class PhoneTest(object):
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d creating base device path %s' % (attempt, self._base_device_path))
-                time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
+                time.sleep(self.options.phone_retry_wait)
 
         if not success:
             raise e
@@ -143,26 +104,35 @@ class PhoneTest(object):
 
         return self._base_device_path
 
-    def runjob(self, build_metadata, worker_subprocess):
+    @property
+    def build(self):
+        return self.worker_subprocess.build
+
+    def setup_job(self, worker_subprocess):
+        self.worker_subprocess = worker_subprocess
+        self.logger_original = self.logger
+        self.loggerdeco_original = self.loggerdeco
+        self.dm_logger_original = self.dm._logger
+
+    def run_job(self):
         raise NotImplementedError
 
+    def teardown_job(self):
+        self.worker_subprocess = None
+        self.logger = self.logger_original
+        self.loggerdeco = self.loggerdeco_original
+        self.dm._logger = self.dm_logger_original
+
     def set_dm_debug(self, level):
-        self.user_cfg['debug'] = level
+        self.options.debug = level
         if self._dm:
             self._dm.log_level = level
 
-    """
-    sets the status
-    Params:
-    online = boolean True of False
-    msg = the message of status
-    """
-    def set_status(self, status=PhoneTestMessage.WORKING, msg=None):
-        self.status = PhoneTestMessage(self.phone_cfg['phoneid'], status,
-                                       self.current_build,
-                                       self.current_repo, msg)
-        if self.status_cb:
-            self.status_cb(self.status)
+    def update_status(self, phone_status=PhoneStatus.WORKING, message=None):
+        if self.update_status_cb:
+            self.update_status_cb(phone_status=phone_status,
+                                  build=self.build,
+                                  message=message)
 
     def install_profile(self, profile=None):
         if not profile:
@@ -170,7 +140,7 @@ class PhoneTest(object):
 
         profile_path_parent = os.path.split(self.profile_path)[0]
         success = False
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             try:
                 self.loggerdeco.debug('Attempt %d installing profile' % attempt)
                 if self.dm.is_dir(self.profile_path, root=True):
@@ -184,7 +154,7 @@ class PhoneTest(object):
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d Exception installing profile to %s' % (attempt, self.profile_path))
-                time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
+                time.sleep(self.options.phone_retry_wait)
 
         if not success:
             self.loggerdeco.error('Failure installing profile to %s' % self.profile_path)

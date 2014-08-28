@@ -16,15 +16,14 @@ import sys
 import tempfile
 import time
 import traceback
+from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
 
 import buildserver
-import phonetest
-from logdecorator import LogDecorator
 from adb import ADBError, ADBTimeoutError
 from adb_android import ADBAndroid as ADBDevice
-from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
-from options import *
-
+from builds import BuildMetadata
+from logdecorator import LogDecorator
+from phonestatus import PhoneStatus, PhoneTestMessage
 
 class Crashes(object):
 
@@ -61,30 +60,27 @@ class PhoneWorker(object):
     PHONE_PING_INTERVAL = 15*60
     PHONE_COMMAND_QUEUE_TIMEOUT = 10
 
-    def __init__(self, worker_num, ipaddr, tests, phone_cfg, user_cfg,
-                 autophone_queue, logfile_prefix, loglevel, mailer,
-                 build_cache_port):
-        self.phone_cfg = phone_cfg
-        self.user_cfg = user_cfg
+    def __init__(self, worker_num, tests, phone, options,
+                 autophone_queue, logfile_prefix, loglevel, mailer):
+        self.phone = phone
+        self.options = options
         self.worker_num = worker_num
-        self.ipaddr = ipaddr
         self.last_status_msg = None
         self.first_status_of_type = None
         self.last_status_of_previous_type = None
-        self.crashes = Crashes(crash_window=user_cfg[PHONE_CRASH_WINDOW],
-                               crash_limit=user_cfg[PHONE_CRASH_LIMIT])
+        self.crashes = Crashes(crash_window=options.phone_crash_window,
+                               crash_limit=options.phone_crash_limit)
         self.cmd_queue = multiprocessing.Queue()
         self.lock = multiprocessing.Lock()
-        self.subprocess = PhoneWorkerSubProcess(self.worker_num, self.ipaddr,
+        self.subprocess = PhoneWorkerSubProcess(self.worker_num,
                                                 tests,
-                                                phone_cfg, user_cfg,
+                                                phone, options,
                                                 autophone_queue,
                                                 self.cmd_queue, logfile_prefix,
-                                                loglevel, mailer,
-                                                build_cache_port)
+                                                loglevel, mailer)
         self.logger = logging.getLogger('autophone.worker')
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
+                                       {'phoneid': self.phone.id,
                                         'pid': os.getpid()},
                                        '%(phoneid)s|%(pid)s|%(message)s')
         self.loggerdeco.debug('PhoneWorker:__init__')
@@ -92,9 +88,9 @@ class PhoneWorker(object):
     def is_alive(self):
         return self.subprocess.is_alive()
 
-    def start(self, status=phonetest.PhoneTestMessage.IDLE):
+    def start(self, phone_status=PhoneStatus.IDLE):
         self.loggerdeco.debug('PhoneWorker:start')
-        self.subprocess.start(status)
+        self.subprocess.start(phone_status)
 
     def stop(self):
         self.loggerdeco.debug('PhoneWorker:stop')
@@ -123,7 +119,7 @@ class PhoneWorker(object):
         except ValueError:
             self.loggerdeco.error('Invalid argument for debug: %s' % level)
         else:
-            self.user_cfg['debug'] = level
+            self.options.debug = level
             self.cmd_queue.put_nowait(('debug', level))
 
     def ping(self):
@@ -135,7 +131,8 @@ class PhoneWorker(object):
         """These are status messages routed back from the autophone_queue
         listener in the main AutoPhone class. There is probably a bit
         clearer way to do this..."""
-        if not self.last_status_msg or msg.status != self.last_status_msg.status:
+        if (not self.last_status_msg or
+            msg.phone_status != self.last_status_msg.phone_status):
             self.last_status_of_previous_type = self.last_status_msg
             self.first_status_of_type = msg
         self.last_status_msg = msg
@@ -151,43 +148,39 @@ class PhoneWorkerSubProcess(object):
     this back to the main AutoPhone process.
     """
 
-    def __init__(self, worker_num, ipaddr, tests, phone_cfg, user_cfg,
-                 autophone_queue, cmd_queue, logfile_prefix, loglevel, mailer,
-                 build_cache_port):
+    def __init__(self, worker_num, tests, phone, options,
+                 autophone_queue, cmd_queue, logfile_prefix, loglevel, mailer):
         self.worker_num = worker_num
-        self.ipaddr = ipaddr
         self.tests = tests
-        self.phone_cfg = phone_cfg
-        self.user_cfg = user_cfg
+        self.phone = phone
+        self.options = options
         self.autophone_queue = autophone_queue
         self.cmd_queue = cmd_queue
         self.logfile = logfile_prefix + '.log'
         self.outfile = logfile_prefix + '.out'
         self.loglevel = loglevel
         self.mailer = mailer
-        self.build_cache_port = build_cache_port
         self._stop = False
         self.p = None
-        self.jobs = jobs.Jobs(self.mailer, self.phone_cfg['phoneid'])
-        self.current_build = None
-        self.current_repo = None
+        self.jobs = jobs.Jobs(self.mailer, self.phone.id)
+        self.build = None
         self.last_ping = None
         self.dm = None
-        self.status = None
+        self.phone_status = None
         self.logger = logging.getLogger('autophone.worker.subprocess')
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
+                                       {'phoneid': self.phone.id,
                                         'pid': os.getpid()},
                                        '%(phoneid)s|%(pid)s|%(message)s')
 
         # Moved this from a @property since having the ADBDevice initialized on the fly
         # can cause problems.
-        self.loggerdeco.info('Worker: Connecting to %s...' % self.phone_cfg['phoneid'])
-        self.dm = ADBDevice(device_serial=self.phone_cfg['serial'],
+        self.loggerdeco.info('Worker: Connecting to %s...' % self.phone.id)
+        self.dm = ADBDevice(device_serial=self.phone.serial,
                             log_level=self.loglevel,
                             logger_name='autophone.worker.adb',
-                            device_ready_retry_wait=self.user_cfg[DEVICE_READY_RETRY_WAIT],
-                            device_ready_retry_attempts=self.user_cfg[DEVICE_READY_RETRY_ATTEMPTS])
+                            device_ready_retry_wait=self.options.device_ready_retry_wait,
+                            device_ready_retry_attempts=self.options.device_ready_retry_attempts)
 
         # Override mozlog.logger
         self.dm._logger = self.loggerdeco
@@ -195,14 +188,14 @@ class PhoneWorkerSubProcess(object):
         self.loggerdeco.debug('PhoneWorkerSubProcess:__init__')
 
     def _check_device(self):
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             output = self.dm.get_state()
             if output == 'device':
                 break
             self.loggerdeco.warning(
-                'PhoneTest:_check_device Attempt: %d, rc=%s: %s' %
-                (attempt, proc.returncode, output))
-            time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
+                'PhoneTest:_check_device Attempt: %d, %s' %
+                (attempt, output))
+            time.sleep(self.options.phone_retry_wait)
         if output != 'device':
             raise ADBError('PhoneTest:_check_device: Failed')
 
@@ -211,16 +204,16 @@ class PhoneWorkerSubProcess(object):
         alive = self.p and self.p.is_alive()
         return alive
 
-    def start(self, status):
+    def start(self, phone_status=None):
         """Call from main process."""
-        self.loggerdeco.debug('PhoneWorkerSubProcess:start: %s' % status)
+        self.loggerdeco.debug('PhoneWorkerSubProcess:start: %s' % phone_status)
         if self.p:
             if self.is_alive():
                 self.loggerdeco.debug('PhoneWorkerSubProcess:start - already alive')
                 return
             del self.p
-        self.status = status
-        self.p = multiprocessing.Process(target=self.run, name=self.phone_cfg['phoneid'])
+        self.phone_status = phone_status
+        self.p = multiprocessing.Process(target=self.run, name=self.phone.id)
         self.p.daemon = True
         self.p.start()
 
@@ -231,19 +224,23 @@ class PhoneWorkerSubProcess(object):
             self.loggerdeco.debug('PhoneWorkerSubProcess:stop p.terminate()')
             self.p.terminate()
             self.loggerdeco.debug('PhoneWorkerSubProcess:stop p.join()')
-            self.p.join(self.user_cfg[PHONE_COMMAND_QUEUE_TIMEOUT]*2)
+            self.p.join(self.options.phone_command_queue_timeout*2)
         self.loggerdeco.debug('PhoneWorkerSubProcess:stopped')
 
     def has_error(self):
-        return (self.status == phonetest.PhoneTestMessage.DISABLED or
-                self.status == phonetest.PhoneTestMessage.DISCONNECTED)
+        return (self.phone_status == PhoneStatus.DISABLED or
+                self.phone_status == PhoneStatus.DISCONNECTED)
 
-    def status_update(self, msg):
-        self.loggerdeco.debug('PhoneWorkerSubProcess:status_update')
-        self.status = msg.status
-        self.loggerdeco.info(str(msg))
+    def update_status(self, build=None, phone_status=None,
+                      message=None):
+        self.loggerdeco.debug('PhoneWorkerSubProcess:update_status')
+        self.phone_status = phone_status
+        phone_message = PhoneTestMessage(self.phone, build=build,
+                                         phone_status=phone_status,
+                                         message=message)
+        self.loggerdeco.info(str(phone_message))
         try:
-            self.autophone_queue.put_nowait(msg)
+            self.autophone_queue.put_nowait(phone_message)
         except Queue.Full:
             self.loggerdeco.warning('Autophone queue is full!')
 
@@ -277,9 +274,7 @@ class PhoneWorkerSubProcess(object):
 
         # reset status if there had previous been an error.
         # FIXME: should send email that phone is back up.
-        self.status_update(phonetest.PhoneTestMessage(
-            self.phone_cfg['phoneid'],
-            phonetest.PhoneTestMessage.IDLE))
+        self.update_status(phone_status=PhoneStatus.IDLE)
         return True
 
     def clear_test_base_paths(self):
@@ -291,7 +286,7 @@ class PhoneWorkerSubProcess(object):
         self.loggerdeco.debug('PhoneWorkerSubProcess:recover_phone')
         exc = None
         reboots = 0
-        while reboots < self.user_cfg[PHONE_MAX_REBOOTS]:
+        while reboots < self.options.phone_max_reboots:
             self.loggerdeco.info('Rebooting phone...')
             reboots += 1
             try:
@@ -314,9 +309,7 @@ class PhoneWorkerSubProcess(object):
 
     def reboot(self):
         self.loggerdeco.debug('PhoneWorkerSubProcess:reboot')
-        self.status_update(phonetest.PhoneTestMessage(
-            self.phone_cfg['phoneid'],
-            phonetest.PhoneTestMessage.REBOOTING))
+        self.update_status(phone_status=PhoneStatus.REBOOTING)
         self.recover_phone()
 
     def phone_disconnected(self, msg_body):
@@ -328,20 +321,18 @@ class PhoneWorkerSubProcess(object):
         if msg_body and self.mailer:
             self.loggerdeco.info('Sending notification...')
             try:
-                self.mailer.send('Phone %s disconnected' % self.phone_cfg['phoneid'],
+                self.mailer.send('Phone %s disconnected' % self.phone.id,
                                  '''Hello, this is Autophone. Phone %s appears to be disconnected:
 
 %s
 
 I'll keep trying to ping it periodically in case it reappears.
-''' % (self.phone_cfg['phoneid'], msg_body))
+''' % (self.phone.id, msg_body))
                 self.loggerdeco.info('Sent.')
             except socket.error:
                 self.loggerdeco.exception('Failed to send disconnected-phone '
                                           'notification.')
-        self.status_update(phonetest.PhoneTestMessage(
-            self.phone_cfg['phoneid'],
-            phonetest.PhoneTestMessage.DISCONNECTED))
+        self.update_status(phone_status=PhoneStatus.DISCONNECTED)
 
     def disable_phone(self, errmsg, send_email=True):
         """Completely disable phone. No further attempts to recover it will
@@ -350,22 +341,20 @@ I'll keep trying to ping it periodically in case it reappears.
         if errmsg and send_email and self.mailer:
             self.loggerdeco.info('Sending notification...')
             try:
-                self.mailer.send('Phone %s disabled' % self.phone_cfg['phoneid'],
+                self.mailer.send('Phone %s disabled' % self.phone.id,
                                  '''Hello, this is Autophone. Phone %s has been disabled:
 
 %s
 
 I gave up on it. Sorry about that. You can manually re-enable it with
 the "enable" command.
-''' % (self.phone_cfg['phoneid'], errmsg))
+''' % (self.phone.id, errmsg))
                 self.loggerdeco.info('Sent.')
             except socket.error:
                 self.loggerdeco.exception('Failed to send disabled-phone '
                                           'notification.')
-        self.status_update(phonetest.PhoneTestMessage(
-            self.phone_cfg['phoneid'],
-            phonetest.PhoneTestMessage.DISABLED,
-            msg=errmsg))
+        self.update_status(phone_status=PhoneStatus.DISABLED,
+                           message=errmsg)
 
     def ping(self):
         self.loggerdeco.info('Pinging phone')
@@ -374,7 +363,7 @@ the "enable" command.
         # adb land. Just do a check_sdcard
         return self._check_sdcard()
 
-    def run_tests(self, build_metadata):
+    def run_tests(self):
         if not self.has_error():
             self.loggerdeco.info('Rebooting...')
             self.reboot()
@@ -384,67 +373,53 @@ the "enable" command.
             self.loggerdeco.info('Phone is in error state; not running test.')
             return False
 
-        repo = build_metadata['tree']
-        build_date = datetime.datetime.fromtimestamp(
-            float(build_metadata['blddate']))
-
-        if self.dm.get_battery_percentage() < self.user_cfg[DEVICE_BATTERY_MIN]:
-            while self.dm.get_battery_percentage() < self.user_cfg[DEVICE_BATTERY_MAX]:
-                self.status_update(phonetest.PhoneTestMessage(
-                    self.phone_cfg['phoneid'],
-                    phonetest.PhoneTestMessage.CHARGING,
-                    build_metadata['blddate'],
-                    repo))
+        if self.dm.get_battery_percentage() < self.options.device_battery_min:
+            while self.dm.get_battery_percentage() < self.options.device_battery_max:
+                self.update_status(phone_status=PhoneStatus.CHARGING,
+                                   build=self.build)
                 time.sleep(900)
 
-        self.status_update(phonetest.PhoneTestMessage(
-            self.phone_cfg['phoneid'],
-            phonetest.PhoneTestMessage.INSTALLING,
-            build_metadata['blddate'],
-            repo))
-        self.loggerdeco.info('Installing build %s.' % build_date)
+        self.update_status(phone_status=PhoneStatus.INSTALLING,
+                           build=self.build)
+        self.loggerdeco.info('Installing build %s.' % self.build.id)
 
         success = False
-        for attempt in range(self.user_cfg[PHONE_RETRY_LIMIT]):
+        for attempt in range(self.options.phone_retry_limit):
             try:
-                self.dm.uninstall_app(build_metadata['androidprocname'], reboot=True)
+                self.dm.uninstall_app(self.build.app_name, reboot=True)
             except ADBError, e:
                 if e.message.find('Failure') == -1:
                     raise
             try:
-                self.dm.install_app(os.path.join(build_metadata['cache_build_dir'],
+                self.dm.install_app(os.path.join(self.build.dir,
                                                 'build.apk'))
                 success = True
                 break
             except ADBError:
                 exc = 'Exception installing fennec attempt %d!\n\n%s' % (attempt, traceback.format_exc())
                 self.loggerdeco.exception('Exception installing fennec attempt %d!' % attempt)
-                time.sleep(self.user_cfg[PHONE_RETRY_WAIT])
+                time.sleep(self.options.phone_retry_wait)
         if not success:
             self.phone_disconnected(exc)
             return False
-        self.current_build = build_metadata['blddate']
-        self.current_repo = build_metadata['blddate']
 
         self.loggerdeco.info('Running tests...')
         for t in self.tests:
             if self.has_error():
                 break
             try:
-                repos = t.test_devices_repos[self.phone_cfg['phoneid']]
-                if repos and repo not in repos:
+                repos = t.test_devices_repos[self.phone.id]
+                if repos and self.build.tree not in repos:
                     self.loggerdeco.debug('run_tests: ignoring build %s '
                                           'repo %s not in '
                                           'defined repos: %s' %
-                                          (build_date, repo, repos))
+                                          (self.build.id, self.build.tree, repos))
                     continue
             except KeyError:
                 pass
 
-            t.current_build = build_metadata['blddate']
-            t.current_repo = build_metadata['tree']
             try:
-                t.setup_job(build_metadata, self)
+                t.setup_job(self)
                 t.run_job()
             except (ADBError, ADBTimeoutError):
                 exc = 'Uncaught device error while running test!\n\n%s' % \
@@ -459,19 +434,16 @@ the "enable" command.
 
     def handle_timeout(self):
         self.loggerdeco.debug('PhoneWorkerSubProcess:handle_timeout')
-        if (self.status != phonetest.PhoneTestMessage.DISABLED and
+        if (self.phone_status != PhoneStatus.DISABLED and
             (not self.last_ping or
              (datetime.datetime.now() - self.last_ping >
-              datetime.timedelta(seconds=self.user_cfg[PHONE_PING_INTERVAL])))):
+              datetime.timedelta(seconds=self.options.phone_ping_interval)))):
             self.last_ping = datetime.datetime.now()
             if self.ping():
-                if self.status == phonetest.PhoneTestMessage.DISCONNECTED:
+                if self.phone_status == PhoneStatus.DISCONNECTED:
                     self.recover_phone()
                 if not self.has_error():
-                    self.status_update(phonetest.PhoneTestMessage(
-                        self.phone_cfg['phoneid'],
-                        phonetest.PhoneTestMessage.IDLE,
-                        self.current_build, self.current_repo))
+                    self.update_status(phone_status=PhoneStatus.IDLE)
             else:
                 self.loggerdeco.info('Ping unanswered.')
                 # No point in trying to recover, since we couldn't
@@ -481,8 +453,8 @@ the "enable" command.
 
     def handle_job(self, job):
         self.loggerdeco.debug('PhoneWorkerSubProcess:handle_job')
-        phoneid = self.phone_cfg['phoneid']
-        abi = self.phone_cfg['abi']
+        phoneid = self.phone.id
+        abi = self.phone.abi
         build_url = job['build_url']
         self.loggerdeco.debug('handle_job: job: %s, abi: %s' % (job, abi))
         incompatible_job = False
@@ -527,7 +499,7 @@ the "enable" command.
             self.jobs.job_completed(job['id'])
             return
         self.loggerdeco.info('Checking job %s.' % build_url)
-        client = buildserver.BuildCacheClient(port=self.build_cache_port)
+        client = buildserver.BuildCacheClient(port=self.options.build_cache_port)
         self.loggerdeco.info('Fetching build...')
         cache_response = client.get(build_url, enable_unittests=enable_unittests)
         client.close()
@@ -535,15 +507,14 @@ the "enable" command.
             self.loggerdeco.warning('Errors occured getting build %s: %s' %
                                     (build_url, cache_response['error']))
             return
+        self.build = BuildMetadata().from_json(cache_response['metadata'])
         self.loggerdeco.info('Starting job %s.' % build_url)
         starttime = datetime.datetime.now()
-        if self.run_tests(cache_response['metadata']):
+        if self.run_tests():
             self.loggerdeco.info('Job completed.')
             self.jobs.job_completed(job['id'])
-            self.status_update(phonetest.PhoneTestMessage(
-                self.phone_cfg['phoneid'],
-                phonetest.PhoneTestMessage.IDLE,
-                self.current_build, self.current_repo))
+            self.update_status(phone_status=PhoneStatus.IDLE,
+                               build=self.build)
         else:
             self.loggerdeco.error('Job failed.')
         stoptime = datetime.datetime.now()
@@ -572,19 +543,16 @@ the "enable" command.
         elif request[0] == 'enable':
             self.loggerdeco.info('Enabling phone at user\'s request...')
             if self.has_error():
-                self.status_update(phonetest.PhoneTestMessage(
-                    self.phone_cfg['phoneid'],
-                    phonetest.PhoneTestMessage.IDLE,
-                    self.current_build, self.current_repo))
+                self.update_status(phone_status=PhoneStatus.IDLE)
                 self.last_ping = None
         elif request[0] == 'debug':
             self.loggerdeco.info('Setting debug level %d at user\'s request...' % request[1])
-            self.user_cfg['debug'] = request[1]
+            self.options.debug = request[1]
             # update any existing ADB objects
             if self.dm:
-                self.dm.log_level = self.user_cfg['debug']
+                self.dm.log_level = self.options.debug
             for t in self.tests:
-                t.set_dm_debug(self.user_cfg['debug'])
+                t.set_dm_debug(self.options.debug)
         elif request[0] == 'ping':
             self.loggerdeco.info('Pinging at user\'s request...')
             self.ping()
@@ -617,14 +585,14 @@ the "enable" command.
                     else:
                         try:
                             request = self.cmd_queue.get(
-                                timeout=self.user_cfg[PHONE_COMMAND_QUEUE_TIMEOUT])
+                                timeout=self.options.phone_command_queue_timeout)
                         except Queue.Empty:
                             request = None
                             self.handle_timeout()
 
     def run(self):
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
+                                       {'phoneid': self.phone.id,
                                         'pid': os.getpid()},
                                        '%(phoneid)s|%(pid)s|%(message)s')
 
@@ -642,12 +610,11 @@ the "enable" command.
         self.logger.addHandler(self.filehandler)
 
         for t in self.tests:
-            t.status_cb = self.status_update
+            t.update_status_cb = self.update_status
 
-        self.status_update(phonetest.PhoneTestMessage(
-                self.phone_cfg['phoneid'], self.status))
+        self.update_status(phone_status=self.phone_status)
 
-        if self.status != phonetest.PhoneTestMessage.DISABLED:
+        if self.phone_status != PhoneStatus.DISABLED:
             if not self.check_sdcard():
                 self.recover_phone()
             if self.has_error():

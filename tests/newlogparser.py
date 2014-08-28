@@ -503,10 +503,6 @@ def parse_log(fh):
     logger = logging.getLogger('logparser')
     test_log = TestLog(fh)
 
-    # prev_test_run is currently assigned to but not used.
-    # We could technically remove it but I would prefer to
-    # keep it at least for debugging purposes. /bc
-    prev_test_run = None
     test_run = TestRun()
     test_log.addTestRun(test_run)
 
@@ -1097,14 +1093,12 @@ def parse_log(fh):
                         prev_framework_message.addTestResult(error_result)
 
                     test_run.state = 'FRAMEWORK-END'
-                    prev_test_run = test_run
                     test_run = TestRun('FRAMEWORK-RUNNING')
                     test_log.addTestRun(test_run)
 
                 elif test_run.state in 'TESTSUITE-SHUTDOWN,FRAMEWORK-END':
                     # transition: FRAMEWORK-END->start->FRAMEWORK-RUNNING ok.
                     # Terminate previous test run and start a new one.
-                    prev_test_run = test_run
                     test_run = TestRun('FRAMEWORK-RUNNING')
                     test_log.addTestRun(test_run)
                 else:
@@ -1128,7 +1122,6 @@ def parse_log(fh):
                         prev_framework_message.addTestResult(error_result)
 
                     test_run.state = 'FRAMEWORK-END'
-                    prev_test_run = test_run
                     test_run = TestRun('FRAMEWORK-RUNNING')
                     test_log.addTestRun(test_run)
 

@@ -4,14 +4,14 @@
 
 import datetime
 import logging
-import pytz
 import re
 import socket
 import sys
+from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
+
+import pytz
 
 import builds
-
-from multiprocessinghandlers import MultiprocessingStreamHandler, MultiprocessingTimedRotatingFileHandler
 
 def from_iso_date_or_datetime(s):
     datefmt = '%Y-%m-%d'
@@ -64,7 +64,7 @@ def main(args, options):
 
     logger.info('Looking for builds...')
     product = 'fennec'
-    build_platforms = ['android', 'android-armv6', 'android-x86']
+    build_platforms = ['android', 'android-x86']
     buildfile_ext = '.apk'
 
     build_urls = []

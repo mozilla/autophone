@@ -2,84 +2,64 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import subprocess
-from phonetest import PhoneTest
-import socket
 import ConfigParser
-import posixpath
-import os
-import tempfile
-import traceback
+import json
 import logging
-from logdecorator import LogDecorator
+import os
+import posixpath
+import re
+import socket
+import subprocess
+import tempfile
+import time
+import traceback
+
 from logparser import LogParser
 from mozautolog import RESTfulAutologTestGroup
-import re
-import time
-from mozdevice import DMError
 
 import newlogparser
-
-try:
-    import json
-except ImportError:
-    # for python 2.5 compatibility
-    import simplejson as json
-
+from adb import ADBError
+from logdecorator import LogDecorator
+from phonetest import PhoneTest
 
 class UnitTest(PhoneTest):
 
-    def runjob(self, build_metadata, worker_subprocess):
-        logger = self.logger
-        loggerdeco = self.loggerdeco
+    def setup_job(self, worker_subprocess):
+        PhoneTest.setup_job(self, worker_subprocess)
+
+    def run_job(self):
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
-                                        'buildid': build_metadata['buildid']},
+                                       {'phoneid': self.phone.id,
+                                        'buildid': self.build.id},
                                        '%(phoneid)s|%(buildid)s|%(message)s')
-        try:
-            self.setup_and_runtest(build_metadata, worker_subprocess)
-        finally:
-            self.logger = logger
-            self.loggerdeco = loggerdeco
+        self.run_tests()
 
-    def setup_and_runtest(self, build_metadata, worker_subprocess):
-        self.loggerdeco.debug('runtestsremote.py runjob start')
-        self.set_status(msg='runtestsremote.py runjob start')
+    def run_tests(self):
+        self.loggerdeco.debug('runtestsremote.py run_job start')
+        self.update_status(message='runtestsremote.py run_job start')
 
-        self.worker_subprocess = worker_subprocess
         self.worker_subprocess.check_sdcard()
 
-        host_ip_address = self.phone_cfg['ipaddr']
-        phoneid = self.phone_cfg['phoneid']
-
-        cache_build_dir = os.path.abspath(build_metadata["cache_build_dir"])
-        symbols_path = os.path.join(cache_build_dir, 'symbols')
+        build_dir = os.path.abspath(self.build.dir)
+        symbols_path = os.path.join(build_dir, 'symbols')
         if not os.path.exists(symbols_path):
             symbols_path = None
 
-        androidprocname = build_metadata['androidprocname']
         re_revision = re.compile(r'http.*/rev/(.*)')
-        match = re_revision.match(build_metadata['revision'])
+        match = re_revision.match(self.build.revision)
         if match:
             revision = match.group(1)
         else:
-            revision = build_metadata['revision']
-        buildid = build_metadata['buildid']
-        tree = build_metadata['tree']
+            revision = self.build.revision
 
         if self.logger.getEffectiveLevel() == logging.DEBUG:
-            for prop in self.phone_cfg:
-                self.loggerdeco.debug('phone_cfg[%s] = %s' %
-                                      (prop, self.phone_cfg[prop]))
+            self.loggerdeco.debug('phone = %s' % self.phone)
 
-        job_cfg = ConfigParser.RawConfigParser()
-        job_cfg.read(self.config_file)
-
-        if job_cfg.has_option('runtests', 'config_files'):
+        if self.cfg.has_option('runtests', 'config_files'):
             # job contains multiple unittests
-            config_files = job_cfg.get('runtests', 'config_files').split(' ')
-        elif job_cfg.has_option('runtests', 'test_name'):
+            config_files = self.cfg.get('runtests', 'config_files').split(' ')
+        elif self.cfg.has_option('runtests', 'test_name'):
             # job contains a single unittest
             config_files = [self.config_file]
         else:
@@ -95,14 +75,14 @@ class UnitTest(PhoneTest):
         for config_file in config_files:
             try:
                 test_parameters = {
-                    'host_ip_address': host_ip_address,
-                    'phoneid': phoneid,
-                    'androidprocname': androidprocname,
-                    'cache_build_dir': cache_build_dir,
+                    'host_ip_address': self.phone.host_ip,
+                    'phoneid': self.phone.id,
+                    'app_name': self.build.app_name,
+                    'build_dir': build_dir,
                     'symbols_path': symbols_path,
                     'revision': revision,
-                    'buildid': buildid,
-                    'tree': tree,
+                    'buildid': self.build.id,
+                    'tree': self.build.tree,
                     'config_file': config_file,
                 }
 
@@ -113,16 +93,16 @@ class UnitTest(PhoneTest):
                 # This exception handler deals with exceptions which occur outside
                 # of the actual test runner. Exceptions from the test runner
                 # are handled locally in runtest.
-                self.loggerdeco.exception('runtestsremote.py:runjob: Exception '
+                self.loggerdeco.exception('runtestsremote.py:run_job: Exception '
                                           'running test')
-                self.set_status(msg='runtestsremote.py:runjob: Exception '
-                                'running test')
+                self.update_status(message='runtestsremote.py:run_job: Exception '
+                                   'running test')
                 # give the phone a minute to recover
                 time.sleep(60)
                 self.worker_subprocess.recover_phone()
 
-        self.loggerdeco.debug('runtestsremote.py runjob exit')
-        self.set_status(msg='runtestsremote.py runjob exit')
+        self.loggerdeco.debug('runtestsremote.py run_job exit')
+        self.update_status(message='runtestsremote.py run_job exit')
 
     def load_test_parameters(self, test_parameters, config_file):
 
@@ -151,8 +131,8 @@ class UnitTest(PhoneTest):
         elif 'MINIDUMP_STACKWALK' in os.environ:
             del os.environ['MINIDUMP_STACKWALK']
 
-        if cfg.has_option('runtests', 'androidprocname'):
-            test_parameters['androidprocname'] = cfg.get('runtests', 'androidprocname')
+        if cfg.has_option('runtests', 'app_name'):
+            test_parameters['app_name'] = cfg.get('runtests', 'app_name')
 
         test_parameters['console_level'] = cfg.get('runtests', 'console_level')
         test_parameters['file_level'] = cfg.get('runtests', 'file_level')
@@ -189,7 +169,7 @@ class UnitTest(PhoneTest):
             test_args = [
                 'mochitest/runtestsremote.py',
                 '--robocop=%s' % test_parameters['test_manifest'],
-                '--robocop-ids=%s/fennec_ids.txt' % test_parameters['cache_build_dir'],
+                '--robocop-ids=%s/fennec_ids.txt' % test_parameters['build_dir'],
                 '--certificate-path=certs',
                 '--close-when-done',
                 '--autorun',
@@ -212,7 +192,6 @@ class UnitTest(PhoneTest):
         elif test_name_lower.startswith('reftest'):
             test_args = [
                 'reftest/remotereftest.py',
-                '--enable-privilege',
                 '--ignore-window-size',
                 '--bootstrap',
                 '%s' % test_parameters['test_manifest'],
@@ -220,7 +199,6 @@ class UnitTest(PhoneTest):
         elif test_name_lower.startswith('jsreftest'):
             test_args = [
                 'reftest/remotereftest.py',
-                '--enable-privilege',
                 '--ignore-window-size',
                 '--bootstrap',
                 '--extra-profile-file=jsreftest/tests/user.js',
@@ -229,7 +207,6 @@ class UnitTest(PhoneTest):
         elif test_name_lower.startswith('crashtest'):
             test_args = [
                 'reftest/remotereftest.py',
-                '--enable-privilege',
                 '--ignore-window-size',
                 '--bootstrap',
                 '%s' % test_parameters['test_manifest'],
@@ -247,9 +224,9 @@ class UnitTest(PhoneTest):
         # serial number.
 
         common_args = [
-            '--dm_trans=adb',
+            '--dm_trans=sut',
             '--deviceIP=dummy',
-            '--app=%s' % test_parameters['androidprocname'],
+            '--app=%s' % test_parameters['app_name'],
             '--xre-path=%s' % test_parameters['xre_path'],
             '--utility-path=%s' % test_parameters['utility_path'],
             '--timeout=%d' % test_parameters['time_out'],
@@ -320,7 +297,7 @@ class UnitTest(PhoneTest):
         testgroup_name = '%s%s' % (test_parameters['test_name'],
                                    chunk_descriptor)
 
-        platform_name = self.phone_cfg['machinetype']
+        platform_name = self.phone.machinetype
 
         self.loggerdeco.debug('testgroup_name = %s' % testgroup_name)
 
@@ -332,7 +309,7 @@ class UnitTest(PhoneTest):
             harness=test_parameters['harness_type'],
             server=test_parameters['es_server'],
             restserver=test_parameters['rest_server'],
-            machine=self.phone_cfg['phoneid'],
+            machine=self.phone.id,
             logfile=logfilename)
 
         testgroup.set_primary_product(
@@ -379,7 +356,7 @@ class UnitTest(PhoneTest):
     def runtest(self, test_parameters):
 
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone_cfg['phoneid'],
+                                       {'phoneid': self.phone.id,
                                         'buildid': test_parameters['buildid'],
                                         'testname': test_parameters['test_name']},
                                        '%(phoneid)s|%(buildid)s|'
@@ -391,7 +368,7 @@ class UnitTest(PhoneTest):
                 self.loggerdeco.debug('test parameters: %s = %s' %
                                       (key, test_parameters[key]))
 
-        self.set_status(msg='Starting test %s' % test_parameters['test_name'])
+        self.update_status(message='Starting test %s' % test_parameters['test_name'])
 
         test_parameters['harness_type'] = test_parameters['test_name']
 
@@ -402,12 +379,12 @@ class UnitTest(PhoneTest):
             # XXX: FIXME. When bug 792072 lands, change to have
             # install_app() push the file
 
-            self.dm.push(os.path.join(test_parameters['cache_build_dir'],
+            self.dm.push(os.path.join(test_parameters['build_dir'],
                                       'robocop.apk'),
                              robocop_apk_path)
             try:
                 self.dm.uninstall_app('org.mozilla.roboexample.test')
-            except DMError:
+            except ADBError:
                 self.loggerdeco.exception('runtestsremote.py:runtest: Exception running test.')
 
             self.dm.install_app(robocop_apk_path)
@@ -432,26 +409,26 @@ class UnitTest(PhoneTest):
                     self.loggerdeco.debug("cmdline = %s" %
                                           test_parameters['cmdline'])
 
-                    self.set_status(msg='Running test %s chunk %d of %d' %
-                                    (test_parameters['test_name'],
-                                     this_chunk, test_parameters['total_chunks']))
-                    if self.dm.process_exist(test_parameters['androidprocname']):
+                    self.update_status(message='Running test %s chunk %d of %d' %
+                                       (test_parameters['test_name'],
+                                        this_chunk, test_parameters['total_chunks']))
+                    if self.dm.process_exist(test_parameters['app_name']):
                         max_kill_attempts = 3
                         for kill_attempt in range(max_kill_attempts):
                             self.loggerdeco.debug(
                                 'Process %s exists. Attempt %d to kill.' % (
-                                    test_parameters['androidprocname'], kill_attempt + 1))
-                            self.dm.pkill(test_parameters['androidprocname'])
-                            if not self.dm.process_exist(test_parameters['androidprocname']):
+                                    test_parameters['app_name'], kill_attempt + 1))
+                            self.dm.pkill(test_parameters['app_name'])
+                            if not self.dm.process_exist(test_parameters['app_name']):
                                 break
                         if kill_attempt == max_kill_attempts - 1 and \
-                                self.dm.process_exist(test_parameters['androidprocname']):
+                                self.dm.process_exist(test_parameters['app_name']):
                             self.loggerdeco.warning(
                                 'Could not kill process %s.' % (
-                                    test_parameters['androidprocname']))
+                                    test_parameters['app_name']))
                     proc = subprocess.Popen(
                         args,
-                        cwd=os.path.join(test_parameters['cache_build_dir'],
+                        cwd=os.path.join(test_parameters['build_dir'],
                                          'tests'),
                         preexec_fn=lambda: os.setpgid(0, 0),
                         stdout=logfilehandle,
@@ -474,15 +451,15 @@ class UnitTest(PhoneTest):
                     if not socket_collision:
                         break
 
-                self.set_status(msg='Completed test %s chunk %d of %d' %
-                                (test_parameters['test_name'],
-                                 this_chunk, test_parameters['total_chunks']))
+                self.update_status(message='Completed test %s chunk %d of %d' %
+                                   (test_parameters['test_name'],
+                                    this_chunk, test_parameters['total_chunks']))
             except:
                 error_message = ('Exception during test %s chunk %d of %d: %s' %
                                  (test_parameters['test_name'],
                                   this_chunk, test_parameters['total_chunks'],
                                   traceback.format_exc()))
-                self.set_status(msg=error_message)
+                self.update_status(message=error_message)
                 self.loggerdeco.error(error_message)
             finally:
                 logfilehandle.close()
