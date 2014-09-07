@@ -176,11 +176,11 @@ class PhoneWorkerSubProcess(object):
         # Moved this from a @property since having the ADBDevice initialized on the fly
         # can cause problems.
         self.loggerdeco.info('Worker: Connecting to %s...' % self.phone.id)
-        self.dm = ADBDevice(device_serial=self.phone.serial,
-                            log_level=self.loglevel,
+        self.dm = ADBDevice(device=self.phone.serial,
                             logger_name='autophone.worker.adb',
                             device_ready_retry_wait=self.options.device_ready_retry_wait,
-                            device_ready_retry_attempts=self.options.device_ready_retry_attempts)
+                            device_ready_retry_attempts=self.options.device_ready_retry_attempts,
+                            verbose=self.options.verbose)
 
         # Override mozlog.logger
         self.dm._logger = self.loggerdeco

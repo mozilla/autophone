@@ -376,9 +376,9 @@ class AutoPhone(object):
             self.console_logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
             # XXX: We should be able to continue if a device isn't available immediately
             # or to add/remove devices but this will work for now.
-            dm = ADBDevice(device_serial=serialno,
-                           log_level=self.loglevel,
-                           logger_name='autophone.adb')
+            dm = ADBDevice(device=serialno,
+                           logger_name='autophone.adb',
+                           verbose=self.options.verbose)
             dm.power_on()
             device = {"device_name": device_name,
                       "serialno": serialno,
@@ -694,6 +694,11 @@ if __name__ == '__main__':
                       any settings set on the command line.
                       autophone.ini.example contains all of the currently
                       available settings.""")
+    parser.add_option('--verbose', action='store_true',
+                      dest='verbose', default=False,
+                      help='Include output from ADBDevice command_output and '
+                      'shell_output commands when loglevel is DEBUG. '
+                      'Defaults to False.')
 
     (cmd_options, args) = parser.parse_args()
     options = load_autophone_options(cmd_options)

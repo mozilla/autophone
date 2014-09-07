@@ -26,6 +26,7 @@ class AutophoneOptions(object):
         self.repos = []
         self.buildtypes = []
         self.build_cache_port = -1
+        self.verbose = False
         # ini options
         self.build_cache_size = BuildCache.MAX_NUM_BUILDS
         self.build_cache_expires = BuildCache.EXPIRE_AFTER_DAYS

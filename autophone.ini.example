@@ -14,6 +14,7 @@
 #repos = mozilla-central
 #buildtypes = opt
 #build_cache_port = 28008
+#verbose = True
 
 #build_cache_size = 20
 #build_cache_expires = 7

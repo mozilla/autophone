@@ -68,11 +68,11 @@ class PhoneTest(object):
     def dm(self):
         if not self._dm:
             self.loggerdeco.info('PhoneTest: Connecting to %s...' % self.phone.id)
-            self._dm = ADBDevice(device_serial=self.phone.serial,
-                                 log_level=self.options.debug,
+            self._dm = ADBDevice(device=self.phone.serial,
                                  logger_name='autophone.phonetest.adb',
                                  device_ready_retry_wait=self.options.device_ready_retry_wait,
-                                 device_ready_retry_attempts=self.options.device_ready_retry_attempts)
+                                 device_ready_retry_attempts=self.options.device_ready_retry_attempts,
+                                 verbose=self.options.verbose)
             # Override mozlog.logger
             self._dm._logger = self.loggerdeco
             self.loggerdeco.info('PhoneTest: Connected.')
