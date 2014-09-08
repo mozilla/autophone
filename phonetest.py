@@ -16,21 +16,6 @@ from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
 
 class PhoneTest(object):
-
-    """
-    The initialization function. It takes and stores all the information
-    related to contacting this phone.
-    Params:
-    phoneid = ID of phone, to be used in log messages and reporting
-    serial = serial number for adb style interfaces
-    ip = phone's IP address (where sutagent running if it is running)
-    sutcmdport = cmd port of sutagent if it is running
-    sutdataport = data port of sutagent if it is running
-    machinetype = pretty name of machine type - i.e. galaxy_nexus, droid_pro etc
-    osver = version string of phone OS
-    TODO: Add in connection data here for programmable power so we can add a
-    powercycle method to this class.
-    """
     def __init__(self, phone, options, config_file=None,
                  enable_unittests=False, test_devices_repos={}):
         self.config_file = config_file
@@ -47,13 +32,27 @@ class PhoneTest(object):
                                        {'phoneid': self.phone.id,
                                         'pid': os.getpid()},
                                        '%(phoneid)s|%(pid)s|%(message)s')
+        self.logger_original = None
+        self.loggerdeco_original = None
+        self.dm_logger_original = None
         self.loggerdeco.info('init autophone.phonetest')
         self._base_device_path = ''
         self.profile_path = '/data/local/tmp/profile'
         self._dm = None
+        self._repos = None
+        # Treeherder related items.
+        self.state = None # phonestatus.TestState
+        self.result = None # phonestatue.TestResult
+        self.message = None
+        self.job_guid = None
+        self.job_details = []
+        self.submit_timestamp = None
+        self.start_timestamp = None
+        self.end_timestamp = None
+        self.loggerdeco.debug('PhoneTest: %s' % self.__dict__)
 
     def _check_device(self):
-        for attempt in range(self.options.phone_retry_limit):
+        for attempt in range(1, self.options.phone_retry_limit+1):
             output = self._dm.get_state()
             if output == 'device':
                 break
@@ -63,6 +62,22 @@ class PhoneTest(object):
             time.sleep(self.options.phone_retry_wait)
         if output != 'device':
             raise ADBError('PhoneTest:_check_device: Failed')
+
+    @property
+    def name(self):
+        return self.__class__.__name__
+
+    @property
+    def test_this_repo(self):
+        """Return True if the Phone should test the current build's repository"""
+        if self._repos is None:
+            if self.test_devices_repos:
+                self._repos = self.test_devices_repos[self.phone.id]
+            else:
+                self._repos = self.options.repos
+        if self.build.tree in self._repos:
+            return True
+        return False
 
     @property
     def dm(self):
@@ -85,16 +100,19 @@ class PhoneTest(object):
             return self._base_device_path
         success = False
         e = None
-        for attempt in range(self.options.phone_retry_limit):
+        for attempt in range(1, self.options.phone_retry_limit+1):
             self._base_device_path = self.dm.test_root + '/autophone'
-            self.loggerdeco.debug('Attempt %d creating base device path %s' % (attempt, self._base_device_path))
+            self.loggerdeco.debug('Attempt %d creating base device path %s' % (
+                attempt, self._base_device_path))
             try:
                 if not self.dm.is_dir(self._base_device_path):
                     self.dm.mkdir(self._base_device_path, parents=True)
                 success = True
                 break
             except ADBError:
-                self.loggerdeco.exception('Attempt %d creating base device path %s' % (attempt, self._base_device_path))
+                self.loggerdeco.exception('Attempt %d creating base device '
+                                          'path %s' % (
+                                              attempt, self._base_device_path))
                 time.sleep(self.options.phone_retry_wait)
 
         if not success:
@@ -105,23 +123,60 @@ class PhoneTest(object):
         return self._base_device_path
 
     @property
+    def job_name(self):
+        if not self.options.treeherder_url:
+            return None
+        return self.cfg.get('treeherder', 'job_name')
+
+    @property
+    def job_symbol(self):
+        if not self.options.treeherder_url:
+            return None
+        return self.cfg.get('treeherder', 'job_symbol')
+
+    @property
+    def group_name(self):
+        if not self.options.treeherder_url:
+            return None
+        return self.cfg.get('treeherder', 'group_name')
+
+    @property
+    def group_symbol(self):
+        if not self.options.treeherder_url:
+            return None
+        return self.cfg.get('treeherder', 'group_symbol')
+
+    @property
     def build(self):
         return self.worker_subprocess.build
 
-    def setup_job(self, worker_subprocess):
-        self.worker_subprocess = worker_subprocess
+    def setup_job(self):
         self.logger_original = self.logger
         self.loggerdeco_original = self.loggerdeco
         self.dm_logger_original = self.dm._logger
+        self.worker_subprocess.submit_treeherder_running(tests=[self])
+
+        self.logger = logging.getLogger('autophone.worker.subprocess.test')
+        self.loggerdeco = LogDecorator(self.logger,
+                                       {'phoneid': self.phone.id,
+                                        'pid': os.getpid(),
+                                        'buildid': self.build.id,
+                                        'test': self.name},
+                                       '%(phoneid)s|%(pid)s|%(buildid)s|%(test)s|'
+                                       '%(message)s')
+        self.dm._logger = self.loggerdeco
 
     def run_job(self):
         raise NotImplementedError
 
     def teardown_job(self):
-        self.worker_subprocess = None
-        self.logger = self.logger_original
-        self.loggerdeco = self.loggerdeco_original
-        self.dm._logger = self.dm_logger_original
+        self.worker_subprocess.submit_treeherder_complete(tests=[self])
+        if self.logger_original:
+            self.logger = self.logger_original
+        if self.loggerdeco_original:
+            self.loggerdeco = self.loggerdeco_original
+        if self.dm_logger_original:
+            self.dm._logger = self.dm_logger_original
 
     def set_dm_debug(self, level):
         self.options.debug = level
@@ -140,7 +195,7 @@ class PhoneTest(object):
 
         profile_path_parent = os.path.split(self.profile_path)[0]
         success = False
-        for attempt in range(self.options.phone_retry_limit):
+        for attempt in range(1, self.options.phone_retry_limit+1):
             try:
                 self.loggerdeco.debug('Attempt %d installing profile' % attempt)
                 if self.dm.is_dir(self.profile_path, root=True):
@@ -153,7 +208,9 @@ class PhoneTest(object):
                 success = True
                 break
             except ADBError:
-                self.loggerdeco.exception('Attempt %d Exception installing profile to %s' % (attempt, self.profile_path))
+                self.loggerdeco.exception('Attempt %d Exception installing '
+                                          'profile to %s' % (
+                                              attempt, self.profile_path))
                 time.sleep(self.options.phone_retry_wait)
 
         if not success:

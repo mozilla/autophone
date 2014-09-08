@@ -48,3 +48,9 @@ iterations = 8
 # phonedash webserver where results will be submitted.
 id = foo
 key = bar
+
+[treeherder]
+job_name = Autophone Throbber
+job_symbol = t
+group_name = Autophone
+group_symbol = A

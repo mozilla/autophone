@@ -24,18 +24,10 @@ from phonetest import PhoneTest
 
 class UnitTest(PhoneTest):
 
-    def setup_job(self, worker_subprocess):
-        PhoneTest.setup_job(self, worker_subprocess)
+    def setup_job(self):
+        PhoneTest.setup_job(self)
 
     def run_job(self):
-        self.logger = logging.getLogger('autophone.worker.subprocess.test')
-        self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone.id,
-                                        'buildid': self.build.id},
-                                       '%(phoneid)s|%(buildid)s|%(message)s')
-        self.run_tests()
-
-    def run_tests(self):
         self.loggerdeco.debug('runtestsremote.py run_job start')
         self.update_status(message='runtestsremote.py run_job start')
 
@@ -414,14 +406,14 @@ class UnitTest(PhoneTest):
                                         this_chunk, test_parameters['total_chunks']))
                     if self.dm.process_exist(test_parameters['app_name']):
                         max_kill_attempts = 3
-                        for kill_attempt in range(max_kill_attempts):
+                        for kill_attempt in range(1, max_kill_attempts+1):
                             self.loggerdeco.debug(
                                 'Process %s exists. Attempt %d to kill.' % (
                                     test_parameters['app_name'], kill_attempt + 1))
                             self.dm.pkill(test_parameters['app_name'])
                             if not self.dm.process_exist(test_parameters['app_name']):
                                 break
-                        if kill_attempt == max_kill_attempts - 1 and \
+                        if kill_attempt == max_kill_attempts and \
                                 self.dm.process_exist(test_parameters['app_name']):
                             self.loggerdeco.warning(
                                 'Could not kill process %s.' % (

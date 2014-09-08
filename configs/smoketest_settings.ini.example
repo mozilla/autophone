@@ -1,0 +1,5 @@
+[treeherder]
+job_name = Autophone Smoketest
+job_symbol = s
+group_name = Autophone
+group_symbol = A

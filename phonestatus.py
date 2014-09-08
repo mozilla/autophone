@@ -15,6 +15,23 @@ class PhoneStatus(object):
     DISABLED = 'DISABLED'  # permanent error
 
 
+class TestResult(object):
+    #SKIPPED = 'skipped'
+    BUSTED = 'busted'
+    EXCEPTION = 'exception'
+    TESTFAILED = 'testfailed'
+    UNKNOWN = 'unknown'
+    USERCANCEL = 'usercancel'
+    RETRY = 'retry'
+    SUCCESS = 'success'
+
+
+class TestState(object):
+    COMPLETED = 'completed'
+    PENDING = 'pending'
+    RUNNING = 'running'
+
+
 class PhoneTestMessage(object):
 
     def __init__(self, phone, build=None, phone_status=None,

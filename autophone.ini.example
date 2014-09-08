@@ -16,6 +16,11 @@
 #build_cache_port = 28008
 #verbose = True
 
+#treeherder_url = http://local.treeherder.mozilla.org
+#treeherder_credentials = pathto/credentials.json
+#treeherder_retries = 3
+#treeherder_retry_wait = 300
+
 #build_cache_size = 20
 #build_cache_expires = 7
 #device_ready_retry_wait = 20

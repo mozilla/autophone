@@ -16,11 +16,12 @@ from mozprofile import FirefoxProfile
 from adb import ADBError
 from logdecorator import LogDecorator
 from perftest import PerfTest
+from phonestatus import TestResult
 
 class S1S2Test(PerfTest):
 
-    def setup_job(self, worker_subprocess):
-        PerfTest.setup_job(self, worker_subprocess)
+    def setup_job(self):
+        PerfTest.setup_job(self)
 
         # [paths]
         autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -61,14 +62,19 @@ class S1S2Test(PerfTest):
                 self._urls["%s-%s" % (test_location, test_name)] = test_url
         self._initialize_url = 'file://' + self._paths['dest'] + 'initialize_profile.html'
 
-    def run_tests(self):
+    def run_job(self):
         if not self.install_local_pages():
-            self.update_status(message='Aborting test - '
-                               'Could not install local pages on phone.')
+            message='Aborting test - Could not install local pages on phone.'
+            self.update_status(message=message)
+            self.result = TestResult.EXCEPTION
+            self.message = message
             return
 
         if not self.create_profile():
-            self.update_status(message='Aborting test - Could not run Fennec.')
+            message='Aborting test - Could not run Fennec.'
+            self.update_status(message=message)
+            self.result = TestResult.EXCEPTION
+            self.message = message
             return
 
         testcount = len(self._urls.keys())
@@ -95,7 +101,7 @@ class S1S2Test(PerfTest):
             # typically due to a regression in the brower which should
             # be reported.
             success = False
-            for attempt in range(self.stderrp_attempts):
+            for attempt in range(1, self.stderrp_attempts+1):
                 # dataset is a list of the measurements made for the
                 # iterations for this test.
                 #
@@ -109,11 +115,11 @@ class S1S2Test(PerfTest):
                 # values.
 
                 dataset = []
-                for iteration in range(self._iterations):
+                for iteration in range(1, self._iterations+1):
                     self.update_status(message='Attempt %d/%d for Test %d/%d, '
                                        'run %d, for url %s' %
-                                       (attempt+1, self.stderrp_attempts,
-                                        testnum, testcount, iteration+1, url))
+                                       (attempt, self.stderrp_attempts,
+                                        testnum, testcount, iteration, url))
 
                     dataset.append({})
 
@@ -177,7 +183,11 @@ class S1S2Test(PerfTest):
                     'Build Id:   %s\n'
                     'Revision:   %s\n' %
                     (testname, self.build.tree, self.build.id, self.build.revision))
-
+                self.result = TestResult.BUSTED
+                self.message = 'No measurements detected.'
+                break
+        if not self.result:
+            self.result = TestResult.SUCCESS
 
     def runtest(self, url):
         # Clear logcat
@@ -211,20 +221,20 @@ class S1S2Test(PerfTest):
         # Return True if fennec exits on its own, False if it needs to be killed.
         # Re-raise the last exception if fennec can not be killed.
         max_wait_attempts = max_wait_time / wait_time
-        for wait_attempt in range(max_wait_attempts):
+        for wait_attempt in range(1, max_wait_attempts+1):
             if not self.dm.process_exist(self.build.app_name):
                 return True
             sleep(wait_time)
         self.loggerdeco.debug('killing fennec')
         max_killattempts = 3
-        for kill_attempt in range(max_killattempts):
+        for kill_attempt in range(1, max_killattempts+1):
             try:
                 self.dm.pkill(self.build.app_name, root=True)
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d to kill fennec failed' %
                                           kill_attempt)
-                if kill_attempt == max_killattempts - 1:
+                if kill_attempt == max_killattempts:
                     raise
                 sleep(kill_wait_time)
         return False
@@ -261,7 +271,7 @@ class S1S2Test(PerfTest):
             return False
 
         success = False
-        for attempt in range(self.options.phone_retry_limit):
+        for attempt in range(1, self.options.phone_retry_limit+1):
             self.loggerdeco.debug('Attempt %d Initializing profile' % attempt)
             self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
             if self.wait_for_fennec():
@@ -278,7 +288,7 @@ class S1S2Test(PerfTest):
 
     def install_local_pages(self):
         success = False
-        for attempt in range(self.options.phone_retry_limit):
+        for attempt in range(1, self.options.phone_retry_limit+1):
             self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
             try:
                 self.dm.rm(self._paths['dest'], recursive=True, force=True)
@@ -301,12 +311,12 @@ class S1S2Test(PerfTest):
         return success
 
     def is_fennec_running(self, appname):
-        for attempt in range(self.options.phone_retry_limit):
+        for attempt in range(1, self.options.phone_retry_limit+1):
             try:
                 return self.dm.process_exist(appname)
             except ADBError:
                 self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
-                if attempt == self.options.phone_retry_limit - 1:
+                if attempt == self.options.phone_retry_limit:
                     raise
                 sleep(self.options.phone_retry_wait)
 
@@ -328,13 +338,13 @@ class S1S2Test(PerfTest):
         throbber_start_time = 0
         throbber_stop_time = 0
 
-        attempt = 0
+        attempt = 1
         max_time = 90 # maximum time to wait for throbbers
         wait_time = 3 # time to wait between attempts
         max_attempts = max_time / wait_time
 
-        while (attempt < max_attempts and (throbber_start_time == 0 or
-                                           throbber_stop_time == 0)):
+        while (attempt <= max_attempts and (throbber_start_time == 0 or
+                                            throbber_stop_time == 0)):
             buf = self.get_logcat()
             for line in buf:
                 self.loggerdeco.debug('analyze_logcat: %s' % line)

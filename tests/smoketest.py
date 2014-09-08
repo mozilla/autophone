@@ -3,47 +3,17 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
-import logging
-import os
 from time import sleep
 
 from mozprofile import FirefoxProfile
 
-from logdecorator import LogDecorator
 from phonetest import PhoneTest
+from phonestatus import TestResult
 
 class SmokeTest(PhoneTest):
 
     def run_job(self):
-        logger = self.logger
-        loggerdeco = self.loggerdeco
-        self.logger = logging.getLogger('autophone.worker.subprocess.test')
-        self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone.id,
-                                        'phoneip': self.dm.get_ip_address(),
-                                        'buildid': self.build.id},
-                                       '%(phoneid)s|%(phoneip)s|%(buildid)s|'
-                                       '%(message)s')
-
-        try:
-            self.runtest()
-        finally:
-            self.logger = logger
-            self.loggerdeco = loggerdeco
-
-    def runtest(self):
         self.update_status(message='Running smoketest')
-        pass_file = 'smoketest-%s-pass' % self.phone.id
-        fail_file = 'smoketest-%s-fail' % self.phone.id
-
-        try:
-            os.unlink(pass_file)
-        except OSError:
-            pass
-        try:
-            os.unlink(fail_file)
-        except OSError:
-            pass
 
         # Read our config file which gives us our number of
         # iterations and urls that we will be testing
@@ -72,18 +42,17 @@ class SmokeTest(PhoneTest):
                 found_throbber = self.check_throbber()
 
         if not fennec_launched:
-            self.loggerdeco.error('smoketest: fail - failed to launch fennec')
-            file(fail_file, 'w')
+            self.result = TestResult.BUSTED
+            self.message = 'Failed to launch Fennec'
         elif not found_throbber:
-            self.loggerdeco.error('smoketest: fail - failed to find Throbber')
-            file(fail_file, 'w')
+            self.result = TestResult.TESTFAILED
+            self.messaage = 'Failed to find Throbber'
         else:
-            self.loggerdeco.info('smoketest: pass - fennec successfully launched')
-            file(pass_file, 'w')
+            self.result = TestResult.SUCCESS
 
         if fennec_launched:
             self.loggerdeco.debug('killing fennec')
-            self.dm.pkill(self.build.app_name)
+            self.dm.pkill(self.build.app_name, root=True)
 
         self.loggerdeco.debug('removing sessionstore files')
         self.remove_sessionstore_files()

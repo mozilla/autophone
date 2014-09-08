@@ -8,6 +8,7 @@ import SocketServer
 import datetime
 import errno
 import inspect
+import json
 import logging
 import logging.handlers
 import multiprocessing
@@ -16,7 +17,8 @@ import signal
 import socket
 import sys
 import threading
-from multiprocessinghandlers import MultiprocessingStreamHandler, MultiprocessingTimedRotatingFileHandler
+from multiprocessinghandlers import (MultiprocessingStreamHandler,
+                                     MultiprocessingTimedRotatingFileHandler)
 
 from manifestparser import TestManifest
 from pulsebuildmonitor import start_pulse_monitor
@@ -24,6 +26,7 @@ from pulsebuildmonitor import start_pulse_monitor
 import builds
 import buildserver
 import jobs
+from adb import ADBHost
 from adb_android import ADBAndroid as ADBDevice
 from mailer import Mailer
 from options import AutophoneOptions
@@ -39,6 +42,16 @@ class PhoneData(object):
         self.osver = osver
         self.abi = abi
         self.host_ip = ipaddr
+
+    @property
+    def architecture(self):
+        if 'arm' in self.abi:
+            return 'arm'
+        return self.abi
+
+    @property
+    def os(self):
+        return 'android-%s' % '-'.join(self.osver.split('.')[:2])
 
     def __str__(self):
         return '%s' % self.__dict__
@@ -99,17 +112,14 @@ class AutoPhone(object):
         self.pulsemonitor = None
         self.restart_workers = {}
 
-        self.logger.info('Starting autophone.')
         self.console_logger.info('Starting autophone.')
 
         # queue for listening to status updates from tests
         self.worker_msg_queue = multiprocessing.Queue()
 
-        self.logger.info('Loading tests.')
         self.console_logger.info('Loading tests.')
         self.read_tests()
 
-        self.logger.info('Initializing devices.')
         self.console_logger.info('Initializing devices.')
 
         self.read_devices()
@@ -124,7 +134,6 @@ class AutoPhone(object):
 
         self.logger.debug('autophone_options: %s' % self.options)
 
-        self.logger.info('Autophone started.')
         self.console_logger.info('Autophone started.')
 
     @property
@@ -152,7 +161,6 @@ class AutoPhone(object):
                     del self.restart_workers[phoneid]
                     continue
 
-                self.logger.error('Worker %s died!' % phoneid)
                 self.console_logger.error('Worker %s died!' % phoneid)
                 worker.stop()
                 worker.crashes.add_crash()
@@ -170,11 +178,7 @@ class AutoPhone(object):
                     initial_state = PhoneStatus.DISCONNECTED
                 worker.start(initial_state)
                 self.logger.info('Sending notification...')
-                try:
-                    self.mailer.send(msg_subj, msg_body)
-                    self.logger.info('Sent.')
-                except socket.error:
-                    self.logger.exception('Failed to send dead-phone notification.')
+                self.mailer.send(msg_subj, msg_body)
 
     def worker_msg_loop(self):
         try:
@@ -372,7 +376,6 @@ class AutoPhone(object):
         for device_name in cfg.sections():
             # failure for a device to have a serialno option is fatal.
             serialno = cfg.get(device_name, 'serialno')
-            self.logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
             self.console_logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
             # XXX: We should be able to continue if a device isn't available immediately
             # or to add/remove devices but this will work for now.
@@ -406,6 +409,7 @@ class AutoPhone(object):
             for member_name, member_value in inspect.getmembers(__import__(t['name']),
                                                                 inspect.isclass):
                 if (member_name != 'PhoneTest' and
+                    member_name != 'PerfTest' and
                     issubclass(member_value, PhoneTest)):
                     config = os.path.join(t['here'],
                                           t.get('config', ''))
@@ -497,6 +501,10 @@ def load_autophone_options(cmd_options):
             except ConfigParser.NoOptionError:
                 pass
 
+    if options.treeherder_url and options.treeherder_credentials_path:
+        with open(options.treeherder_credentials_path) as credentials_file:
+            setattr(options, 'treeherder_credentials', json.loads(credentials_file.read()))
+
     return options
 
 
@@ -540,6 +548,10 @@ def main(options):
     console_logger.info('Starting server on port %d.' % options.port)
     console_logger.info('Starting build-cache server on port %d.' %
                         options.build_cache_port)
+    # ensure that the previous runs have not left open adb ports.
+    adbhost = ADBHost()
+    adbhost.kill_server()
+
     product = 'fennec'
     build_platforms = ['android', 'android-x86']
     buildfile_ext = '.apk'
@@ -554,7 +566,8 @@ def main(options):
             override_build_dir=options.override_build_dir,
             enable_unittests=options.enable_unittests,
             build_cache_size=options.build_cache_size,
-            build_cache_expires=options.build_cache_expires)
+            build_cache_expires=options.build_cache_expires,
+            treeherder_url=options.treeherder_url)
     except builds.BuildCacheException, e:
         print '''%s
 
@@ -633,8 +646,8 @@ if __name__ == '__main__':
                       dest='test_path', default='tests/manifest.ini',
                       help='path to test manifest')
     parser.add_option('--emailcfg', action='store', type='string',
-                      dest='emailcfg', default='email.ini',
-                      help='config file for email settings; defaults to email.ini')
+                      dest='emailcfg', default='',
+                      help='config file for email settings; defaults to none')
     parser.add_option('--disable-pulse', action='store_false',
                       dest="enable_pulse", default=True,
                       help="Disable connecting to pulse to look for new builds")
@@ -699,8 +712,44 @@ if __name__ == '__main__':
                       help='Include output from ADBDevice command_output and '
                       'shell_output commands when loglevel is DEBUG. '
                       'Defaults to False.')
+    parser.add_option('--treeherder-url',
+                      dest='treeherder_url',
+                      action='store',
+                      type='string',
+                      default=None,
+                      help="""Url of the treeherder server where test results are reported.
+                      Defaults to None.""")
+    parser.add_option('--treeherder-credentials-path',
+                      dest='treeherder_credentials_path',
+                      action='store',
+                      type='string',
+                      default=None,
+                      help="""Path to credentials.json file containing OAuth
+                      credentials for contacting the Treeherder server.
+                      Defaults to None. If specified, --treeherder-url
+                      must also be specified.""")
+    parser.add_option('--treeherder-retries',
+                      dest='treeherder_retries',
+                      action='store',
+                      type='int',
+                      default=3,
+                      help="""Number of attempts for sending data to
+                      Treeherder. Defaults to 3.""")
+    parser.add_option('--treeherder-retry-wait',
+                      dest='treeherder_retry_wait',
+                      action='store',
+                      type='int',
+                      default=300,
+                      help="""Number of seconds to wait between attempts
+                      to send data to Treeherder. Defaults to 300.""")
 
     (cmd_options, args) = parser.parse_args()
+    if cmd_options.treeherder_url and not cmd_options.treeherder_credentials_path:
+        raise Exception('--treeherder-url specified without '
+                        '--treeherder-credentials_path')
+    elif not cmd_options.treeherder_url and cmd_options.treeherder_credentials_path:
+        raise Exception('--treeherder-credentials_path specified without '
+                        '--treeherder-url')
     options = load_autophone_options(cmd_options)
 
     exit_code = main(options)

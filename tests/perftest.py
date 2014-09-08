@@ -4,32 +4,30 @@
 
 import ConfigParser
 import json
-import logging
-import os
 import urllib
 import urllib2
+import urlparse
 from math import sqrt
 from time import sleep
 
 from jot import jwt, jws
 
-from logdecorator import LogDecorator
 from adb import ADBError
+from phonestatus import TestResult
 from phonetest import PhoneTest
 
 class PerfTest(PhoneTest):
+    def __init__(self, phone, options, config_file=None,
+                 enable_unittests=False, test_devices_repos={}):
+        PhoneTest.__init__(self, phone, options,
+                           config_file=config_file,
+                           enable_unittests=enable_unittests,
+                           test_devices_repos=test_devices_repos)
+        self._result_server = None
+        self._resulturl = None
 
-    def setup_job(self, worker_subprocess):
-        PhoneTest.setup_job(self, worker_subprocess)
-
-        self.logger = logging.getLogger('autophone.worker.subprocess.test')
-        self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone.id,
-                                        'pid': os.getpid(),
-                                        'buildid': self.build.id},
-                                       '%(phoneid)s|%(pid)s|%(buildid)s|'
-                                       '%(message)s')
-        self.dm._logger = self.loggerdeco
+    def setup_job(self):
+        PhoneTest.setup_job(self)
 
         # [signature]
         self._signer = None
@@ -62,25 +60,26 @@ class PerfTest(PhoneTest):
         if not self._resulturl.endswith('/'):
             self._resulturl += '/'
 
-
-    def run_job(self):
-        self.run_tests()
+    @property
+    def result_server(self):
+        if self._resulturl and not self._result_server:
+            parts = urlparse.urlparse(self._resulturl)
+            self._result_server = '%s://%s' % (parts.scheme, parts.netloc)
+            self.loggerdeco.debug('PerfTest._result_server: %s' % self._result_server)
+        return self._result_server
 
     def teardown_job(self):
         PhoneTest.teardown_job(self)
 
-    def run_tests(self):
-        pass
-
     def get_logcat(self):
-        for attempt in range(self.options.phone_retry_limit):
+        for attempt in range(1, self.options.phone_retry_limit+1):
             try:
                 return [x.strip() for x in self.dm.get_logcat(
                     filter_specs=['*:V']
                 )]
             except ADBError:
                 self.loggerdeco.exception('Attempt %d get logcat throbbers' % attempt)
-                if attempt == self.options.phone_retry_limit - 1:
+                if attempt == self.options.phone_retry_limit:
                     raise
                 sleep(self.options.phone_retry_wait)
 
@@ -123,7 +122,25 @@ class PerfTest(PhoneTest):
         try:
             f = urllib2.urlopen(req)
         except urllib2.URLError, e:
-            self.loggerdeco.error('Could not send results to server: %s' % e)
+            self.loggerdeco.error('Error sending results to server: %s' % e)
+            self.worker_subprocess.mailer.send(
+                'Error sending %s results for phone %s, build %s' %
+                (self.name, self.phone.id, self.build.id),
+                'There was an error attempting to send test results'
+                'to the result server %s.\n'
+                '\n'
+                'Test %s\n'
+                'Phone %s\n'
+                'Build %s\n'
+                'Revision %s\n'
+                'Exception: %s\n' %
+                (self.result_server,
+                 self.name, self.phone.id, self.build.id,
+                 self.build.revision, e))
+            message = 'Error sending results to server'
+            self.result = TestResult.EXCEPTION
+            self.message = message
+            self.update_status(message=message)
         else:
             f.read()
             f.close()

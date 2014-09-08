@@ -1,0 +1,32 @@
+[paths]
+
+[locations]
+local =
+
+[tests]
+blank = blank.html
+twitter = twitter.html
+
+[settings]
+iterations = 8
+resulturl = http://192.168.1.50:18100/api/s1s2/
+# The iterations for a test are terminated early if
+# if the standard error falls below stderrp_accept
+stderrp_accept = 0.5
+# The iterations for a test are rejected if the standard
+# error exceeds stderrp_reject.
+stderrp_reject = 15
+# The iterations for a test are retried up to
+# stderrp_attempts if they are rejected.
+#stderrp_attempts = 1
+stderrp_attempts = 2
+
+[signature]
+id = foo
+key = bar
+
+[treeherder]
+job_name = Autophone Webappstartup
+job_symbol = w
+group_name = Autophone
+group_symbol = A

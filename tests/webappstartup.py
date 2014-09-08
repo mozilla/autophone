@@ -9,13 +9,13 @@ import sys
 from time import sleep
 
 from adb import ADBError
-from logdecorator import LogDecorator
 from perftest import PerfTest
+from phonestatus import TestResult
 
 class WebappStartupTest(PerfTest):
 
-    def setup_job(self, worker_subprocess):
-        PerfTest.setup_job(self, worker_subprocess)
+    def setup_job(self):
+        PerfTest.setup_job(self)
         # [paths]
         autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
         self._paths = {}
@@ -28,23 +28,21 @@ class WebappStartupTest(PerfTest):
         if not self.install_webappstartup():
             raise Exception('Unable to install %s' % self._paths['webappstartup_apk'])
 
-    def run_tests(self):
+    def teardown_job(self):
+        if self.webappstartup_name:
+            self.dm.uninstall_app(self.webappstartup_name)
+        PerfTest.teardown_job(self)
+    def run_job(self):
 
         self.testname = 'webappstartup'
-        self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone.id,
-                                        'pid': os.getpid(),
-                                        'buildid': self.build.id,
-                                        'testname': self.testname},
-                                       '%(phoneid)s|%(pid)s|%(buildid)s|'
-                                       '%(testname)s|%(message)s')
-        self.dm._logger = self.loggerdeco
 
         if self.check_results(self.testname):
             # We already have good results for this test and build.
             # No need to test it again.
-            self.loggerdeco.info('Skipping test for %d iterations' %
-                                 self._iterations)
+            message = 'Already have results for this test.'
+            self.result = TestResult.USERCANCEL
+            self.message = message
+            self.loggerdeco.info(message)
             return
         self.loggerdeco.info('Running test for %d iterations' %
                              self._iterations)
@@ -54,7 +52,7 @@ class WebappStartupTest(PerfTest):
         # typically due to a regression in the brower which should
         # be reported.
         success = False
-        for attempt in range(self.stderrp_attempts):
+        for attempt in range(1, self.stderrp_attempts+1):
             # dataset is a list of the measurements made for the
             # iterations for this test.
             #
@@ -68,11 +66,11 @@ class WebappStartupTest(PerfTest):
             # values.
 
             dataset = []
-            for iteration in range(self._iterations):
+            for iteration in range(1, self._iterations+1):
                 self.update_status(message='Attempt %d/%d for Test %s, '
                                    'run %d' %
-                                   (attempt+1, self.stderrp_attempts,
-                                    self.testname, iteration+1))
+                                   (attempt, self.stderrp_attempts,
+                                    self.testname, iteration))
 
                 dataset.append({})
 
@@ -104,8 +102,6 @@ class WebappStartupTest(PerfTest):
                         (self.testname, iteration+1, self._iterations))
                     break
 
-            self.loggerdeco.debug('publishing results')
-
             if self.is_stderr_below_threshold(
                     ('chrome_time',
                      'startup_time'),
@@ -117,6 +113,8 @@ class WebappStartupTest(PerfTest):
                 self.loggerdeco.info(
                     'Rejected test %s after %d/%d iterations' %
                     (self.testname, iteration+1, self._iterations))
+
+            self.loggerdeco.debug('publishing results')
 
             for datapoint in dataset:
                 for cachekey in datapoint:
@@ -130,7 +128,9 @@ class WebappStartupTest(PerfTest):
             if not rejected:
                 break
 
-        if not success:
+        if success:
+            self.result = TestResult.SUCCESS
+        else:
             self.worker_subprocess.mailer.send(
                 'Webappstartup test failed for Build %s %s on Phone %s' %
                 (self.build.tree, self.build.id, self.phone.id),
@@ -139,6 +139,8 @@ class WebappStartupTest(PerfTest):
                 'Build Id:   %s\n'
                 'Revision:   %s\n' %
                 (self.build.tree, self.build.id, self.build.revision))
+            self.result = TestResult.BUSTED
+            self.message = 'No measurements detected.'
 
     def kill_webappstartup(self):
         re_webapp = re.compile(r'%s|%s|%s:%s.Webapp0' % (
@@ -224,20 +226,20 @@ class WebappStartupTest(PerfTest):
         # Return True if fennec exits on its own, False if it needs to be killed.
         # Re-raise the last exception if fennec can not be killed.
         max_wait_attempts = max_wait_time / wait_time
-        for wait_attempt in range(max_wait_attempts):
+        for wait_attempt in range(1, max_wait_attempts+1):
             if not self.is_webapp_running():
                 return True
             sleep(wait_time)
         self.loggerdeco.debug('wait_for_fennec: killing fennec')
         max_killattempts = 3
-        for kill_attempt in range(max_killattempts):
+        for kill_attempt in range(1, max_killattempts+1):
             try:
                 self.kill_webappstartup()
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d to kill fennec failed' %
                                           kill_attempt)
-                if kill_attempt == max_killattempts - 1:
+                if kill_attempt == max_killattempts:
                     raise
                 sleep(kill_wait_time)
         return False
@@ -255,7 +257,7 @@ class WebappStartupTest(PerfTest):
 
     def install_webappstartup(self):
         success = False
-        for attempt in range(self.options.phone_retry_limit):
+        for attempt in range(1, self.options.phone_retry_limit+1):
             self.loggerdeco.debug('Attempt %d Installing webappstartup' % attempt)
             try:
                 if self.webappstartup_name and self.dm.is_app_installed(self.webappstartup_name):
@@ -274,7 +276,7 @@ class WebappStartupTest(PerfTest):
         return success
 
     def is_webapp_running(self):
-        for attempt in range(self.options.phone_retry_limit):
+        for attempt in range(1, self.options.phone_retry_limit+1):
             try:
                 return (self.dm.process_exist(self.build.app_name) or
                         self.dm.process_exist(self.webappstartup_name) or
@@ -282,7 +284,7 @@ class WebappStartupTest(PerfTest):
                             self.build.app_name, self.build.app_name)))
             except ADBError:
                 self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
-                if attempt == self.options.phone_retry_limit - 1:
+                if attempt == self.options.phone_retry_limit:
                     raise
                 sleep(self.options.phone_retry_wait)
 
@@ -305,12 +307,12 @@ class WebappStartupTest(PerfTest):
         chrome_time = 0
         startup_time = 0
 
-        attempt = 0
+        attempt = 1
         max_time = 90 # maximum time to wait for WEBAPP STARTUP COMPLETE
         wait_time = 3 # time to wait between attempts
         max_attempts = max_time / wait_time
 
-        while attempt < max_attempts and startup_time == 0:
+        while attempt <= max_attempts and startup_time == 0:
             buf = self.get_logcat()
             for line in buf:
                 self.loggerdeco.debug('analyze_logcat: %s' % line)

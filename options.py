@@ -2,6 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from urlparse import urlparse
+
 from builds import BuildCache
 from worker import Crashes, PhoneWorker
 
@@ -27,6 +29,13 @@ class AutophoneOptions(object):
         self.buildtypes = []
         self.build_cache_port = -1
         self.verbose = False
+        self.treeherder_url = ''
+        self.treeherder_credentials_path = ''
+        self.treeherder_retries = 0
+        self.treeherder_retry_wait = 0
+        self._treeherder_protocol = ''
+        self._treeherder_server = ''
+        #self.treeherder_credentials = {} # computed
         # ini options
         self.build_cache_size = BuildCache.MAX_NUM_BUILDS
         self.build_cache_expires = BuildCache.EXPIRE_AFTER_DAYS
@@ -43,6 +52,23 @@ class AutophoneOptions(object):
         self.phone_crash_limit = Crashes.CRASH_LIMIT
         # other
         self.debug = 3
+
+    def _parse_treeherder_url(self):
+        p = urlparse(self.treeherder_url)
+        self._treeherder_protocol = p.scheme
+        self._treeherder_server = p.netloc
+
+    @property
+    def treeherder_protocol(self):
+        if self.treeherder_url and not self._treeherder_protocol:
+            self._parse_treeherder_url()
+        return self._treeherder_protocol
+
+    @property
+    def treeherder_server(self):
+        if self.treeherder_url and not self._treeherder_server:
+            self._parse_treeherder_url()
+        return self._treeherder_server
 
     def __str__(self):
         return '%s' % self.__dict__

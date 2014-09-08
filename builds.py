@@ -464,7 +464,8 @@ class BuildCache(object):
                  cache_dir='builds', override_build_dir=None,
                  enable_unittests=False,
                  build_cache_size=MAX_NUM_BUILDS,
-                 build_cache_expires=EXPIRE_AFTER_DAYS):
+                 build_cache_expires=EXPIRE_AFTER_DAYS,
+                 treeherder_url=None):
         self.repos = repos
         self.buildtypes = buildtypes
         self.product = product
@@ -490,6 +491,8 @@ class BuildCache(object):
             os.mkdir(self.cache_dir)
         self.build_cache_size = build_cache_size
         self.build_cache_expires = build_cache_expires
+        self.treeherder_url = treeherder_url
+        logger.debug('BuildCache: %s' % self.__dict__)
 
     def build_location(self, s):
         if 'nightly' in s:
@@ -550,7 +553,8 @@ class BuildCache(object):
         if self.override_build_dir:
             return {
                 'success': True,
-                'metadata': self.build_metadata(self.override_build_dir).to_json()
+                'metadata': self.build_metadata(buildurl,
+                                                self.override_build_dir).to_json()
             }
         build_dir = base64.b64encode(buildurl)
         self.clean_cache([build_dir])
@@ -655,7 +659,7 @@ class BuildCache(object):
 
         return {
             'success': True,
-            'metadata': self.build_metadata(cache_build_dir).to_json()
+            'metadata': self.build_metadata(buildurl, cache_build_dir).to_json()
         }
 
     def clean_cache(self, preserve=[]):
@@ -684,7 +688,7 @@ class BuildCache(object):
             logger.info('Expiring %s' % b)
             shutil.rmtree(os.path.join(self.cache_dir, b))
 
-    def build_metadata(self, build_dir):
+    def build_metadata(self, build_url, build_dir):
         build_metadata_path = os.path.join(build_dir, 'metadata.json')
         if os.path.exists(build_metadata_path):
             try:
@@ -726,13 +730,15 @@ class BuildCache(object):
             raise BuildCacheException('build %s contains an unknown SourceRepository %s' %
                                       (apkfile, repo))
 
-        metadata = BuildMetadata(dir=build_dir,
+        metadata = BuildMetadata(url=build_url,
+                                 dir=build_dir,
                                  tree=tree,
                                  id=buildid,
                                  revision='%srev/%s' % (repo_urls[tree], rev),
                                  app_name=procname,
                                  version=ver,
-                                 build_type='opt')
+                                 build_type='opt',
+                                 treeherder_url=self.treeherder_url)
         shutil.rmtree(tmpdir)
         file(build_metadata_path, 'w').write(json.dumps(metadata.to_json()))
         return metadata
@@ -740,14 +746,17 @@ class BuildCache(object):
 
 class BuildMetadata(object):
     def __init__(self,
+                 url=None,
                  dir=None,
                  tree=None,
                  id=None,
                  revision=None,
                  app_name=None,
                  version=None,
-                 build_type=None):
+                 build_type=None,
+                 treeherder_url=None):
         self._date = None
+        self.url = url
         self.dir = dir
         self.tree = tree
         self.id = id
@@ -755,7 +764,24 @@ class BuildMetadata(object):
         self.revision = revision
         self.app_name = app_name
         self.version = version
+        self.push_timestamp = None
+        self.revision_hash = None
 
+        if treeherder_url:
+            changeset = os.path.basename(urlparse.urlparse(revision).path)
+            try:
+                r = urllib2.urlopen('%s/api/project/%s/revision-lookup/?revision=%s' %
+                                    (treeherder_url, tree, changeset))
+                revision_lookup = json.loads(r.read())
+                logger.debug('revision_lookup: %s' % revision_lookup)
+                self.push_timestamp = revision_lookup[changeset]['push_timestamp']
+                self.revision_hash = revision_lookup[changeset]['revision_hash']
+            except urllib2.HTTPError:
+                logger.exception('Failure to get the revision_lookup for %s' %
+                                 self.revision)
+            except KeyError:
+                logger.exception('Invalid revision_lookup %s for %s' %
+                                 (revision_lookup, self.revision))
     @property
     def date(self):
         if not self._date:
@@ -772,6 +798,7 @@ class BuildMetadata(object):
     def to_json(self):
         return {
             '__class__': 'BuildMetadata',
+            'url': self.url,
             'dir': self.dir,
             'tree': self.tree,
             'type': self.type,
@@ -779,11 +806,14 @@ class BuildMetadata(object):
             'revision': self.revision,
             'app_name': self.app_name,
             'version': self.version,
+            'push_timestamp': self.push_timestamp,
+            'revision_hash': self.revision_hash,
         }
 
     def from_json(self, j):
         if '__class__' not in j or j['__class__'] != 'BuildMetadata':
             raise ValueError
+        self.url = j['url']
         self.dir = j['dir']
         self.tree = j['tree']
         self.type = j['type']
@@ -791,4 +821,6 @@ class BuildMetadata(object):
         self.revision = j['revision']
         self.app_name = j['app_name']
         self.version = j['version']
+        self.push_timestamp = j['push_timestamp']
+        self.revision_hash = j['revision_hash']
         return self
