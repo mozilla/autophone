@@ -20,7 +20,7 @@ class SmokeTest(PhoneTest):
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone.id,
-                                        'phoneip': self.phone.ip, # XXX: not set!
+                                        'phoneip': self.dm.get_ip_address(),
                                         'buildid': self.build.id},
                                        '%(phoneid)s|%(phoneip)s|%(buildid)s|'
                                        '%(message)s')
@@ -32,12 +32,16 @@ class SmokeTest(PhoneTest):
             self.loggerdeco = loggerdeco
 
     def runtest(self):
+        self.update_status(message='Running smoketest')
+        pass_file = 'smoketest-%s-pass' % self.phone.id
+        fail_file = 'smoketest-%s-fail' % self.phone.id
+
         try:
-            os.unlink('smoketest_pass')
+            os.unlink(pass_file)
         except OSError:
             pass
         try:
-            os.unlink('smoketest_fail')
+            os.unlink(fail_file)
         except OSError:
             pass
 
@@ -45,33 +49,41 @@ class SmokeTest(PhoneTest):
         # iterations and urls that we will be testing
         self.prepare_phone()
 
-        appname = self.build.app_name
-
         # Clear logcat
-        self.dm.recordLogcat()
+        self.dm.clear_logcat()
 
         # Run test
         self.loggerdeco.debug('running fennec')
-        self.run_fennec_with_profile(appname, 'about:fennec')
+        self.run_fennec_with_profile(self.build.app_name, 'about:fennec')
 
-        self.loggerdeco.debug('analyzing logcat...')
-        fennec_launched = self.analyze_logcat()
+        fennec_launched = self.dm.process_exist(self.build.app_name)
+        found_throbber = False
         start = datetime.datetime.now()
         while (not fennec_launched and (datetime.datetime.now() - start
                                         <= datetime.timedelta(seconds=60))):
             sleep(3)
-            fennec_launched = self.analyze_logcat()
+            fennec_launched = self.dm.process_exist(self.build.app_name)
 
         if fennec_launched:
-            self.loggerdeco.info('fennec successfully launched')
-            file('smoketest_pass', 'w')
-        else:
-            self.loggerdeco.error('failed to launch fennec')
-            file('smoketest_fail', 'w')
+            found_throbber = self.check_throbber()
+            while (not found_throbber and (datetime.datetime.now() - start
+                                           <= datetime.timedelta(seconds=60))):
+                sleep(3)
+                found_throbber = self.check_throbber()
 
-        self.loggerdeco.debug('killing fennec')
-        # Get rid of the browser and session store files
-        self.dm.pkill(self.build.app_name)
+        if not fennec_launched:
+            self.loggerdeco.error('smoketest: fail - failed to launch fennec')
+            file(fail_file, 'w')
+        elif not found_throbber:
+            self.loggerdeco.error('smoketest: fail - failed to find Throbber')
+            file(fail_file, 'w')
+        else:
+            self.loggerdeco.info('smoketest: pass - fennec successfully launched')
+            file(pass_file, 'w')
+
+        if fennec_launched:
+            self.loggerdeco.debug('killing fennec')
+            self.dm.pkill(self.build.app_name)
 
         self.loggerdeco.debug('removing sessionstore files')
         self.remove_sessionstore_files()
@@ -88,15 +100,13 @@ class SmokeTest(PhoneTest):
         profile = FirefoxProfile(preferences=prefs)
         self.install_profile(profile)
 
-    def analyze_logcat(self):
-        buf = self.dm.get_logcat()
-        got_start = False
-        got_end = False
+    def check_throbber(self):
+        buf = self.dm.get_logcat(filter_specs=['*:V'])
 
         for line in buf:
-            if not got_start and 'Start proc org.mozilla.fennec' in line:
-                got_start = True
-            if not got_end and 'Throbber stop' in line:
-                got_end = True
-        return got_start and got_end
+            line = line.strip()
+            self.loggerdeco.debug('check_throbber: %s' % line)
+            if 'Throbber stop' in line:
+                return True
+        return False
 
