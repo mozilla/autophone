@@ -27,6 +27,7 @@ class AutophoneOptions(object):
         self.override_build_dir = ''
         self.repos = []
         self.buildtypes = []
+        self.lifo = False
         self.build_cache_port = -1
         self.verbose = False
         self.treeherder_url = ''

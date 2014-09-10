@@ -681,6 +681,12 @@ if __name__ == '__main__':
                       'One of opt or debug. To specify multiple build types, '
                       'specify them with additional --buildtype options. '
                       'Defaults to opt.')
+    parser.add_option('--lifo',
+                      dest='lifo',
+                      action='store_true',
+                      default=False,
+                      help="""Process jobs in LIFO order. Default of False
+                      implies FIFO order.""")
     parser.add_option('--build-cache-port',
                       dest='build_cache_port',
                       action='store',

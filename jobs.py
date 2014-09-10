@@ -119,9 +119,11 @@ class Jobs(object):
             count = 0
         return count
 
-    def get_next_job(self, device=None):
+    def get_next_job(self, lifo=False, device=None):
         if not device:
             device = self.default_device
+        order = 'desc' if lifo else 'asc'
+
         try:
             conn = self._conn()
             c = conn.cursor()
@@ -134,8 +136,10 @@ class Jobs(object):
                      'build_url': job[3],
                      'attempts': job[4]}
                     for job in c.execute(
-                    'select ROWID as id,created,last_attempt,build_url,attempts'
-                    ' from jobs where device=? order by created desc', (device,))]
+                            'select ROWID as id,created,last_attempt,build_url,'
+                            'attempts from jobs where device=? order by '
+                            'created %s' % order,
+                            (device,))]
             if not jobs:
                 return None
             next_job = jobs[0]

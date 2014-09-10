@@ -632,7 +632,7 @@ class PhoneWorkerSubProcess(object):
                 if self.has_error():
                     self.recover_phone()
                 if not self.has_error():
-                    job = self.jobs.get_next_job()
+                    job = self.jobs.get_next_job(lifo=self.options.lifo)
                     if job:
                         self.handle_job(job)
                     else:
