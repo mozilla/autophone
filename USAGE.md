@@ -4,8 +4,31 @@ Using Autophone
 Starting Autophone
 ------------------
 
+Be sure to review INSTALL.md before attempting to run Autophone.
+
+There are many different usage scenarios, but to get started you probably
+need to do something like:
+ - configure and run Phonedash
+  -- customize phonedash/server/settings.cfg
+  -- python server.py <ip address>
+ - configure devices.ini and attach your rooted devices
+  -- adb devices to verify connectivity
+  -- customize devices.ini
+ - configure your tests
+  -- customize tests/manifest.ini if desired
+  -- customize configs/s1s2_settings.ini or similar
+  -- customize autophone.ini or select command line options
+ - start Autophone
+  -- python autophone.py --config autophone.ini
+      or
+  -- python autophone.py --devices devices.ini --test-path tests/manifest.ini
+
+Watch the autophone log, autophone.log by default, for status and errors.
+
 Autophone has a number of command-line options. Run "python autophone.py -h"
-to see them. Some important ones are
+to see them.
+
+Some important options are
 
 --devices <devices>: Specifies an ini file which lists each device to be tested.
                      The devices ini file has a section for each device in the form:
