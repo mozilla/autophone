@@ -1,8 +1,7 @@
 Autophone, a mobile-device manager for automated-test frameworks
 ================================================================
 
-Autophone controls one or more mobile devices via Mozilla's SUT agent and
-adb. Its primary goals are to
+Autophone controls one or more mobile devices via adb. Its primary goals are to
 
 * execute arbitrary tests on devices
 * provide basic device status
@@ -20,8 +19,7 @@ information.
 Source code is at https://github.com/mozilla/autophone/
 
 See also [phonedash](https://github.com/markrcote/phonedash) for a basic
-results server. At some point, [DataZilla](https://github.com/mozilla/datazilla)
-will obsolete this.
+results server.
 
 See the files INSTALL.md and USAGE.md for more detailed information.
 

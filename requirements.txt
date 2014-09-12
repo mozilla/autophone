@@ -1,7 +1,7 @@
+-e hg+http://hg.mozilla.org/automation/logparser#egg=logparser
 beautifulsoup4
 httplib2
 jot
-logparser
 mozautolog
 mozdevice
 mozprofile
