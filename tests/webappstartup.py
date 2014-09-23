@@ -14,6 +14,12 @@ from phonestatus import TestResult
 
 class WebappStartupTest(PerfTest):
 
+    @property
+    def phonedash_url(self):
+        # For webappstartup, Phonedash records the test name as
+        # webappstartup.
+        return self._phonedash_url('webappstartup')
+
     def setup_job(self):
         PerfTest.setup_job(self)
         # [paths]
@@ -32,6 +38,7 @@ class WebappStartupTest(PerfTest):
         if self.webappstartup_name:
             self.dm.uninstall_app(self.webappstartup_name)
         PerfTest.teardown_job(self)
+
     def run_job(self):
 
         self.testname = 'webappstartup'

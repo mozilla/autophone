@@ -60,6 +60,17 @@ class PerfTest(PhoneTest):
         if not self._resulturl.endswith('/'):
             self._resulturl += '/'
 
+    def _phonedash_url(self, testname):
+        if not self.result_server or not self.build:
+            return 'http://phonedash.mozilla.org/'
+        buildday = (self.build.id[0:4] + '-' + self.build.id[4:6] + '-' +
+                    self.build.id[6:8])
+        url = ('%s/#/%s/throbberstart/%s/norejected/%s/%s/notcached/'
+               'noerrorbars/standarderror' % (
+                   self.result_server, self.build.app_name, testname,
+                   buildday, buildday))
+        return url
+
     @property
     def result_server(self):
         if self._resulturl and not self._result_server:
@@ -67,6 +78,10 @@ class PerfTest(PhoneTest):
             self._result_server = '%s://%s' % (parts.scheme, parts.netloc)
             self.loggerdeco.debug('PerfTest._result_server: %s' % self._result_server)
         return self._result_server
+
+    @property
+    def phonedash_url(self):
+        raise NotImplementedError
 
     def teardown_job(self):
         PhoneTest.teardown_job(self)

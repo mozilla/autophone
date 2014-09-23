@@ -20,6 +20,12 @@ from phonestatus import TestResult
 
 class S1S2Test(PerfTest):
 
+    @property
+    def phonedash_url(self):
+        # For s1s2test, there are 4 different test names due to historical design.
+        # We pick local-blank as the default.
+        return self._phonedash_url('local-blank')
+
     def setup_job(self):
         PerfTest.setup_job(self)
 

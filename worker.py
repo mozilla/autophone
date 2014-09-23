@@ -866,15 +866,13 @@ class PhoneWorkerSubProcess(object):
                             'bugs': {'open_recent': [], 'all_others': []}
                         })
 
-            try:
+            if hasattr(t, 'phonedash_url'):
                 t.job_details.append({
-                    'url': t.result_server,
+                    'url': t.phonedash_url,
                     'value': 'graph',
                     'content_type': 'link',
                     'title': 'phonedash:'
                     })
-            except AttributeError:
-                pass
 
             tj = tjc.get_job()
             tj.add_revision_hash(self.build.revision_hash)
