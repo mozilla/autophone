@@ -335,7 +335,7 @@ class S1S2Test(PerfTest):
         self.loggerdeco.debug('analyzing logcat')
 
         logcat_prefix = '(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})'
-        throbber_prefix = 'I/GeckoToolbarDisplayLayout.*zerdatime (\d+) - Throbber'
+        throbber_prefix = '..GeckoToolbarDisplayLayout.*zerdatime (\d+) - Throbber'
         re_base_time = re.compile('%s' % logcat_prefix)
         re_start_time = re.compile('%s .*(Gecko|fennec)' %
                                    logcat_prefix)
