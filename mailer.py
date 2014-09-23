@@ -12,25 +12,31 @@ class Mailer(object):
     logger = logging.getLogger('autophone.mailer')
 
     def __init__(self, cfgfile, subject_prefix=''):
+        self.send_mail = True
         self.cfgfile = cfgfile
         self.subject_prefix = subject_prefix
 
         cfg = ConfigParser.ConfigParser()
         if not cfg.read(self.cfgfile):
             self.logger.info('No email configuration file found. No emails will be sent.')
+            self.send_mail = False
             return
 
         try:
             self.from_address = cfg.get('report', 'from')
+            if not self.from_address:
+                self.send_mail = False
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self.from_address = None
+            self.send_mail = False
             self.logger.error('No "from" option defined in "report" section of file "%s".\n' % self.cfgfile)
             return
 
         try:
             self.mail_dest = [x.strip() for x in cfg.get('email', 'dest').split(',')]
+            if not self.mail_dest:
+                self.send_mail = False
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self.mail_dest = []
+            self.send_mail = False
 
         try:
             self.mail_username = cfg.get('email', 'username')
@@ -59,7 +65,7 @@ class Mailer(object):
 
 
     def send(self, subject, body):
-        if not self.from_address or not self.mail_dest:
+        if not self.send_mail:
             return
 
         # encode string as ascii ignoring encoding errors
