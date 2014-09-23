@@ -26,7 +26,7 @@ from pulsebuildmonitor import start_pulse_monitor
 import builds
 import buildserver
 import jobs
-from adb import ADBHost
+#from adb import ADBHost
 from adb_android import ADBAndroid as ADBDevice
 from mailer import Mailer
 from options import AutophoneOptions
@@ -548,9 +548,12 @@ def main(options):
     console_logger.info('Starting server on port %d.' % options.port)
     console_logger.info('Starting build-cache server on port %d.' %
                         options.build_cache_port)
+    # Calling kill_server on the mac mini Autophone host horks
+    # subsequent calls to adb devices. Temporarily disable until
+    # this is resolved.
     # ensure that the previous runs have not left open adb ports.
-    adbhost = ADBHost()
-    adbhost.kill_server()
+    #adbhost = ADBHost()
+    #adbhost.kill_server()
 
     product = 'fennec'
     build_platforms = ['android', 'android-x86']
