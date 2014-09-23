@@ -144,10 +144,19 @@ class S1S2Test(PerfTest):
                             self.stderrp_accept):
                         self.loggerdeco.info(
                             'Accepted test (%d/%d) after %d of %d iterations' %
-                            (testnum, testcount, iteration+1, self._iterations))
+                            (testnum, testcount, iteration, self._iterations))
                         break
 
-                self.loggerdeco.debug('publishing results')
+                # If we have not gotten a single measurement at this point,
+                # just bail and report the failure rather than wasting time
+                # continuing more attempts.
+                if not success:
+                    self.loggerdeco.info(
+                        'Failed to get measurements for test %s after %d/%d attempt '
+                        'of %d iterations' % (testname, attempt,
+                                              self.stderrp_attempts,
+                                              self._iterations))
+                    break
 
                 if self.is_stderr_below_threshold(
                         ('throbberstart',
@@ -159,7 +168,9 @@ class S1S2Test(PerfTest):
                     rejected = True
                     self.loggerdeco.info(
                         'Rejected test (%d/%d) after %d/%d iterations' %
-                        (testnum, testcount, iteration+1, self._iterations))
+                        (testnum, testcount, iteration, self._iterations))
+
+                self.loggerdeco.debug('publishing results')
 
                 for datapoint in dataset:
                     for cachekey in datapoint:

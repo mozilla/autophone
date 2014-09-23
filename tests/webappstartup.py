@@ -77,8 +77,8 @@ class WebappStartupTest(PerfTest):
                 if not self.install_webappstartup():
                     self.update_status(message='Attempt %d/%d for Test %s, '
                                        'run %d failed to install webappstartup' %
-                                       (attempt+1, self.stderrp_attempts,
-                                        self.testname, iteration+1))
+                                       (attempt, self.stderrp_attempts,
+                                        self.testname, iteration))
                     continue
 
                 measurement = self.runtest()
@@ -99,8 +99,19 @@ class WebappStartupTest(PerfTest):
                         self.stderrp_accept):
                     self.loggerdeco.info(
                         'Accepted test %s after %d of %d iterations' %
-                        (self.testname, iteration+1, self._iterations))
+                        (self.testname, iteration, self._iterations))
                     break
+
+            # If we have not gotten a single measurement at this point,
+            # just bail and report the failure rather than wasting time
+            # continuing more attempts.
+            if not success:
+                self.loggerdeco.info(
+                    'Failed to get measurements for test %s after %d/%d attempt '
+                    'of %d iterations' % (self.testname, attempt,
+                                          self.stderrp_attempts,
+                                          self._iterations))
+                break
 
             if self.is_stderr_below_threshold(
                     ('chrome_time',
@@ -112,7 +123,7 @@ class WebappStartupTest(PerfTest):
                 rejected = True
                 self.loggerdeco.info(
                     'Rejected test %s after %d/%d iterations' %
-                    (self.testname, iteration+1, self._iterations))
+                    (self.testname, iteration, self._iterations))
 
             self.loggerdeco.debug('publishing results')
 
