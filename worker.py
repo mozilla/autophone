@@ -6,7 +6,6 @@ from __future__ import with_statement
 
 import Queue
 import datetime
-import hashlib
 import logging
 import multiprocessing
 import os
@@ -15,6 +14,7 @@ import sys
 import tempfile
 import time
 import traceback
+import uuid
 from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
 
 from thclient import (TreeherderRequest, TreeherderJobCollection,
@@ -28,10 +28,8 @@ from builds import BuildMetadata
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus, PhoneTestMessage, TestState, TestResult
 
-def generate_guid(obj):
-    sh = hashlib.sha1()
-    sh.update("%s%s" % (str(obj), str(time.time())))
-    return sh.hexdigest()
+def generate_guid():
+    return str(uuid.uuid4())
 
 def timestamp_now():
     return int(time.mktime(datetime.datetime.now().timetuple()))
@@ -738,15 +736,18 @@ class PhoneWorkerSubProcess(object):
                 self.loggerdeco.debug('submit_treeherder_pending: not creating '
                                       'job for %s %s' % (t.name, t.build.tree))
                 continue
-            self.loggerdeco.debug('submit_treeherder_pending: creating job for '
-                                  '%s %s' % (t.name, t.build.tree))
 
             t.state = TestState.PENDING
             t.result = None
             t.message = None
             t.submit_timestamp = timestamp_now()
-            t.job_guid = generate_guid(t)
+            t.job_guid = generate_guid()
             t.job_details = []
+
+            self.loggerdeco.info('creating Treeherder job %s for %s %s, '
+                                 'revision: %s, revision_hash: %s' % (
+                                     t.job_guid, t.name, t.build.tree,
+                                     t.build.revision, t.build.revision_hash))
 
             tj = tjc.get_job()
             tj.add_revision_hash(self.build.revision_hash)
