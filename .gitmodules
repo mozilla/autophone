@@ -1,0 +1,4 @@
+[submodule "files/ep1"]
+           path = files/ep1
+           url = https://git.mozilla.org/automation/ep1.git
+           ignore = dirty

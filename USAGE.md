@@ -104,6 +104,7 @@ Some important options are
                        phone_command_queue_timeout
                        phone_crash_window
                        phone_crash_limit
+                       verbose
 
 Running Unit Tests
 ------------------

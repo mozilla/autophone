@@ -1,9 +1,9 @@
 [paths]
 # By default, Autophone will attempt to copy the test files
-# from the autophone/files directory. If you wish to customize
-# the location, you can use the source option to specify the
-# the path as either a relative or absolute path.
-#source = files/
+# from the autophone/files/base directory. If you wish to customize
+# the location, you can use the sources option to specify the
+# the paths as a space separated list of relative or absolute paths.
+#sources =  files/base/ files/s1s2/ files/ep1/twitter.com/
 # By default, Autophone will place the test files in
 # <testroot>/tests/autophone/s1test/ directory. You can customize
 # the location for all devices by setting the dest option.

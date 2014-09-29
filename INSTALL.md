@@ -30,9 +30,16 @@ s1s2
 s1s2 measures fennec load times for web pages,
 served both remotely and from a local file.
 
-Put the pages to be served into autophone/files. You will need a way to
-serve them (FIXME: autophone should do this). If you're using phonedash,
-it can serve the files by just dropping them into phonedash/html/.
+The pages to be served are located in autophone/files/base/ and
+autophone/files/s1s2/. The twitter test pages are retrieved from
+https://git.mozilla.org/?p=automation/ep1.git;a=summary and placed in
+autophone/files/ep1/twitter.com via
+
+git submodule update --init
+
+You will need a way to serve them (FIXME: autophone should do
+this). If you're using phonedash, it can serve the files by just
+dropping them into phonedash/html/.
 
 The s1s2 test is configured in the file configs/s1s2_settings.ini -- copy
 configs/s1s2_settings.ini.example and customize as needed.

@@ -32,10 +32,19 @@ class S1S2Test(PerfTest):
         # [paths]
         autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
         self._paths = {}
-        self._paths['source'] = os.path.join(autophone_directory, 'files/')
+        self._paths['sources'] = [os.path.join(autophone_directory, 'files/base/')]
         self._paths['dest'] = posixpath.join(self.base_device_path, 's1test/')
         try:
-            for opt in ('source', 'dest', 'profile'):
+            try:
+                sources = self.cfg.get('paths', 'sources').split()
+                self._paths['sources'] = []
+                for source in sources:
+                    if not source.endswith('/'):
+                        source += '/'
+                    self._paths['sources'].append(source)
+            except ConfigParser.NoOptionError:
+                pass
+            for opt in ('dest', 'profile'):
                 try:
                     self._paths[opt] = self.cfg.get('paths', opt)
                     if not self._paths[opt].endswith('/'):
@@ -48,11 +57,12 @@ class S1S2Test(PerfTest):
             self.profile_path = self._paths['profile']
         # _pushes = {'sourcepath' : 'destpath', ...}
         self._pushes = {}
-        for push in glob.glob(self._paths['source'] + '*'):
-            if push.endswith('~') or push.endswith('.bak'):
-                continue
-            push_dest = posixpath.join(self._paths['dest'], os.path.basename(push))
-            self._pushes[push] = push_dest
+        for source in self._paths['sources']:
+            for push in glob.glob(source + '*'):
+                if push.endswith('~') or push.endswith('.bak'):
+                    continue
+                push_dest = posixpath.join(self._paths['dest'], os.path.basename(push))
+                self._pushes[push] = push_dest
         # [tests]
         self._tests = {}
         for t in self.cfg.items('tests'):
