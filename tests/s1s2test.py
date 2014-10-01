@@ -190,7 +190,7 @@ class S1S2Test(PerfTest):
 
                 for datapoint in dataset:
                     for cachekey in datapoint:
-                        self.publish_results(
+                        self.report_results(
                             starttime=datapoint[cachekey]['starttime'],
                             tstrt=datapoint[cachekey]['throbberstart'],
                             tstop=datapoint[cachekey]['throbberstop'],

@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
+import csv
 import json
 import urllib
 import urllib2
@@ -56,9 +57,37 @@ class PerfTest(PhoneTest):
             self.stderrp_attempts = self.cfg.getint('settings', 'stderrp_attempts')
         except ConfigParser.NoOptionError:
             self.stderrp_attempts = 1
-        self._resulturl = self.cfg.get('settings', 'resulturl')
-        if not self._resulturl.endswith('/'):
-            self._resulturl += '/'
+        try:
+            self._resultfile = None
+            self._resulturl = self.cfg.get('settings', 'resulturl')
+            if self._resulturl.lower() == 'none':
+                self._resulturl = None
+                self._resultfile = open('autophone-results-%s.csv' %
+                                        self.phone.id, 'ab')
+                self._resultfile.seek(0, 2)
+                self._resultwriter = csv.writer(self._resultfile)
+                if self._resultfile.tell() == 0:
+                    self._resultwriter.writerow([
+                        'phoneid',
+                        'testname',
+                        'starttime',
+                        'throbberstartraw',
+                        'throbberstopraw',
+                        'throbberstart',
+                        'throbberstop',
+                        'blddate',
+                        'cached',
+                        'rejected',
+                        'revision',
+                        'productname',
+                        'productversion',
+                        'osver',
+                        'bldtype',
+                        'machineid'])
+            elif not self._resulturl.endswith('/'):
+                self._resulturl += '/'
+        except ConfigParser.NoOptionError:
+            self._resulturl = 'http://phonedash.mozilla.org/api/s1s2/'
 
     def _phonedash_url(self, testname):
         if not self.result_server or not self.build:
@@ -85,6 +114,9 @@ class PerfTest(PhoneTest):
 
     def teardown_job(self):
         PhoneTest.teardown_job(self)
+        if self._resultfile:
+            self._resultfile.close()
+            self._resultfile = None
 
     def get_logcat(self):
         for attempt in range(1, self.options.phone_retry_limit+1):
@@ -98,14 +130,31 @@ class PerfTest(PhoneTest):
                     raise
                 sleep(self.options.phone_retry_wait)
 
+    def report_results(self, starttime=0, tstrt=0, tstop=0,
+                       testname='', cache_enabled=True,
+                       rejected=False):
+        msg = ('Tree: %s Cached: %s '
+               'Start Time: %s Throbber Start Raw: %s Throbber Stop Raw: %s '
+               'Throbber Start: %s Throbber Stop: %s '
+               'Total Throbber Time: %s Rejected: %s' % (
+                   self.build.tree, cache_enabled,
+                   starttime, tstrt, tstop,
+                   tstrt-starttime, tstop-starttime,
+                   tstop - tstrt, rejected))
+        self.loggerdeco.info('RESULTS: %s' % msg)
+
+        if self._resulturl:
+            self.publish_results(starttime=starttime, tstrt=tstrt, tstop=tstop,
+                                 testname=testname, cache_enabled=cache_enabled,
+                                 rejected=rejected)
+        else:
+            self.dump_results(starttime=starttime, tstrt=tstrt, tstop=tstop,
+                              testname=testname, cache_enabled=cache_enabled,
+                              rejected=rejected)
+
     def publish_results(self, starttime=0, tstrt=0, tstop=0,
                         testname='', cache_enabled=True,
                         rejected=False):
-        msg = ('Cached: %s Start Time: %s Throbber Start: %s Throbber Stop: %s '
-               'Total Throbber Time: %s Rejected: %s' % (
-                   cache_enabled, starttime, tstrt, tstop, tstop - tstrt, rejected))
-        self.loggerdeco.debug('RESULTS: %s' % msg)
-
         # Create JSON to send to webserver
         resultdata = {
             'phoneid': self.phone.id,
@@ -160,10 +209,34 @@ class PerfTest(PhoneTest):
             f.read()
             f.close()
 
+    def dump_results(self, starttime=0, tstrt=0, tstop=0,
+                     testname='', cache_enabled=True,
+                     rejected=False):
+        self._resultwriter.writerow([
+            self.phone.id,
+            testname,
+            starttime,
+            tstrt,
+            tstop,
+            tstrt-starttime,
+            tstop-starttime,
+            self.build.date,
+            cache_enabled,
+            rejected,
+            self.build.revision,
+            self.build.app_name,
+            self.build.version,
+            self.phone.osver,
+            self.build.type,
+            self.phone.machinetype])
+
     def check_results(self, testname=''):
         """Return True if there already exist unrejected results for this device,
         build and test.
         """
+
+        if not self._resulturl:
+            return False
 
         # Create JSON to send to webserver
         query = {
