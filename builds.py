@@ -5,6 +5,7 @@
 import ConfigParser
 import base64
 import datetime
+import glob
 import httplib
 import json
 import logging
@@ -32,6 +33,7 @@ repo_urls = {
     'b2g-inbound': 'http://hg.mozilla.org/integration/b2g-inbound/',
     'fx-team': 'http://hg.mozilla.org/integration/fx-team/',
     'mozilla-central': 'http://hg.mozilla.org/mozilla-central/',
+    'try': 'http://hg.mozilla.org/try/',
     'mozilla-aurora': 'http://hg.mozilla.org/releases/mozilla-aurora/',
     'mozilla-beta': 'http://hg.mozilla.org/releases/mozilla-beta/',
     'mozilla-inbound': 'http://hg.mozilla.org/integration/mozilla-inbound/'}
@@ -184,6 +186,35 @@ class BuildLocation(object):
 
         logger.debug('find_latest_builds: builds: %s' % multiarch_builds)
         return multiarch_builds
+
+    def find_builds_by_directory(self, directory):
+        logger.debug('Finding builds in directory %s' %
+                     directory)
+
+        builds = []
+
+        logger.debug('Checking directory %s...' % directory)
+        if urlparse.urlparse(directory).scheme.startswith('http'):
+            build_links = url_links(directory)
+            for build_link in build_links:
+                filename = build_link.get_text()
+                logger.debug('find_builds_by_directory: checking filename: %s' % filename)
+                if self.build_regex.match(filename):
+                    logger.debug('find_builds_by_directory: found filename: %s' % filename)
+                    builds.append('%s%s' % (directory, filename))
+                    break
+        else:
+            filepaths = glob.glob(directory + '/*')
+            for filepath in filepaths:
+                filename = os.path.basename(filepath)
+                logger.debug('find_builds_by_directory: checking %s' % filepath)
+                if self.build_regex.match(filename):
+                    logger.debug('find_builds_by_directory: found %s' % filepath)
+                    builds.append(filepath)
+                    break
+        if not builds:
+            logger.error('No builds found.')
+        return builds
 
     def find_builds_by_time(self, start_time, end_time):
         logger.debug('Finding builds between %s and %s' %
@@ -516,6 +547,14 @@ class BuildCache(object):
             return []
         return build_location.find_latest_builds()
 
+    def find_builds_by_directory(self, directory, build_location_name='nightly'):
+        build_location = self.build_location(build_location_name)
+        if not build_location:
+            logger.error('unsupported build_location "%s"' % build_location_name)
+            return []
+
+        return build_location.find_builds_by_directory(directory)
+
     def find_builds_by_time(self, start_time, end_time, build_location_name='nightly'):
         build_location = self.build_location(build_location_name)
         if not build_location:
@@ -556,6 +595,9 @@ class BuildCache(object):
                 'metadata': self.build_metadata(buildurl,
                                                 self.override_build_dir).to_json()
             }
+        # If the buildurl is for a local build, force the download since it may
+        # have changed even though the buildurl hasn't.
+        force = force or not urlparse.urlparse(buildurl).scheme.startswith('http')
         build_dir = base64.b64encode(buildurl)
         self.clean_cache([build_dir])
         cache_build_dir = os.path.join(self.cache_dir, build_dir)
@@ -598,6 +640,8 @@ class BuildCache(object):
                 symbols_zipfile.close()
             except IOError, ioerror:
                 if '550 Failed to change directory' in str(ioerror):
+                    logger.info('No symbols found: %s.' % symbols_url)
+                elif 'No such file or directory' in str(ioerror):
                     logger.info('No symbols found: %s.' % symbols_url)
                 else:
                     logger.exception('IO Error retrieving symbols: %s.' % symbols_url)
@@ -689,8 +733,11 @@ class BuildCache(object):
             shutil.rmtree(os.path.join(self.cache_dir, b))
 
     def build_metadata(self, build_url, build_dir):
+        # If the build is a local build, do not rely on any
+        # existing cached build.
+        remote = urlparse.urlparse(build_url).scheme.startswith('http')
         build_metadata_path = os.path.join(build_dir, 'metadata.json')
-        if os.path.exists(build_metadata_path):
+        if remote and os.path.exists(build_metadata_path):
             try:
                 return BuildMetadata().from_json(
                     json.loads(file(build_metadata_path).read()))
@@ -713,6 +760,7 @@ class BuildCache(object):
         ver = cfg.get('App', 'Version')
         repo = cfg.get('App', 'SourceRepository')
         buildid = cfg.get('App', 'BuildID')
+        codename = cfg.get('App', 'CodeName')
         tree = None
         procname = None
         for temp_tree, temp_procname in (
@@ -720,6 +768,7 @@ class BuildCache(object):
                 ('fx-team', 'org.mozilla.fennec'),
                 ('mozilla-central', 'org.mozilla.fennec'),
                 ('mozilla-inbound', 'org.mozilla.fennec'),
+                ('try', 'org.mozilla.fennec'),
                 ('mozilla-aurora', 'org.mozilla.fennec_aurora'),
                 ('mozilla-beta', 'org.mozilla.firefox')):
             if temp_tree in repo:
@@ -730,6 +779,9 @@ class BuildCache(object):
             raise BuildCacheException('build %s contains an unknown SourceRepository %s' %
                                       (apkfile, repo))
 
+        if codename == 'Firefox':
+            # official build
+            procname = procname.replace('fennec', 'firefox')
         metadata = BuildMetadata(url=build_url,
                                  dir=build_dir,
                                  tree=tree,
@@ -782,6 +834,8 @@ class BuildMetadata(object):
             except KeyError:
                 logger.exception('Invalid revision_lookup %s for %s' %
                                  (revision_lookup, self.revision))
+        logger.debug('BuildMetadata: %s' % self.__dict__)
+
     @property
     def date(self):
         if not self._date:

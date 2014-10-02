@@ -67,20 +67,20 @@ def main(args, options):
     build_platforms = ['android', 'android-x86']
     buildfile_ext = '.apk'
 
+    cache = builds.BuildCache(
+        options.repos, options.buildtypes,
+        product, build_platforms,
+        buildfile_ext)
+
     build_urls = []
-    if not args:
-        build_urls = builds.BuildCache(
-            options.repos, options.buildtypes,
-            product, build_platforms,
-            buildfile_ext).find_builds_by_revision(
-                options.first_revision, options.last_revision,
-                options.build_location)
-    elif args[0] == 'latest':
-        build_urls = builds.BuildCache(
-            options.repos, options.buildtypes,
-            product, build_platforms,
-            buildfile_ext).find_latest_builds(
+    if options.build_url:
+        build_urls = cache.find_builds_by_directory(options.build_url)
+    elif not args:
+        build_urls = cache.find_builds_by_revision(
+            options.first_revision, options.last_revision,
             options.build_location)
+    elif args[0] == 'latest':
+        build_urls = cache.find_latest_builds(options.build_location)
     else:
         if re.match('\d{14}', args[0]):
             # build id
@@ -97,10 +97,7 @@ def main(args, options):
             start_time = start_time.replace(tzinfo=pytz.timezone('US/Pacific'))
         if not end_time.tzinfo:
             end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
-        build_urls = builds.BuildCache(
-            options.repos, options.buildtypes,
-            product, build_platforms,
-            buildfile_ext).find_builds_by_time(
+        build_urls = cache.find_builds_by_time(
             start_time, end_time, options.build_location)
 
     if not build_urls:
@@ -166,7 +163,7 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       action='append',
                       help='The repos to test. '
                       'One of mozilla-central, mozilla-inbound, mozilla-aurora, '
-                      'mozilla-beta, fx-team, b2g-inbound. To specify multiple '
+                      'mozilla-beta, fx-team, b2g-inbound, try. To specify multiple '
                       'repos, specify them with additional --repo options. '
                       'Defaults to mozilla-central.')
     parser.add_option('--buildtype',
@@ -186,6 +183,11 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       help='revision of second build; must match a build;'
                       ' first revision must also be specified;'
                       ' can not be used with date arguments.')
+    parser.add_option('--build-url', action='store', type='string',
+                      dest='build_url',
+                      help='url of build to test; may be an http or file schema;'
+                      ' --repo must be specified if the build was not build from'
+                      ' the mozilla-central repository.')
     parser.add_option('--device',
                       dest='devices',
                       action='append',
@@ -195,7 +197,8 @@ If "latest" is given, test runs are initiated for the most recent build.'''
     if (len(args) > 2 or
         (options.first_revision and not options.last_revision) or
         (not options.first_revision and options.last_revision) or
-        (options.first_revision and len(args) > 0)):
+        (options.first_revision and len(args) > 0) or
+        (options.build_url and len(args) > 0)):
         parser.print_help()
         sys.exit(errno.EINVAL)
 

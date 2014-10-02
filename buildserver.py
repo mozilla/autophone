@@ -7,6 +7,7 @@ import errno
 import json
 import socket
 import threading
+import urlparse
 
 DEFAULT_PORT = 28008
 
@@ -49,7 +50,9 @@ class BuildCacheHandler(SocketServer.BaseRequestHandler):
                     force = (cmd.lower() == 'force')
                     enable_unittests = (cmd.lower() == 'enable_unittests')
                 self.server.cache_lock.acquire()
-                results = self.server.build_cache.get(build, force, enable_unittests)
+                results = self.server.build_cache.get(build,
+                                                      force=force,
+                                                      enable_unittests=enable_unittests)
                 self.server.cache_lock.release()
                 self.request.send(json.dumps(results) + '\n')
 
@@ -73,6 +76,7 @@ class BuildCacheClient(object):
         if not self.sock:
             self.connect()
         line = url
+        force = force or not urlparse.urlparse(url).scheme.startswith('http')
         if force:
             line += ' force'
         if enable_unittests:
