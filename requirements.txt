@@ -1,5 +1,5 @@
 -e hg+http://hg.mozilla.org/automation/logparser#egg=logparser
--e git://github.com:mozilla/treeherder-client.git#egg=treeherder_client
+-e git+https://github.com/mozilla/treeherder-client.git#egg=treeherder_client
 beautifulsoup4
 httplib2
 jot
