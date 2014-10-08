@@ -14,25 +14,18 @@ import sys
 import tempfile
 import time
 import traceback
-import uuid
 from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
-
-from thclient import (TreeherderRequest, TreeherderJobCollection,
-                      TreeherderClientError)
 
 import buildserver
 import jobs
 from adb import ADBError, ADBTimeoutError
 from adb_android import ADBAndroid as ADBDevice
+from autophonetreeherder import AutophoneTreeherder
 from builds import BuildMetadata
 from logdecorator import LogDecorator
-from phonestatus import PhoneStatus, PhoneTestMessage, TestState, TestResult
-
-def generate_guid():
-    return str(uuid.uuid4())
-
-def timestamp_now():
-    return int(time.mktime(datetime.datetime.now().timetuple()))
+from phonestatus import PhoneStatus
+from phonetest import PhoneTestResult
+from s3 import S3Bucket
 
 class Crashes(object):
 
@@ -51,6 +44,30 @@ class Crashes(object):
 
     def too_many_crashes(self):
         return len(self.crash_times) >= self.crash_limit
+
+
+class PhoneTestMessage(object):
+
+    def __init__(self, phone, build=None, phone_status=None,
+                 message=None):
+        self.phone = phone
+        self.build = build
+        self.phone_status = phone_status
+        self.message = message
+        self.timestamp = datetime.datetime.now().replace(microsecond=0)
+
+    def __str__(self):
+        s = '<%s> %s (%s)' % (self.timestamp.isoformat(), self.phone.id,
+                              self.phone_status)
+        if self.message:
+            s += ': %s' % self.message
+        return s
+
+    def short_desc(self):
+        s = self.phone_status
+        if self.message:
+            s += ': %s' % self.message
+        return s
 
 
 class PhoneWorker(object):
@@ -197,6 +214,14 @@ class PhoneWorkerSubProcess(object):
         self.loggerdeco.debug('PhoneWorkerSubProcess:__init__')
         for t in tests:
             t.worker_subprocess = self
+        self.treeherder = AutophoneTreeherder(self)
+        if not options.s3_upload_bucket:
+            self.s3_bucket = None
+        else:
+            self.s3_bucket = S3Bucket(options.s3_upload_bucket,
+                                      options.aws_access_key_id,
+                                      options.aws_access_key,
+                                      self.loggerdeco)
 
     def _check_device(self):
         for attempt in range(1, self.options.phone_retry_limit+1):
@@ -380,11 +405,11 @@ class PhoneWorkerSubProcess(object):
             self.loggerdeco.info('Rebooting...')
             self.reboot()
 
-        self.submit_treeherder_pending()
+        self.treeherder.submit_pending()
         # may have gotten an error trying to reboot, so test again
         if self.has_error():
             self.loggerdeco.info('Phone is in error state; not running tests.')
-            self.submit_treeherder_complete(test_result=TestResult.USERCANCEL,
+            self.treeherder.submit_complete(test_status=PhoneTestResult.USERCANCEL,
                                             test_message='Device Error')
             return False
 
@@ -436,19 +461,19 @@ class PhoneWorkerSubProcess(object):
                     break
         if not uninstalled:
             self.phone_disconnected(exc)
-            self.submit_treeherder_complete(
-                test_result=TestResult.EXCEPTION,
+            self.treeherder.submit_complete(
+                test_status=PhoneTestResult.EXCEPTION,
                 test_message='Device Error: Failed to uninstall fennec: %s' % exc)
             return False
         elif not installed:
             self.phone_disconnected(exc)
             if isinstance(e, ADBTimeoutError):
-                self.submit_treeherder_complete(
-                    test_result=TestResult.EXCEPTION,
+                self.treeherder.submit_complete(
+                    test_status=PhoneTestResult.EXCEPTION,
                     test_message='Device Error: Failed to install fennec: %s' % exc)
             else:
-                self.submit_treeherder_complete(
-                    test_result=TestResult.BUSTED,
+                self.treeherder.submit_complete(
+                    test_status=PhoneTestResult.BUSTED,
                     test_message='Failed to install fennec: %s' % exc)
             return False
 
@@ -463,8 +488,8 @@ class PhoneWorkerSubProcess(object):
                 self.loggerdeco.warning('run_tests: not running test due '
                                         'to device error! %s %s %s' % (
                                             t.name, t.build.tree, t.build.id))
-                self.submit_treeherder_complete(tests=[t],
-                                                test_result=TestResult.USERCANCEL,
+                self.treeherder.submit_complete(tests=[t],
+                                                test_status=PhoneTestResult.USERCANCEL,
                                                 test_message='Device Error')
                 continue
             try:
@@ -473,7 +498,7 @@ class PhoneWorkerSubProcess(object):
             except (ADBError, ADBTimeoutError):
                 exc = ('Uncaught device error while running test!\n\n%s' %
                     traceback.format_exc())
-                t.result = TestResult.EXCEPTION
+                t.test_result.status = PhoneTestResult.EXCEPTION
                 t.message = exc
                 self.loggerdeco.exception('Uncaught device error while '
                                           'running test!')
@@ -674,242 +699,3 @@ class PhoneWorkerSubProcess(object):
 
         self.main_loop()
 
-    def post_treeherder_request(self, treeherder_job_collection):
-        if not self.options.treeherder_url or not self.build.revision_hash:
-            return
-
-        req = TreeherderRequest(
-            protocol=self.options.treeherder_protocol,
-            host=self.options.treeherder_server,
-            project=self.build.tree,
-            oauth_key=self.options.treeherder_credentials[self.build.tree]['consumer_key'],
-            oauth_secret=self.options.treeherder_credentials[self.build.tree]['consumer_secret']
-            )
-
-        try:
-            for attempt in range(1, self.options.treeherder_retries+1):
-                response = req.post(treeherder_job_collection)
-                self.loggerdeco.debug('TreeherderRequest attempt %d: '
-                                      'body: %s headers: %s msg: %s status: %s '
-                                      'reason: %s' % (
-                                          attempt,
-                                          response.read(),
-                                          response.getheaders(),
-                                          response.msg,
-                                          response.status,
-                                          response.reason))
-                if response.reason == 'OK':
-                    break
-                msg = ('Attempt %d to post result to Treeherder failed.\n\n'
-                       'Response:\n'
-                       'body: %s\n'
-                       'headers: %s\n'
-                       'msg: %s\n'
-                       'status: %s\n'
-                       'reason: %s\n' % (
-                           attempt,
-                           response.read(), response.getheaders(),
-                           response.msg, response.status,
-                           response.reason))
-                self.loggerdeco.error(msg)
-                self.mailer.send('Attempt %d for Phone %s failed to post to Treeherder' %
-                                 (attempt, self.phone.id), msg)
-                time.sleep(self.options.treeherder_retry_wait)
-        except TreeherderClientError, e:
-            self.loggerdeco.exception('Error submitting request to Treeherder')
-            self.mailer.send('Error submitting request to Treeherder',
-                             'Phone: %s\n'
-                             'TreeherderClientError: %s\n'
-                             'TreeherderJobCollection %s\n' % (
-                                 self.phone.id,
-                                 e,
-                                 treeherder_job_collection.to_json()))
-
-    def submit_treeherder_pending(self, tests=[]):
-        if not self.options.treeherder_url or not self.build.revision_hash:
-            return
-
-        tjc = TreeherderJobCollection(job_type='update')
-
-        if not tests:
-            tests = self.tests
-
-        for t in tests:
-            if not t.test_this_repo:
-                self.loggerdeco.debug('submit_treeherder_pending: not creating '
-                                      'job for %s %s' % (t.name, t.build.tree))
-                continue
-
-            t.state = TestState.PENDING
-            t.result = None
-            t.message = None
-            t.submit_timestamp = timestamp_now()
-            t.job_guid = generate_guid()
-            t.job_details = []
-
-            self.loggerdeco.info('creating Treeherder job %s for %s %s, '
-                                 'revision: %s, revision_hash: %s' % (
-                                     t.job_guid, t.name, t.build.tree,
-                                     t.build.revision, t.build.revision_hash))
-
-            tj = tjc.get_job()
-            tj.add_revision_hash(self.build.revision_hash)
-            tj.add_project(self.build.tree)
-            tj.add_job_guid(t.job_guid)
-            tj.add_job_name(t.job_name)
-            tj.add_job_symbol(t.job_symbol)
-            tj.add_group_name(t.group_name)
-            tj.add_group_symbol(t.group_symbol)
-            tj.add_product_name('fennec')
-            tj.add_state(TestState.PENDING)
-            tj.add_submit_timestamp(t.submit_timestamp)
-            # XXX need to send these until Bug 1066346 fixed.
-            tj.add_start_timestamp(t.submit_timestamp)
-            tj.add_end_timestamp(t.submit_timestamp)
-            #
-            tj.add_machine(t.phone.id)
-            tj.add_build_url(self.build.url)
-            tj.add_build_info('android', t.phone.os, t.phone.architecture)
-            tj.add_machine_info('android',t.phone.os, t.phone.architecture)
-            tj.add_option_collection({'opt': True})
-            tjc.add(tj)
-
-        self.loggerdeco.debug('submit_treeherder_pending: tjc: %s' % (
-            tjc.to_json()))
-
-        self.post_treeherder_request(tjc)
-
-    def submit_treeherder_running(self, tests=[]):
-        if not self.options.treeherder_url or not self.build.revision_hash:
-            return
-
-        tjc = TreeherderJobCollection(job_type='update')
-
-        if not tests:
-            tests = self.tests
-
-        for t in tests:
-            if not t.test_this_repo:
-                continue
-            self.loggerdeco.debug('submit_treeherder_running: running job '
-                                  'for %s %s' % (t.name, t.build.tree))
-
-            t.state = TestState.RUNNING
-            t.start_timestamp = timestamp_now()
-
-            tj = tjc.get_job()
-            tj.add_revision_hash(self.build.revision_hash)
-            tj.add_project(self.build.tree)
-            tj.add_job_guid(t.job_guid)
-            tj.add_job_name(t.job_name)
-            tj.add_job_symbol(t.job_symbol)
-            tj.add_group_name(t.group_name)
-            tj.add_group_symbol(t.group_symbol)
-            tj.add_product_name('fennec')
-            tj.add_state(TestState.RUNNING)
-            tj.add_submit_timestamp(t.submit_timestamp)
-            tj.add_start_timestamp(t.start_timestamp)
-            # XXX need to send these until Bug 1066346 fixed.
-            tj.add_end_timestamp(t.start_timestamp)
-            #
-            tj.add_machine(t.phone.id)
-            tj.add_build_url(self.build.url)
-            tj.add_build_info('android', t.phone.os, t.phone.architecture)
-            tj.add_machine_info('android',t.phone.os, t.phone.architecture)
-            tj.add_option_collection({'opt': True})
-            tjc.add(tj)
-
-        self.loggerdeco.debug('submit_treeherder_running: tjc: %s' %
-                              tjc.to_json())
-
-        self.post_treeherder_request(tjc)
-
-    def submit_treeherder_complete(self, tests=[],
-                                   test_result=None,
-                                   test_message=None):
-        if not self.options.treeherder_url:
-            return
-
-        tjc = TreeherderJobCollection()
-
-        if not tests:
-            tests = self.tests
-
-        for t in tests:
-            if not t.test_this_repo:
-                continue
-            self.loggerdeco.debug('run_tests: treeherder: completing job '
-                                  'for %s %s' % (t.name, t.build.tree))
-
-            bug_suggestions = []
-            t.state = TestState.COMPLETED
-            t.end_timestamp = timestamp_now()
-            # A usercancelled job may not have a start_timestamp
-            # since it may have been cancelled before it started.
-            if not t.start_timestamp:
-                t.start_timestamp = t.end_timestamp
-            if not test_result:
-                test_result = t.result
-            if not test_message:
-                test_message = t.message
-
-            if test_message:
-                if test_result == TestResult.SUCCESS:
-                    t.job_details.append({
-                        'value': test_message,
-                        'content_type': 'text',
-                        'title': 'Note'
-                        })
-                else:
-                    lines = test_message.split('\n')
-                    for line in lines:
-                        if not line:
-                            continue
-                        bug_suggestions.append({
-                            'search': line,
-                            'bugs': {'open_recent': [], 'all_others': []}
-                        })
-
-            if hasattr(t, 'phonedash_url'):
-                t.job_details.append({
-                    'url': t.phonedash_url,
-                    'value': 'graph',
-                    'content_type': 'link',
-                    'title': 'phonedash:'
-                    })
-
-            tj = tjc.get_job()
-            tj.add_revision_hash(self.build.revision_hash)
-            tj.add_project(self.build.tree)
-            tj.add_job_guid(t.job_guid)
-            tj.add_job_name(t.job_name)
-            tj.add_job_symbol(t.job_symbol)
-            tj.add_group_name(t.group_name)
-            tj.add_group_symbol(t.group_symbol)
-            tj.add_product_name('fennec')
-            tj.add_state(TestState.COMPLETED)
-            tj.add_result(test_result)
-            tj.add_submit_timestamp(t.submit_timestamp)
-            tj.add_start_timestamp(t.start_timestamp)
-            tj.add_end_timestamp(t.end_timestamp)
-            tj.add_machine(t.phone.id)
-            tj.add_build_url(self.build.url)
-            tj.add_build_info('android', t.phone.os, t.phone.architecture)
-            tj.add_machine_info('android',t.phone.os, t.phone.architecture)
-            tj.add_option_collection({'opt': True})
-            tj.add_artifact('Job Info', 'json', {'job_details': t.job_details})
-            if bug_suggestions:
-                tj.add_artifact('Bug suggestions', 'json', bug_suggestions)
-            tjc.add(tj)
-
-            message = '%s %s %s TestResult: %s' % (self.build.tree,
-                                                   self.build.id,
-                                                   t.name, t.result)
-            if t.message:
-                message += ', %s' % t.message
-            self.loggerdeco.info(message)
-
-        self.loggerdeco.debug('submit_treeherder_completed: tjc: %s' %
-                              tjc.to_json())
-
-        self.post_treeherder_request(tjc)

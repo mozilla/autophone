@@ -9,26 +9,22 @@ import urllib
 import urllib2
 import urlparse
 from math import sqrt
-from time import sleep
 
 from jot import jwt, jws
 
-from adb import ADBError
-from phonestatus import TestResult
-from phonetest import PhoneTest
+from phonetest import PhoneTest, PhoneTestResult
 
 class PerfTest(PhoneTest):
     def __init__(self, phone, options, config_file=None,
-                 enable_unittests=False, test_devices_repos={}):
+                 enable_unittests=False, test_devices_repos={},
+                 chunk=1):
         PhoneTest.__init__(self, phone, options,
                            config_file=config_file,
                            enable_unittests=enable_unittests,
-                           test_devices_repos=test_devices_repos)
+                           test_devices_repos=test_devices_repos,
+                           chunk=chunk)
         self._result_server = None
         self._resulturl = None
-
-    def setup_job(self):
-        PhoneTest.setup_job(self)
 
         # [signature]
         self._signer = None
@@ -65,6 +61,9 @@ class PerfTest(PhoneTest):
             self._resulturl = self.cfg.get('settings', 'resulturl')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self._resulturl = 'none'
+
+    def setup_job(self):
+        PhoneTest.setup_job(self)
 
         if self._resulturl.lower() == 'none':
             self._resulturl = None
@@ -121,18 +120,6 @@ class PerfTest(PhoneTest):
         if self._resultfile:
             self._resultfile.close()
             self._resultfile = None
-
-    def get_logcat(self):
-        for attempt in range(1, self.options.phone_retry_limit+1):
-            try:
-                return [x.strip() for x in self.dm.get_logcat(
-                    filter_specs=['*:V']
-                )]
-            except ADBError:
-                self.loggerdeco.exception('Attempt %d get logcat throbbers' % attempt)
-                if attempt == self.options.phone_retry_limit:
-                    raise
-                sleep(self.options.phone_retry_wait)
 
     def report_results(self, starttime=0, tstrt=0, tstop=0,
                        testname='', cache_enabled=True,
@@ -206,7 +193,7 @@ class PerfTest(PhoneTest):
                  self.name, self.phone.id, self.build.id,
                  self.build.revision, e))
             message = 'Error sending results to server'
-            self.result = TestResult.EXCEPTION
+            self.test_result.status = PhoneTestResult.EXCEPTION
             self.message = message
             self.update_status(message=message)
         else:

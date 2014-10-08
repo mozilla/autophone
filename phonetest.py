@@ -15,14 +15,60 @@ from adb_android import ADBAndroid as ADBDevice
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
 
+
+class Logcat(object):
+    def __init__(self, phonetest):
+        self.phonetest = phonetest
+        self._accumulated_logcat = []
+        self._last_logcat = []
+
+    def get(self, full=False):
+        """Return the contents of logcat as list of strings.
+
+        :param full: optional boolean which defaults to False. If full
+                     is False, then get() will only return logcat
+                     output since the last call to clear(). If
+                     full is True, then get() will return all
+                     logcat output since the test was initialized or
+                     teardown_job was last called.
+
+        """
+        for attempt in range(1, self.phonetest.options.phone_retry_limit+1):
+            try:
+                self._last_logcat = [x.strip() for x in
+                                     self.phonetest.dm.get_logcat(
+                                         filter_specs=['*:V']
+                                     )]
+                output = []
+                if full:
+                    output.extend(self._accumulated_logcat)
+                output.extend(self._last_logcat)
+                return output
+            except ADBError:
+                self.loggerdeco.exception('Attempt %d get logcat' % attempt)
+                if attempt == self.phonetest.options.phone_retry_limit:
+                    raise
+                time.sleep(self.phonetest.options.phone_retry_wait)
+
+    def clear(self):
+        """Clears the device's logcat."""
+        self.get()
+        self._accumulated_logcat.extend(self._last_logcat)
+        self._last_logcat = []
+        self.phonetest.dm.clear_logcat()
+
+
 class PhoneTest(object):
     def __init__(self, phone, options, config_file=None,
-                 enable_unittests=False, test_devices_repos={}):
+                 enable_unittests=False, test_devices_repos={},
+                 chunk=1):
         self.config_file = config_file
         self.cfg = ConfigParser.RawConfigParser()
         self.cfg.read(self.config_file)
         self.enable_unittests = enable_unittests
         self.test_devices_repos = test_devices_repos
+        self.chunk = chunk
+        self.chunks = 1
         self.update_status_cb = None
         self.phone = phone
         self.worker_subprocess = None
@@ -40,16 +86,21 @@ class PhoneTest(object):
         self.profile_path = '/data/local/tmp/profile'
         self._dm = None
         self._repos = None
+        self._log = None
         # Treeherder related items.
-        self.state = None # phonestatus.TestState
-        self.result = None # phonestatue.TestResult
+        self._job_name = None
+        self._job_symbol = None
+        self._group_name = None
+        self._group_symbol = None
+        self.test_result = PhoneTestResult()
         self.message = None
         self.job_guid = None
         self.job_details = []
         self.submit_timestamp = None
         self.start_timestamp = None
         self.end_timestamp = None
-        self.loggerdeco.debug('PhoneTest: %s' % self.__dict__)
+        self.logcat = Logcat(self)
+        self.loggerdeco.debug('PhoneTest: %s, cfg sections: %s' % (self.__dict__, self.cfg.sections()))
         if not self.cfg.sections():
             self.loggerdeco.warning('Test configuration not found. '
                                     'Will use defaults.')
@@ -129,35 +180,50 @@ class PhoneTest(object):
     def job_name(self):
         if not self.options.treeherder_url:
             return None
-        return self.cfg.get('treeherder', 'job_name')
+        if not self._job_name:
+            self._job_name = self.cfg.get('treeherder', 'job_name')
+        return self._job_name
 
     @property
     def job_symbol(self):
         if not self.options.treeherder_url:
             return None
-        return self.cfg.get('treeherder', 'job_symbol')
+        if not self._job_symbol:
+            self._job_symbol = self.cfg.get('treeherder', 'job_symbol')
+            if self.chunks > 1:
+                self._job_symbol = "%s%s" %(self._job_symbol, self.chunk)
+        return self._job_symbol
 
     @property
     def group_name(self):
         if not self.options.treeherder_url:
             return None
-        return self.cfg.get('treeherder', 'group_name')
+        if not self._group_name:
+            self._group_name = self.cfg.get('treeherder', 'group_name')
+        return self._group_name
 
     @property
     def group_symbol(self):
         if not self.options.treeherder_url:
             return None
-        return self.cfg.get('treeherder', 'group_symbol')
+        if not self._group_symbol:
+            self._group_symbol = self.cfg.get('treeherder', 'group_symbol')
+        return self._group_symbol
 
     @property
     def build(self):
         return self.worker_subprocess.build
 
+    @property
+    def buildername(self):
+        return "%s %s opt test %s-%s" % (
+            self.phone.platform, self.build.tree, self.job_name, self.job_symbol)
+
     def setup_job(self):
         self.logger_original = self.logger
         self.loggerdeco_original = self.loggerdeco
         self.dm_logger_original = self.dm._logger
-        self.worker_subprocess.submit_treeherder_running(tests=[self])
+        self.worker_subprocess.treeherder.submit_running(tests=[self])
 
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
@@ -168,12 +234,25 @@ class PhoneTest(object):
                                        '%(phoneid)s|%(pid)s|%(buildid)s|%(test)s|'
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
+        self.loggerdeco.debug('PhoneTest.setup_job')
+        if self._log:
+            os.unlink(self._log)
+        self._log = None
 
     def run_job(self):
         raise NotImplementedError
 
     def teardown_job(self):
-        self.worker_subprocess.submit_treeherder_complete(tests=[self])
+        self.loggerdeco.debug('PhoneTest.teardown_job')
+        self.worker_subprocess.treeherder.submit_complete(tests=[self])
+        if self.logger.getEffectiveLevel() == logging.DEBUG and self._log:
+            self.loggerdeco.debug(40 * '=')
+            logfilehandle = open(self._log)
+            self.loggerdeco.debug(logfilehandle.read())
+            logfilehandle.close()
+            self.loggerdeco.debug(40 * '-')
+        self._log = None
+        self.logcat = Logcat(self)
         if self.logger_original:
             self.logger = self.logger_original
         if self.loggerdeco_original:
@@ -251,3 +330,43 @@ class PhoneTest(object):
         if glob.glob(os.path.join(self.profile_path, 'minidumps', '*.dmp')):
             return True
         return False
+
+class PhoneTestResult(object):
+    """PhoneTestResult encapsulates the data format used by logparser
+    so we can have a uniform approach to recording test results between
+    native Autophone tests and Unit tests.
+    """
+    #SKIPPED = 'skipped'
+    BUSTED = 'busted'
+    EXCEPTION = 'exception'
+    TESTFAILED = 'testfailed'
+    UNKNOWN = 'unknown'
+    USERCANCEL = 'usercancel'
+    RETRY = 'retry'
+    SUCCESS = 'success'
+
+    def __init__(self):
+        self.status = None
+        self.passes = []
+        self.failures = []
+        self.todo = 0
+
+    def __str__(self):
+        return "PhoneTestResult: passes: %s, failures: %s" % (self.passes, self.failures)
+
+    @property
+    def passed(self):
+        return len(self.passes)
+
+    @property
+    def failed(self):
+        return len(self.failures)
+
+    def add_pass(self, testpath):
+        self.passes.append(testpath)
+
+    def add_failure(self, testpath, status, text):
+        self.failures.append({
+            "test": testpath,
+            "status": status,
+            "text": text})

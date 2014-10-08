@@ -47,13 +47,22 @@ class PhoneData(object):
 
     @property
     def architecture(self):
-        if 'arm' in self.abi:
-            return 'arm'
-        return self.abi
+        abi = self.abi
+        if 'armeabi-v7a' in abi:
+            abi = 'armv7'
+        return abi
 
     @property
     def os(self):
         return 'android-%s' % '-'.join(self.osver.split('.')[:2])
+
+    @property
+    def platform(self):
+        if self.architecture == 'x86':
+            return '%s-x86' % self.os
+        return '%s-%s-%s' % (self.os,
+                             self.architecture,
+                             ''.join(self.sdk.split('-')))
 
     def __str__(self):
         return '%s' % self.__dict__
@@ -325,11 +334,20 @@ class AutoPhone(object):
                 # This test is to be run by this device on test_repos
                 skip_test = False
             if not skip_test:
-                tests.append(test_class(phone=phone,
-                                        options=self.options,
-                                        config_file=config_file,
-                                        enable_unittests=enable_unittests,
-                                        test_devices_repos=test_devices_repos))
+                test = test_class(phone=phone,
+                                  options=self.options,
+                                  config_file=config_file,
+                                  enable_unittests=enable_unittests,
+                                  test_devices_repos=test_devices_repos)
+                tests.append(test)
+                for chunk in range(2, test.chunks+1):
+                    self.logger.debug('Creating chunk %d/%d' % (chunk, test.chunks))
+                    tests.append(test_class(phone=phone,
+                                            options=self.options,
+                                            config_file=config_file,
+                                            enable_unittests=enable_unittests,
+                                            test_devices_repos=test_devices_repos,
+                                            chunk=chunk))
         if not tests:
                 self.logger.warning('Not creating worker: No tests defined for '
                                     'worker for %s: %s.' %
@@ -429,25 +447,49 @@ class AutoPhone(object):
                 if (member_name != 'PhoneTest' and
                     member_name != 'PerfTest' and
                     issubclass(member_value, PhoneTest)):
-                    config = os.path.join(t['here'],
-                                          t.get('config', ''))
-                    # The config file can contain additional options
-                    # for each test:
-                    # unittests = 1  determines if the tests zip file should
+                    config = t.get('config', '')
+                    # config is a space separated list of config
+                    # files.  The test will be instantiated for each
+                    # of the config files allowing tests such as the
+                    # runremotetests.py to handle more than one unit
+                    # test at a time.
+                    #
+                    # Each config file can contain additional options
+                    # for a test.
+                    #
+                    # Other options are:
+                    #
+                    # unittests = 1
+                    #
+                    # which determines if the tests zip file should
                     # be downloaded along with the build.
-                    # <device> = <repo-list> determines the devices
-                    # which should run the test. If no devices are listed,
-                    # then all devices will run the test.
+                    #
+                    # <device> = <repo-list>
+                    #
+                    # which determines the devices which should
+                    # run the test. If no devices are listed, then
+                    # all devices will run the test.
+
                     enable_unittests = bool(t.get('unittests', False))
 
                     devices = [device for device in t if device not in
                                ('name', 'here', 'manifest', 'path', 'config',
-                                'relpath', 'unittest', 'subsuite')]
+                                'relpath', 'unittests', 'subsuite')]
+                    self.logger.debug('read_tests: test: %s, class: %s, '
+                                      'config: %s, enable_unittests: %s, '
+                                      'devices: %s' % (member_name,
+                                                       member_value,
+                                                       config,
+                                                       enable_unittests,
+                                                       devices))
                     test_devices_repos = {}
                     for device in devices:
                         test_devices_repos[device] = t[device].split()
-
-                    tests.append((member_value, config, enable_unittests, test_devices_repos))
+                    configs = config.split()
+                    for config_file in configs:
+                        config_file = os.path.join(t['here'], config_file)
+                        tests.append((member_value, config_file,
+                                      enable_unittests, test_devices_repos))
 
             self._tests.extend(tests)
 
@@ -781,6 +823,33 @@ if __name__ == '__main__':
                       default=300,
                       help="""Number of seconds to wait between attempts
                       to send data to Treeherder. Defaults to 300.""")
+    parser.add_option('--s3-upload-bucket',
+                      dest='s3_upload_bucket',
+                      action='store',
+                      type='string',
+                      default=None,
+                      help="""AWS S3 bucket name used to store logs.
+                      Defaults to None. If specified, --aws-access-key-id
+                      and --aws-secret-access-key must also be specified.
+                      """)
+    parser.add_option('--aws-access-key-id',
+                      dest='aws_access_key_id',
+                      action='store',
+                      type='string',
+                      default=None,
+                      help="""AWS Access Key ID used to access AWS S3.
+                      Defaults to None. If specified, --s3-upload-bucket
+                      and --aws-secret-access-key must also be specified.
+                      """)
+    parser.add_option('--aws-access-key',
+                      dest='aws_access_key',
+                      action='store',
+                      type='string',
+                      default=None,
+                      help="""AWS Access Key used to access AWS S3.
+                      Defaults to None. If specified, --s3-upload-bucket
+                      and --aws-secret-access-key-id must also be specified.
+                      """)
 
     (cmd_options, args) = parser.parse_args()
     if cmd_options.treeherder_url and not cmd_options.treeherder_credentials_path:
@@ -789,6 +858,14 @@ if __name__ == '__main__':
     elif not cmd_options.treeherder_url and cmd_options.treeherder_credentials_path:
         raise Exception('--treeherder-credentials_path specified without '
                         '--treeherder-url')
+    if ((cmd_options.s3_upload_bucket or
+         cmd_options.aws_access_key_id or
+         cmd_options.aws_access_key) and (
+             not cmd_options.s3_upload_bucket or
+             not cmd_options.aws_access_key_id or
+             not cmd_options.aws_access_key)):
+        raise Exception('--s3-upload-bucket, --aws-access-key-id, '
+                        '--aws-access-key must be specified together')
     options = load_autophone_options(cmd_options)
 
     exit_code = main(options)

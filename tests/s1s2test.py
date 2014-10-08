@@ -16,18 +16,17 @@ from mozprofile import FirefoxProfile
 from adb import ADBError
 from logdecorator import LogDecorator
 from perftest import PerfTest
-from phonestatus import TestResult
+from phonetest import PhoneTestResult
 
 class S1S2Test(PerfTest):
-
-    @property
-    def phonedash_url(self):
-        # For s1s2test, there are 4 different test names due to historical design.
-        # We pick local-blank as the default.
-        return self._phonedash_url('local-blank')
-
-    def setup_job(self):
-        PerfTest.setup_job(self)
+    def __init__(self, phone, options, config_file=None,
+                 enable_unittests=False, test_devices_repos={},
+                 chunk=1):
+        PerfTest.__init__(self, phone, options,
+                          config_file=config_file,
+                          enable_unittests=enable_unittests,
+                          test_devices_repos=test_devices_repos,
+                          chunk=chunk)
 
         # [paths]
         autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -88,18 +87,27 @@ class S1S2Test(PerfTest):
                 self._urls["%s-%s" % (test_location, test_name)] = test_url
         self._initialize_url = 'file://' + self._paths['dest'] + 'initialize_profile.html'
 
+    @property
+    def phonedash_url(self):
+        # For s1s2test, there are 4 different test names due to historical design.
+        # We pick local-blank as the default.
+        return self._phonedash_url('local-blank')
+
+    def setup_job(self):
+        PerfTest.setup_job(self)
+
     def run_job(self):
         if not self.install_local_pages():
             message='Aborting test - Could not install local pages on phone.'
             self.update_status(message=message)
-            self.result = TestResult.EXCEPTION
+            self.test_result.status = PhoneTestResult.EXCEPTION
             self.message = message
             return
 
         if not self.create_profile():
             message='Aborting test - Could not run Fennec.'
             self.update_status(message=message)
-            self.result = TestResult.EXCEPTION
+            self.test_result.status = PhoneTestResult.EXCEPTION
             self.message = message
             return
 
@@ -150,16 +158,27 @@ class S1S2Test(PerfTest):
                     dataset.append({})
 
                     if not self.create_profile():
+                        self.test_result.add_failure(url,
+                                                     'TEST_UNEXPECTED_FAIL',
+                                                     'Failed to create profile')
                         continue
 
                     measurement = self.runtest(url)
                     if not measurement:
+                        self.test_result.add_failure(
+                            url,
+                            'TEST_UNEXPECTED_FAIL',
+                            'Failed to get uncached measurement.')
                         continue
                     dataset[-1]['uncached'] = measurement
                     success = True
 
                     measurement = self.runtest(url)
                     if not measurement:
+                        self.test_result.add_failure(
+                            url,
+                            'TEST_UNEXPECTED_FAIL',
+                            'Failed to get cached measurement.')
                         continue
                     dataset[-1]['cached'] = measurement
 
@@ -210,7 +229,9 @@ class S1S2Test(PerfTest):
                 if not rejected:
                     break
 
-            if not success:
+            if success:
+                self.test_result.add_pass(url)
+            else:
                 self.worker_subprocess.mailer.send(
                     'S1S2Test %s failed for Build %s %s on Phone %s' %
                     (testname, self.build.tree, self.build.id,
@@ -220,15 +241,15 @@ class S1S2Test(PerfTest):
                     'Build Id:   %s\n'
                     'Revision:   %s\n' %
                     (testname, self.build.tree, self.build.id, self.build.revision))
-                self.result = TestResult.BUSTED
+                self.test_result.status = PhoneTestResult.BUSTED
                 self.message = 'No measurements detected.'
                 break
         if not self.result:
-            self.result = TestResult.SUCCESS
+            self.test_result.status = PhoneTestResult.SUCCESS
 
     def runtest(self, url):
         # Clear logcat
-        self.dm.clear_logcat()
+        self.logcat.clear()
 
         # Run test
         self.run_fennec_with_profile(self.build.app_name, url)
@@ -382,7 +403,7 @@ class S1S2Test(PerfTest):
 
         while (attempt <= max_attempts and (throbber_start_time == 0 or
                                             throbber_stop_time == 0)):
-            buf = self.get_logcat()
+            buf = self.logcat.get()
             for line in buf:
                 self.loggerdeco.debug('analyze_logcat: %s' % line)
                 match = re_base_time.match(line)

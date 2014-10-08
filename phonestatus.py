@@ -2,8 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import datetime
-
 class PhoneStatus(object):
 
     IDLE = 'IDLE'
@@ -15,42 +13,3 @@ class PhoneStatus(object):
     DISABLED = 'DISABLED'  # permanent error
 
 
-class TestResult(object):
-    #SKIPPED = 'skipped'
-    BUSTED = 'busted'
-    EXCEPTION = 'exception'
-    TESTFAILED = 'testfailed'
-    UNKNOWN = 'unknown'
-    USERCANCEL = 'usercancel'
-    RETRY = 'retry'
-    SUCCESS = 'success'
-
-
-class TestState(object):
-    COMPLETED = 'completed'
-    PENDING = 'pending'
-    RUNNING = 'running'
-
-
-class PhoneTestMessage(object):
-
-    def __init__(self, phone, build=None, phone_status=None,
-                 message=None):
-        self.phone = phone
-        self.build = build
-        self.phone_status = phone_status
-        self.message = message
-        self.timestamp = datetime.datetime.now().replace(microsecond=0)
-
-    def __str__(self):
-        s = '<%s> %s (%s)' % (self.timestamp.isoformat(), self.phone.id,
-                              self.phone_status)
-        if self.message:
-            s += ': %s' % self.message
-        return s
-
-    def short_desc(self):
-        s = self.phone_status
-        if self.message:
-            s += ': %s' % self.message
-        return s

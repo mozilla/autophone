@@ -18,33 +18,6 @@ minidump_stackwalk = path-to-minidump_stackwalk
 
 # Debug message levels for the runtestsremote.py
 console_level = DEBUG
-file_level = DEBUG
+log_level = DEBUG
 
 time_out = 2400
-
-[autolog]
-# Settings related to submitting results to Autolog
-
-# ElasticSearch server
-# For local development use localhost:9200
-es_server = buildbot-es.metrics.scl3.mozilla.com:9200
-
-# Autolog server
-# For local development use http://localhost:8051
-rest_server = http://brasstacks.mozilla.com/autologserver/
-
-# Autolog ElasticSearch index
-index = autolog
-
-# Submit passing results to Autolog.  Note: Setting include_pass to
-# True will cause a failure until RESTfulAutologTestGroup.submit
-# supports submitting results via POST.
-include_pass = False
-
-# Submit log to Autolog.
-submit_log = True
-
-# Set use_newparser to True to parse the logs using newlogparser.py
-# instead of logparser/logparser.py. Set it to False to use
-# logparser/logparser.py.
-use_newparser = True

@@ -7,8 +7,8 @@ from time import sleep
 
 from mozprofile import FirefoxProfile
 
-from phonetest import PhoneTest
-from phonestatus import TestResult
+from phonetest import PhoneTest, PhoneTestResult
+
 
 class SmokeTest(PhoneTest):
 
@@ -20,7 +20,7 @@ class SmokeTest(PhoneTest):
         self.prepare_phone()
 
         # Clear logcat
-        self.dm.clear_logcat()
+        self.logcat.clear()
 
         # Run test
         self.loggerdeco.debug('running fennec')
@@ -42,13 +42,18 @@ class SmokeTest(PhoneTest):
                 found_throbber = self.check_throbber()
 
         if not fennec_launched:
-            self.result = TestResult.BUSTED
+            self.test_result.status = PhoneTestResult.BUSTED
             self.message = 'Failed to launch Fennec'
+            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                         self.message)
         elif not found_throbber:
-            self.result = TestResult.TESTFAILED
+            self.test_result.status = PhoneTestResult.TESTFAILED
             self.messaage = 'Failed to find Throbber'
+            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                         self.message)
         else:
-            self.result = TestResult.SUCCESS
+            self.test_result.status = PhoneTestResult.SUCCESS
+            self.test_result.add_pass(self.name)
 
         if fennec_launched:
             self.loggerdeco.debug('killing fennec')
@@ -70,7 +75,7 @@ class SmokeTest(PhoneTest):
         self.install_profile(profile)
 
     def check_throbber(self):
-        buf = self.dm.get_logcat(filter_specs=['*:V'])
+        buf = self.logcat.get()
 
         for line in buf:
             line = line.strip()

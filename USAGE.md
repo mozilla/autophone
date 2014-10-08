@@ -155,16 +155,20 @@ An example devices ini file can be found at
 
 The test manifest file is used to select the tests which Autophone
 will run. The file is a standard ini file which has a section for each
-test which can contain a `config` option which points to a test
-configuration file and per-device options. Tests are implemented as
-python scripts in the [tests/](tests/) directory. The section name for
-a test is the basename of the test's script.
+test which can contain a `config` option which is a space separated
+list of test configuration files and per-device options. Tests are
+implemented as python scripts in the [tests/](tests/) directory. The
+section name for a test is the basename of the test's script.
 
-The value of the `config` option for each test section is a path
-(relative to the test manifest file) to a test configuration file
-which can be used to provide additional configuration information for
-the test. If the `config` file does not exist or it otherwise not
-readable, default values for the settings will be used.
+The value of the `config` option for each test section is a space
+separated list of paths (relative to the test manifest file) to test
+configuration files which can be used to provide additional
+configuration information for the test. Most tests will use a single
+config file. In cases like the unit tests where the same python
+test script can run different tests, using multiple config files allows
+the creation of different configurations of the same test script. If
+the `config` file does not exist or it otherwise not readable, default
+values for the settings will be used.
 
 The names of the optional devicename options are the device names, and
 their values are space delimited list of repository names which the
@@ -373,10 +377,6 @@ same fashion as we did for the Smoketest.
 
 #### Configuring UnitTests
 
-To be updated as part of
-[Bug 1079923 - Autophone - update unittests to fix bitrot](https://bugzilla.mozilla.org/show_bug.cgi?id=1079923).
-
-<!-- <del>
 Autophone can run individual unit tests such as robocop, reftests,
 crashtests, jsreftests or mochitests for each build or it can run combinations of
 them.
@@ -384,24 +384,17 @@ them.
 Before running the unit tests, you will need to copy
 configs/unittest_defaults.ini.example to configs/unittest_defaults.ini
 and edit configs/unittest_defaults.ini to change the xre_path,
-utility_path, and minidump_stackwalk values. If you wish to use a
-development version of ElasticSearch or Autolog, you will need to edit
-the es_server and rest_server values as well.
-
-You can switch from using the experimental 'new' logparser and
-logparser by changing the use_newparser value to False.
+utility_path, and minidump_stackwalk values.
 
 For example,
 
 to run only the robocop tests:
 
-python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/robocoptests_manifest.ini
+   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/robocoptests_manifest.ini
 
-to run all of the unit tests specified in the configs/unittests_settings.ini file:
+to run all of the unit tests specified in the tests/unittests_manifest.ini file:
 
-python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/unittests_manifest.ini
-</del>
--->
+   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/unittests_manifest.ini
 
 #### Configuring Multiple tests simultaneously
 
@@ -440,6 +433,9 @@ test. For example:
         samsung-gs3-1=mozilla-inbound
         samsung-gs3-2=mozilla-inbound
 
+        [runtestsremote.py]
+        config = ../configs/crashtests_settings.ini ../configs/jsreftests_settings.ini ../configs/mochitests_settings.ini ../configs/mochitests_skia_settings.ini ../configs/reftests_settings.ini ../configs/robocoptests_settings.ini
+        unittests = 1
 
 ### Autophone Command Line Options
 

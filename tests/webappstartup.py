@@ -10,9 +10,18 @@ from time import sleep
 
 from adb import ADBError
 from perftest import PerfTest
-from phonestatus import TestResult
+from phonetest import PhoneTestResult
 
 class WebappStartupTest(PerfTest):
+    def __init__(self, phone, options, config_file=None,
+                 enable_unittests=False, test_devices_repos={},
+                 chunk=1):
+        PerfTest.__init__(self, phone, options,
+                          config_file=config_file,
+                          enable_unittests=enable_unittests,
+                          test_devices_repos=test_devices_repos,
+                          chunk=chunk)
+        self.webappstartup_name = None
 
     @property
     def phonedash_url(self):
@@ -47,7 +56,7 @@ class WebappStartupTest(PerfTest):
             # We already have good results for this test and build.
             # No need to test it again.
             message = 'Already have results for this test.'
-            self.result = TestResult.USERCANCEL
+            self.test_result.status = PhoneTestResult.USERCANCEL
             self.message = message
             self.loggerdeco.info(message)
             return
@@ -90,12 +99,20 @@ class WebappStartupTest(PerfTest):
 
                 measurement = self.runtest()
                 if not measurement:
+                    self.test_result.add_failure(
+                        self.name,
+                        'TEST_UNEXPECTED_FAIL',
+                        'Failed to get uncached measurement.')
                     continue
                 dataset[-1]['uncached'] = measurement
                 success = True
 
                 measurement = self.runtest()
                 if not measurement:
+                    self.test_result.add_failure(
+                        self.name,
+                        'TEST_UNEXPECTED_FAIL',
+                        'Failed to get cached measurement.')
                     continue
                 dataset[-1]['cached'] = measurement
 
@@ -112,7 +129,9 @@ class WebappStartupTest(PerfTest):
             # If we have not gotten a single measurement at this point,
             # just bail and report the failure rather than wasting time
             # continuing more attempts.
-            if not success:
+            if success:
+                self.test_result.add_pass(self.name)
+            else:
                 self.loggerdeco.info(
                     'Failed to get measurements for test %s after %d/%d attempt '
                     'of %d iterations' % (self.testname, attempt,
@@ -147,7 +166,7 @@ class WebappStartupTest(PerfTest):
                 break
 
         if success:
-            self.result = TestResult.SUCCESS
+            self.test_result.status = PhoneTestResult.SUCCESS
         else:
             self.worker_subprocess.mailer.send(
                 'Webappstartup test failed for Build %s %s on Phone %s' %
@@ -157,7 +176,7 @@ class WebappStartupTest(PerfTest):
                 'Build Id:   %s\n'
                 'Revision:   %s\n' %
                 (self.build.tree, self.build.id, self.build.revision))
-            self.result = TestResult.BUSTED
+            self.test_result.status = PhoneTestResult.BUSTED
             self.message = 'No measurements detected.'
 
     def kill_webappstartup(self):
@@ -216,7 +235,7 @@ class WebappStartupTest(PerfTest):
 
     def runtest(self):
         # Clear logcat
-        self.dm.clear_logcat()
+        self.logcat.clear()
 
         # Run test
         self.run_webappstartup()
@@ -331,7 +350,7 @@ class WebappStartupTest(PerfTest):
         max_attempts = max_time / wait_time
 
         while attempt <= max_attempts and startup_time == 0:
-            buf = self.get_logcat()
+            buf = self.logcat.get()
             for line in buf:
                 self.loggerdeco.debug('analyze_logcat: %s' % line)
                 match = re_base_time.match(line)

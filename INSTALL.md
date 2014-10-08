@@ -54,8 +54,6 @@ configs/s1s2_settings.ini.example and customize as needed.
 To be updated as part of
 [Bug 1079923 - Autophone - update unittests to fix bitrot](https://bugzilla.mozilla.org/show_bug.cgi?id=1079923).
 
-<!--
-<del>
 The unittests also require a local installation of the XRE and the utility
 programs such as xpcshell. A local build of Firefox can be used.
 
@@ -75,8 +73,6 @@ minidump_stack via:
 
 Once you have the XRE, utility programs and minidump_stack installed, change
 configs/unittest_default.ini to point to your local environment.
-</del>
--->
 
 ### Setting up devices ###
 

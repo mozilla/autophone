@@ -38,6 +38,10 @@ class AutophoneOptions(object):
         self.treeherder_retry_wait = 0
         self._treeherder_protocol = ''
         self._treeherder_server = ''
+        self.s3_upload_bucket = ''
+        self.aws_access_key_id = ''
+        self.aws_access_key = ''
+
         #self.treeherder_credentials = {} # computed
         # ini options
         self.build_cache_size = BuildCache.MAX_NUM_BUILDS
