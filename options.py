@@ -22,6 +22,8 @@ class AutophoneOptions(object):
         self.test_path = ''
         self.emailcfg = ''
         self.enable_pulse = False
+        self.pulse_user = ''
+        self.pulse_password = ''
         self.enable_unittests = False
         self.cache_dir = ''
         self.override_build_dir = ''

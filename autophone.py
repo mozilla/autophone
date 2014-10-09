@@ -21,6 +21,7 @@ from multiprocessinghandlers import (MultiprocessingStreamHandler,
                                      MultiprocessingTimedRotatingFileHandler)
 
 from manifestparser import TestManifest
+from mozillapulse.config import PulseConfiguration
 from pulsebuildmonitor import start_pulse_monitor
 
 import builds
@@ -125,12 +126,15 @@ class AutoPhone(object):
         self.read_devices()
 
         if options.enable_pulse:
+            pulse_cfg = PulseConfiguration(user=options.pulse_user,
+                                           password=options.pulse_password)
             self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
                                                     trees=options.repos,
                                                     platforms=['android',
                                                                'android-x86'],
                                                     buildtypes=options.buildtypes,
-                                                    logger=self.logger)
+                                                    logger=self.logger,
+                                                    pulse_cfg=pulse_cfg)
 
         self.logger.debug('autophone_options: %s' % self.options)
 
@@ -654,6 +658,12 @@ if __name__ == '__main__':
     parser.add_option('--disable-pulse', action='store_false',
                       dest="enable_pulse", default=True,
                       help="Disable connecting to pulse to look for new builds")
+    parser.add_option('--pulse-user', action='store', type='string',
+                      dest='pulse_user', default='',
+                      help='user id for connecting to PulseGuardian')
+    parser.add_option('--pulse-password', action='store', type='string',
+                      dest='pulse_password', default='',
+                      help='password for connecting to PulseGuardian')
     parser.add_option('--enable-unittests', action='store_true',
                       dest='enable_unittests', default=False,
                       help='Enable running unittests by downloading and installing '

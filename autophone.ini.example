@@ -8,6 +8,8 @@
 #test_path = tests/manifest.ini
 #emailcfg = email.ini
 #enable_pulse = True
+#pulse_user = pulseuser
+#pulse_password = pulsepassword
 #enable_unittests = False
 #cache_dir = builds
 #override_build_dir = None
