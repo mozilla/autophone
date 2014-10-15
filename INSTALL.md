@@ -106,6 +106,37 @@ a device due to errors, you can create email.ini like so:
 Each device must be rooted and reachable by adb. Check that "adb devices"
 shows each desired device.
 
+### Using an emulator ###
+
+If desired, the Android emulator can be used in place of a physical device.
+
+Set up an emulator AVD and verify that Firefox for Android can be run in
+the resulting emulator instance.
+
+These emulator device settings are recommended:
+ - Target: API Level 15 or greater
+ - RAM: 2048
+ - Internal Storage: 200 MiB
+ - SD Card: Size: 200 MiB
+ - Use Host GPU
+
+Be sure to select "Use Host GPU". A modern host computer and graphics card
+may be required.
+
+Also verify that the emulator can be reached by adb. Check the output of
+"adb devices" and enter the emulator name as the serialno in devices.ini:
+
+[test-emulator]
+serialno=emulator-5554
+
+The Android emulator normally reports a battery charge of 50%. With default
+settings, autophone will wait indefinitely for the battery to charge. To
+avoid this, edit autophone.ini and change device_battery_min to be less
+than the emulator battery charge (eg. device_battery_min=40).
+
+Also be aware that instead of rebooting the device, autophone will kill
+and restart the emulator.
+
 ### Setting up phonedash ###
 
 Set up Phonedash following the instructions at
