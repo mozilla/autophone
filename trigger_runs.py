@@ -186,7 +186,7 @@ If "latest" is given, test runs are initiated for the most recent build.'''
     parser.add_option('--build-url', action='store', type='string',
                       dest='build_url',
                       help='url of build to test; may be an http or file schema;'
-                      ' --repo must be specified if the build was not build from'
+                      ' --repo must be specified if the build was not built from'
                       ' the mozilla-central repository.')
     parser.add_option('--device',
                       dest='devices',

@@ -646,18 +646,20 @@ if __name__ == '__main__':
                       'Individual phone worker logs will use '
                       '<logfile>-<phoneid>[.<ext>]. Default: autophone.log')
     parser.add_option('--loglevel', action='store', type='string',
-                      dest='loglevel', default='DEBUG',
+                      dest='loglevel', default='INFO',
                       help='Log level - ERROR, WARNING, DEBUG, or INFO, '
-                      'defaults to DEBUG')
+                      'defaults to INFO')
     parser.add_option('-t', '--test-path', action='store', type='string',
                       dest='test_path', default='tests/manifest.ini',
                       help='path to test manifest')
     parser.add_option('--emailcfg', action='store', type='string',
                       dest='emailcfg', default='',
                       help='config file for email settings; defaults to none')
-    parser.add_option('--disable-pulse', action='store_false',
-                      dest="enable_pulse", default=True,
-                      help="Disable connecting to pulse to look for new builds")
+    parser.add_option('--enable-pulse', action='store_true',
+                      dest="enable_pulse", default=False,
+                      help='Enable connecting to Pulse to look for new builds. '
+                      'If specified, --pulse-user and --pulse-password must also '
+                      'be specified.')
     parser.add_option('--pulse-user', action='store', type='string',
                       dest='pulse_user', default='',
                       help='user id for connecting to PulseGuardian')

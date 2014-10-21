@@ -24,7 +24,7 @@ local =
 # For reliable remote measurements, the remote web server
 # should be local to the testing environment. Otherwise there
 # is the possibility of network issues affecting results.
-remote = http://phonedash.mozilla.org/
+#remote = http://phonedash.mozilla.org/
 
 [tests]
 # List each testname as the option name and its corresponding
@@ -43,7 +43,6 @@ iterations = 8
 # different server by customizing the resulturl option.  If you set
 # resulturl to None, then each device's results will be written to
 # comma delimited files in the form: autophone-results-<deviceid>.csv.
-#resulturl = http://phonedash.mozilla.org/api/s1s2/
 resulturl = None
 # The iterations for a test are terminated early if
 # the standard error falls below stderrp_accept.

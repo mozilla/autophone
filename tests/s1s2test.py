@@ -32,26 +32,29 @@ class S1S2Test(PerfTest):
         # [paths]
         autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
         self._paths = {}
-        self._paths['sources'] = [os.path.join(autophone_directory, 'files/base/')]
-        self._paths['dest'] = posixpath.join(self.base_device_path, 's1test/')
+        self._paths['dest'] = posixpath.join(self.base_device_path, 's1s2test/')
         try:
-            try:
-                sources = self.cfg.get('paths', 'sources').split()
-                self._paths['sources'] = []
-                for source in sources:
-                    if not source.endswith('/'):
-                        source += '/'
-                    self._paths['sources'].append(source)
-            except ConfigParser.NoOptionError:
-                pass
-            for opt in ('dest', 'profile'):
-                try:
-                    self._paths[opt] = self.cfg.get('paths', opt)
-                    if not self._paths[opt].endswith('/'):
-                        self._paths[opt] += '/'
-                except ConfigParser.NoOptionError:
-                    pass
-        except ConfigParser.NoSectionError:
+            sources = self.cfg.get('paths', 'sources').split()
+            self._paths['sources'] = []
+            for source in sources:
+                if not source.endswith('/'):
+                    source += '/'
+                self._paths['sources'].append(source)
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            self._paths['sources'] = [
+                os.path.join(autophone_directory, 'files/base/'),
+                os.path.join(autophone_directory, 'files/s1s2/')]
+        try:
+            self._paths['dest'] = self.cfg.get('paths', 'dest')
+            if not self._paths['dest'].endswith('/'):
+                self._paths['dest'] += '/'
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            pass
+        try:
+            self._paths['profile'] = self.cfg.get('paths', 'profile')
+            if not self._paths['profile'].endswith('/'):
+                self._paths['profile'] += '/'
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             pass
         if 'profile' in self._paths:
             self.profile_path = self._paths['profile']
@@ -65,11 +68,18 @@ class S1S2Test(PerfTest):
                 self._pushes[push] = push_dest
         # [tests]
         self._tests = {}
-        for t in self.cfg.items('tests'):
-            self._tests[t[0]] = t[1]
+        try:
+            for t in self.cfg.items('tests'):
+                self._tests[t[0]] = t[1]
+        except ConfigParser.NoSectionError:
+            self._tests['blank'] = 'blank.html'
         # Map URLS - {urlname: url} - urlname serves as testname
         self._urls = {}
-        for test_location, test_path in self.cfg.items('locations'):
+        try:
+            location_items = self.cfg.items('locations')
+        except ConfigParser.NoSectionError:
+            location_items = [('local', None)]
+        for test_location, test_path in location_items:
             for test_name in self._tests:
                 if test_path:
                     test_url = test_path + self._tests[test_name]

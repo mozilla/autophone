@@ -50,6 +50,9 @@ class PhoneTest(object):
         self.start_timestamp = None
         self.end_timestamp = None
         self.loggerdeco.debug('PhoneTest: %s' % self.__dict__)
+        if not self.cfg.sections():
+            self.loggerdeco.warning('Test configuration not found. '
+                                    'Will use defaults.')
 
     def _check_device(self):
         for attempt in range(1, self.options.phone_retry_limit+1):

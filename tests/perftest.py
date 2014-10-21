@@ -44,50 +44,54 @@ class PerfTest(PhoneTest):
             self._signer = jws.HmacSha(key=self._jwt['key'],
                                        key_id=self._jwt['id'])
         # [settings]
-        self._iterations = self.cfg.getint('settings', 'iterations')
+        try:
+            self._iterations = self.cfg.getint('settings', 'iterations')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            self._iterations = 1
         try:
             self.stderrp_accept = self.cfg.getfloat('settings', 'stderrp_accept')
-        except ConfigParser.NoOptionError:
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.stderrp_accept = 0
         try:
             self.stderrp_reject = self.cfg.getfloat('settings', 'stderrp_reject')
-        except ConfigParser.NoOptionError:
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.stderrp_reject = 100
         try:
             self.stderrp_attempts = self.cfg.getint('settings', 'stderrp_attempts')
-        except ConfigParser.NoOptionError:
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.stderrp_attempts = 1
+        self._resultfile = None
         try:
-            self._resultfile = None
             self._resulturl = self.cfg.get('settings', 'resulturl')
-            if self._resulturl.lower() == 'none':
-                self._resulturl = None
-                self._resultfile = open('autophone-results-%s.csv' %
-                                        self.phone.id, 'ab')
-                self._resultfile.seek(0, 2)
-                self._resultwriter = csv.writer(self._resultfile)
-                if self._resultfile.tell() == 0:
-                    self._resultwriter.writerow([
-                        'phoneid',
-                        'testname',
-                        'starttime',
-                        'throbberstartraw',
-                        'throbberstopraw',
-                        'throbberstart',
-                        'throbberstop',
-                        'blddate',
-                        'cached',
-                        'rejected',
-                        'revision',
-                        'productname',
-                        'productversion',
-                        'osver',
-                        'bldtype',
-                        'machineid'])
-            elif not self._resulturl.endswith('/'):
-                self._resulturl += '/'
-        except ConfigParser.NoOptionError:
-            self._resulturl = 'http://phonedash.mozilla.org/api/s1s2/'
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            self._resulturl = 'none'
+
+        if self._resulturl.lower() == 'none':
+            self._resulturl = None
+            self._resultfile = open('autophone-results-%s.csv' %
+                                    self.phone.id, 'ab')
+            self._resultfile.seek(0, 2)
+            self._resultwriter = csv.writer(self._resultfile)
+            if self._resultfile.tell() == 0:
+                self._resultwriter.writerow([
+                    'phoneid',
+                    'testname',
+                    'starttime',
+                    'throbberstartraw',
+                    'throbberstopraw',
+                    'throbberstart',
+                    'throbberstop',
+                    'blddate',
+                    'cached',
+                    'rejected',
+                    'revision',
+                    'productname',
+                    'productversion',
+                    'osver',
+                    'bldtype',
+                    'machineid'])
+        elif not self._resulturl.endswith('/'):
+            self._resulturl += '/'
 
     def _phonedash_url(self, testname):
         if not self.result_server or not self.build:

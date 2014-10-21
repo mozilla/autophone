@@ -1,5 +1,4 @@
-Installation Instructions
-=========================
+# Installation Instructions
 
 There are three separate components in a complete autophone system:
 
@@ -7,27 +6,33 @@ There are three separate components in a complete autophone system:
 - mobile devices with root access
 - a server running phonedash to collect, serve, and present the results
 
-Multiple autophone servers can run on the same machine. Until mozpool support
-is added, each server runs independently with no knowledge of the others and
-should be configured with individual device pools. If running two or more
-instances from the same installation, you will need to use the --cache-dir
-option on all but the primary to avoid cache contention.
+Multiple autophone servers can run on the same machine. Until mozpool
+support is added, each server runs independently with no knowledge of
+the others and should be configured with individual device pools. If
+running two or more instances from the same installation, you will
+need to use the --port, --cache-dir, and --build-cache-port options on
+all but the primary to avoid port and cache contentions.
 
 The phonedash server is optional, e.g. for development environments. It can
 be found at https://github.com/markrcote/phonedash/. It is customized for
-the s1s2 test and will be eventually deprecated in favour of DataZilla.
+the s1s2 test and will be eventually deprecated in favour of Treeherder.
 
 
-Setting up autophone
---------------------
+## Setting up autophone
 
 "pip install -r requirements.txt" will install all required packages.
 
-Autophone is packaged with two tests: s1s2 and unittests.
+Autophone is packaged with four tests: smoketest, S1S2Test,
+WebappStartupTest and unittests.
 
-s1s2
-----
-s1s2 measures fennec load times for web pages,
+## Smoketest
+
+Smoketest is used to test if Fennec is able to run on devices and report
+its Throbber values to logcat.
+
+## S1S2Test
+
+S1S2Test measures fennec load times for web pages,
 served both remotely and from a local file.
 
 The pages to be served are located in autophone/files/base/ and
@@ -35,7 +40,7 @@ autophone/files/s1s2/. The twitter test pages are retrieved from
 https://git.mozilla.org/?p=automation/ep1.git;a=summary and placed in
 autophone/files/ep1/twitter.com via
 
-git submodule update --init
+    git submodule update --init --remote
 
 You will need a way to serve them (FIXME: autophone should do
 this). If you're using phonedash, it can serve the files by just
@@ -44,9 +49,13 @@ dropping them into phonedash/html/.
 The s1s2 test is configured in the file configs/s1s2_settings.ini -- copy
 configs/s1s2_settings.ini.example and customize as needed.
 
-unittests
----------
+## Unittests
 
+To be updated as part of
+[Bug 1079923 - Autophone - update unittests to fix bitrot](https://bugzilla.mozilla.org/show_bug.cgi?id=1079923).
+
+<!--
+<del>
 The unittests also require a local installation of the XRE and the utility
 programs such as xpcshell. A local build of Firefox can be used.
 
@@ -54,57 +63,27 @@ In order to process crash minidumps, you will also need a local
 installation of breakpad's minidump_stackwalk. You can build
 minidump_stack via:
 
-svn checkout http://google-breakpad.googlecode.com/svn/trunk/ google-breakpad-read-only
-cd google-breakpad-read-only
-if [[ $(uname) == "Darwin" ]]; then
-    CC=clang CXX=clang++ ./configure
-else
-   CXXFLAGS="-g -O1" ./configure
-fi
-make
-sudo make install
-
-If you wish to run a development environment, you will also need to
-set up an ElasticSearch and Autolog server. Note that you do not need
-to set up test data using testdata.py but you will need to create an
-autolog index using curl -XPUT 'http://localhost:9200/autolog/'
-once the ElasticSearch server is up and running and before
-you start the Autolog server.
-
-See
-https://wiki.mozilla.org/Auto-tools/Projects/Autolog for more details.
-
-To configure Autolog to display the results for a device, you will
-need to update the OSNames property in js/Config.js in Autolog. See
-http://hg.mozilla.org/automation/autolog/file/2a32ea0367f5/js/Config.js#l67 .
-Note that the key for the device should consist of the string 'autophone-'
-followed by the same value as used in SUTAgent.ini's HARDWARE property for
-the device.
+    svn checkout http://google-breakpad.googlecode.com/svn/trunk/ google-breakpad-read-only
+    cd google-breakpad-read-only
+    if [[ $(uname) == "Darwin" ]]; then
+        CC=clang CXX=clang++ ./configure
+    else
+       CXXFLAGS="-g -O1" ./configure
+    fi
+    make
+    sudo make install
 
 Once you have the XRE, utility programs and minidump_stack installed, change
 configs/unittest_default.ini to point to your local environment.
-
-Email notifications
--------------------
-
-If you want to get notifications indicating when Autophone has disabled
-a device due to errors, you can create email.ini like so:
-
-    [report]
-    from = <from address>
-
-    [email]
-    dest = <list of to addresses>
-    server = <SMTP server>
-    port = <SMTP server port, defaults to 465>
-    ssl = <enable SMTP over SSL, defaults to true>
-    username = <username for SMTP, optional>
-    password = <password for SMTP, optional>
+</del>
+-->
 
 ### Setting up devices ###
 
-Each device must be rooted and reachable by adb. Check that "adb devices"
-shows each desired device.
+Each device must be rooted and reachable by adb. At a minimum, each
+device should have USB Debugging and Unknown sources enabled.
+
+Check that "adb devices" shows each desired device.
 
 ### Using an emulator ###
 
@@ -142,5 +121,4 @@ and restart the emulator.
 Set up Phonedash following the instructions at
 https://github.com/markrcote/phonedash.
 
-
-Now you are ready to use autophone -- see USAGE.md to get started.
+Now you are ready to use autophone -- see [USAGE.md](USAGE.md) to get started.

@@ -1,13 +1,11 @@
 [settings]
-#clear_cache = False
 #ipaddr = ...
 #port = 28001
-#cachefile = autophone_cache.json
 #logfile = autophone.log
 #loglevel = DEBUG
 #test_path = tests/manifest.ini
 #emailcfg = email.ini
-#enable_pulse = True
+#enable_pulse = False
 #pulse_user = pulseuser
 #pulse_password = pulsepassword
 #enable_unittests = False
@@ -15,7 +13,9 @@
 #override_build_dir = None
 #repos = mozilla-central
 #buildtypes = opt
+#lifo = True
 #build_cache_port = 28008
+#devicescfg = devices.ini
 #verbose = True
 
 #treeherder_url = http://local.treeherder.mozilla.org

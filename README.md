@@ -1,7 +1,7 @@
-Autophone, a mobile-device manager for automated-test frameworks
-================================================================
+# Autophone, a mobile-device manager for automated-test frameworks
 
-Autophone controls one or more mobile devices via adb. Its primary goals are to
+Autophone controls one or more mobile devices via adb. Its primary
+goals are to:
 
 * execute arbitrary tests on devices
 * provide basic device status
@@ -21,5 +21,6 @@ Source code is at https://github.com/mozilla/autophone/
 See also [phonedash](https://github.com/markrcote/phonedash) for a basic
 results server.
 
-See the files INSTALL.md and USAGE.md for more detailed information.
+See the files [INSTALL.md](INSTALL.md) and [USAGE.md](USAGE.md) for
+more detailed information.
 
