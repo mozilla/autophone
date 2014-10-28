@@ -1,4 +1,4 @@
-g# Using Autophone
+# Using Autophone
 
 ## tl;dr
 
