@@ -36,12 +36,13 @@ from phonetest import PhoneTest
 from worker import PhoneWorker
 
 class PhoneData(object):
-    def __init__(self, phoneid, serial, machinetype, osver, abi, ipaddr):
+    def __init__(self, phoneid, serial, machinetype, osver, abi, sdk, ipaddr):
         self.id = phoneid
         self.serial = serial
         self.machinetype = machinetype
         self.osver = osver
         self.abi = abi
+        self.sdk = sdk
         self.host_ip = ipaddr
 
     @property
@@ -131,6 +132,8 @@ class AutoPhone(object):
             self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
                                                     trees=options.repos,
                                                     platforms=['android',
+                                                               'android-api-9',
+                                                               'android-api-10',
                                                                'android-x86'],
                                                     buildtypes=options.buildtypes,
                                                     logger=self.logger,
@@ -208,16 +211,19 @@ class AutoPhone(object):
                 if devices and phoneid not in devices:
                     continue
                 abi = p.phone.abi
+                sdk = p.phone.sdk
                 incompatible_job = False
                 if abi == 'x86':
                     if 'x86' not in build_url:
                         incompatible_job = True
-                elif abi == 'armeabi-v6':
-                    if 'armv6' in build_url:
-                        incompatible_job = True
                 else:
                     if 'x86' in build_url:
                         incompatible_job = True
+                if 'api-9' not in build_url and 'api-10' not in build_url:
+                    pass
+                elif sdk not in build_url:
+                    incompatible_job  = True
+
                 if incompatible_job:
                     self.logger.debug('Ignoring incompatible job %s '
                                       'for phone %s abi %s' %
@@ -347,6 +353,7 @@ class AutoPhone(object):
                 data['hardware'],
                 data['osver'],
                 data['abi'],
+                data['sdk'],
                 self.options.ipaddr) # XXX IPADDR no longer needed?
             if self.logger.getEffectiveLevel() == logging.DEBUG:
                 self.logger.debug('register_cmd: phone: %s' % phone)
@@ -393,6 +400,11 @@ class AutoPhone(object):
             device['osver'] = dm.get_prop('ro.build.version.release')
             device['hardware'] = dm.get_prop('ro.product.model')
             device['abi'] = dm.get_prop('ro.product.cpu.abi')
+            try:
+                sdk = int(dm.get_prop('ro.build.version.sdk'))
+                device['sdk'] = 'api-9' if sdk <= 10 else 'api-10'
+            except ValueError:
+                device['sdk'] = 'api-9'
             self._devices[serialno] = device
             self.register_cmd(device)
 
@@ -560,7 +572,10 @@ def main(options):
     #adbhost.kill_server()
 
     product = 'fennec'
-    build_platforms = ['android', 'android-x86']
+    build_platforms = ['android',
+                       'android-api-9',
+                       'android-api-10',
+                       'android-x86']
     buildfile_ext = '.apk'
     try:
         build_cache = builds.BuildCache(

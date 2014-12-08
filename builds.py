@@ -104,10 +104,10 @@ class BuildLocation(object):
         self.buildfile_ext = buildfile_ext
         buildfile_pattern = self.product + '.*\.('
         for platform in self.build_platforms:
-            if platform == 'android':
-                buildfile_pattern += 'android-arm|'
-            elif platform == 'android-x86':
+            if platform.startswith('android-x86'):
                 buildfile_pattern += 'android-i386|'
+            elif platform.startswith('android'):
+                buildfile_pattern += 'android-arm|'
             else:
                 raise Exception('Unsupported platform: %s' % platform)
 

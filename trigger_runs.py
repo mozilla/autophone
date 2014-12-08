@@ -64,7 +64,10 @@ def main(args, options):
 
     logger.info('Looking for builds...')
     product = 'fennec'
-    build_platforms = ['android', 'android-x86']
+    build_platforms = ['android',
+                       'android-api-9',
+                       'android-api-10',
+                       'android-x86']
     buildfile_ext = '.apk'
 
     cache = builds.BuildCache(
