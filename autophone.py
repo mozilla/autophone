@@ -134,6 +134,7 @@ class AutoPhone(object):
                                                     platforms=['android',
                                                                'android-api-9',
                                                                'android-api-10',
+                                                               'android-api-11',
                                                                'android-x86'],
                                                     buildtypes=options.buildtypes,
                                                     logger=self.logger,
@@ -219,7 +220,8 @@ class AutoPhone(object):
                 else:
                     if 'x86' in build_url:
                         incompatible_job = True
-                if 'api-9' not in build_url and 'api-10' not in build_url:
+                if ('api-9' not in build_url and 'api-10' not in build_url and
+                    'api-11' not in build_url):
                     pass
                 elif sdk not in build_url:
                     incompatible_job  = True
@@ -575,6 +577,7 @@ def main(options):
     build_platforms = ['android',
                        'android-api-9',
                        'android-api-10',
+                       'android-api-11',
                        'android-x86']
     buildfile_ext = '.apk'
     try:

@@ -49,11 +49,16 @@ def url_links(url):
 
     returns: list of BeautifulSoup links.
     """
-    r = urllib2.urlopen(url)
-    content = r.read()
-    if r.getcode() != 200:
+    try:
+        r = urllib2.urlopen(url)
+        content = r.read()
+        if r.getcode() != 200:
+            logger.warning("Unable to open url %s : %s" % (
+                url, httplib.responses[r.getcode()]))
+            return []
+    except urllib2.HTTPError, e:
         logger.warning("Unable to open url %s : %s" % (
-            url, httplib.responses[r.getcode()]))
+            url, e))
         return []
 
     soup = BeautifulSoup(content)

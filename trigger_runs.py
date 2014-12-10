@@ -67,6 +67,7 @@ def main(args, options):
     build_platforms = ['android',
                        'android-api-9',
                        'android-api-10',
+                       'android-api-11',
                        'android-x86']
     buildfile_ext = '.apk'
 
