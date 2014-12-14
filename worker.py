@@ -506,18 +506,21 @@ class PhoneWorkerSubProcess(object):
         self.loggerdeco.debug('PhoneWorkerSubProcess:handle_job')
         phoneid = self.phone.id
         abi = self.phone.abi
+        sdk = self.phone.sdk
         build_url = job['build_url']
         self.loggerdeco.debug('handle_job: job: %s, abi: %s' % (job, abi))
         incompatible_job = False
         if abi == 'x86':
             if 'x86' not in build_url:
                 incompatible_job = True
-        elif abi == 'armeabi-v6':
-            if 'armv6' not in build_url:
-                incompatible_job = True
         else:
-            if 'x86' in build_url or 'armv6' in build_url:
+            if 'x86' in build_url:
                 incompatible_job = True
+        if ('api-9' not in build_url and 'api-10' not in build_url and
+            'api-11' not in build_url):
+            pass
+        elif sdk not in build_url:
+            incompatible_job  = True
         if incompatible_job:
             self.loggerdeco.debug('Ignoring incompatible job %s '
                                   'for phone abi %s' %

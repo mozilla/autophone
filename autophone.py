@@ -404,7 +404,7 @@ class AutoPhone(object):
             device['abi'] = dm.get_prop('ro.product.cpu.abi')
             try:
                 sdk = int(dm.get_prop('ro.build.version.sdk'))
-                device['sdk'] = 'api-9' if sdk <= 10 else 'api-10'
+                device['sdk'] = 'api-9' if sdk <= 10 else 'api-11'
             except ValueError:
                 device['sdk'] = 'api-9'
             self._devices[serialno] = device
