@@ -45,7 +45,7 @@ class Logcat(object):
                 output.extend(self._last_logcat)
                 return output
             except ADBError:
-                self.loggerdeco.exception('Attempt %d get logcat' % attempt)
+                self.phonetest.loggerdeco.exception('Attempt %d get logcat' % attempt)
                 if attempt == self.phonetest.options.phone_retry_limit:
                     raise
                 time.sleep(self.phonetest.options.phone_retry_wait)
