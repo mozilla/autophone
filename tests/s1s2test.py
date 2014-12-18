@@ -244,7 +244,7 @@ class S1S2Test(PerfTest):
                 self.test_result.status = PhoneTestResult.BUSTED
                 self.message = 'No measurements detected.'
                 break
-        if not self.result:
+        if not self.test_result.status:
             self.test_result.status = PhoneTestResult.SUCCESS
 
     def runtest(self, url):

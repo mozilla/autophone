@@ -125,7 +125,6 @@ class AutophoneTreeherder(object):
                                              'job for %s %s' % (t.name, t.build.tree))
                 continue
 
-            t.result = None
             t.message = None
             t.submit_timestamp = timestamp_now()
             t.job_guid = generate_guid()
@@ -352,7 +351,7 @@ class AutophoneTreeherder(object):
 
             message = '%s %s %s TestResult: %s' % (self.worker.build.tree,
                                                    self.worker.build.id,
-                                                   t.name, t.result)
+                                                   t.name, test_status)
             if t.message:
                 message += ', %s' % t.message
             self.worker.loggerdeco.info(message)
