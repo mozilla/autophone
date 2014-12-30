@@ -113,6 +113,8 @@ class S1S2Test(PerfTest):
 
         testcount = len(self._urls.keys())
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
+            if self.fennec_crashed:
+                break
             self.loggerdeco = LogDecorator(self.logger,
                                            {'phoneid': self.phone.id,
                                             'pid': os.getpid(),
@@ -136,6 +138,8 @@ class S1S2Test(PerfTest):
             # be reported.
             success = False
             for attempt in range(1, self.stderrp_attempts+1):
+                if self.fennec_crashed:
+                    break
                 # dataset is a list of the measurements made for the
                 # iterations for this test.
                 #
@@ -150,6 +154,8 @@ class S1S2Test(PerfTest):
 
                 dataset = []
                 for iteration in range(1, self._iterations+1):
+                    if self.fennec_crashed:
+                        break
                     self.update_status(message='Attempt %d/%d for Test %d/%d, '
                                        'run %d, for url %s' %
                                        (attempt, self.stderrp_attempts,
@@ -428,17 +434,15 @@ class S1S2Test(PerfTest):
                     continue
                 if start_time and throbber_start_time and throbber_stop_time:
                     break
+            if self.fennec_crashed:
+                # If fennec crashed, don't bother looking for the Throbbers
+                break
             if (start_time == 0 or
                 throbber_start_time == 0 or
                 throbber_stop_time == 0):
                 sleep(wait_time)
                 attempt += 1
-        if self.check_for_crashes():
-            self.loggerdeco.info('fennec crashed')
-            fennec_crashed = True
-        else:
-            fennec_crashed = False
-        if throbber_start_time and throbber_stop_time == 0 and not fennec_crashed:
+        if throbber_start_time and throbber_stop_time == 0:
             self.loggerdeco.info('Unable to find Throbber stop')
 
         # The captured time from the logcat lines is in the format

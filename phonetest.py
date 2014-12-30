@@ -3,9 +3,10 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
-import glob
 import logging
 import os
+import shutil
+import tempfile
 import time
 
 from mozprofile import FirefoxProfile
@@ -104,6 +105,12 @@ class PhoneTest(object):
         if not self.cfg.sections():
             self.loggerdeco.warning('Test configuration not found. '
                                     'Will use defaults.')
+        # upload_dir will hold ANR traces, tombstones and other files
+        # pulled from the device.
+        self.upload_dir = None
+        # crash_processor is an instance of AutophoneCrashProcessor that
+        # is used by non-unittests to process device errors and crashes.
+        self.crash_processor = None
 
     def _check_device(self):
         for attempt in range(1, self.options.phone_retry_limit+1):
@@ -219,6 +226,33 @@ class PhoneTest(object):
         return "%s %s opt test %s-%s" % (
             self.phone.platform, self.build.tree, self.job_name, self.job_symbol)
 
+    def handle_crashes(self):
+        if not self.crash_processor:
+            return
+
+        for error in self.crash_processor.get_errors(self.build.symbols,
+                                                     self.options.minidump_stackwalk):
+            if error['reason'] == 'java-exception':
+                self.test_result.add_failure(self.name,
+                                             'PROCESS-CRASH',
+                                             error['signature'])
+            elif error['reason'] == 'PROFILE-ERROR':
+                self.test_result.add_failure(self.name,
+                                             error['reason'],
+                                             error['signature'])
+            elif error['reason'] == 'PROCESS-CRASH':
+                self.loggerdeco.info("PROCESS-CRASH | %s | "
+                                     "application crashed [%s]" % (self.name,
+                                                                   error['signature']))
+                self.loggerdeco.info(error['stackwalk_output'])
+                self.loggerdeco.info(error['stackwalk_errors'])
+
+                self.test_result.add_failure(self.name,
+                                             error['reason'],
+                                             'application crashed [%s]' % error['signature'])
+            else:
+                self.loggerdeco.warning('Unknown error reason: %s' % error['reason'])
+
     def setup_job(self):
         self.logger_original = self.logger
         self.loggerdeco_original = self.loggerdeco
@@ -238,13 +272,20 @@ class PhoneTest(object):
         if self._log:
             os.unlink(self._log)
         self._log = None
+        self.upload_dir = tempfile.mkdtemp()
 
     def run_job(self):
         raise NotImplementedError
 
     def teardown_job(self):
         self.loggerdeco.debug('PhoneTest.teardown_job')
-        self.worker_subprocess.treeherder.submit_complete(tests=[self])
+        try:
+            self.handle_crashes()
+            self.worker_subprocess.treeherder.submit_complete(tests=[self])
+        finally:
+            shutil.rmtree(self.upload_dir)
+            self.upload_dir = None
+
         if self.logger.getEffectiveLevel() == logging.DEBUG and self._log:
             self.loggerdeco.debug(40 * '=')
             logfilehandle = open(self._log)
@@ -306,7 +347,8 @@ class PhoneTest(object):
             self.dm.pkill(appname, root=True)
             self.dm.launch_fennec(appname,
                                  intent="android.intent.action.VIEW",
-                                 moz_env={'MOZ_CRASHREPORTER_NO_REPORT': '1'},
+                                 moz_env={'MOZ_CRASHREPORTER_NO_REPORT': '1',
+                                          'MOZ_CRASHREPORTER': '1'},
                                  extra_args=['--profile', self.profile_path],
                                  url=url,
                                  wait=False,
@@ -319,15 +361,15 @@ class PhoneTest(object):
         self.dm.rm(self.profile_path + '/sessionstore.js', force=True)
         self.dm.rm(self.profile_path + '/sessionstore.bak', force=True)
 
-    def check_for_crashes(self):
+    @property
+    def fennec_crashed(self):
         """
         Perform a quick check for crashes by checking
         self.profile_path/minidumps for dump files.
 
-        TODO: Should use mozbase/mozcrash with symbols and minidump_stackwalk
-        to process and report crashes.
         """
-        if glob.glob(os.path.join(self.profile_path, 'minidumps', '*.dmp')):
+        if self.dm.exists(os.path.join(self.profile_path, 'minidumps', '*.dmp')):
+            self.loggerdeco.info('fennec crashed')
             return True
         return False
 

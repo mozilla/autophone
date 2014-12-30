@@ -814,7 +814,14 @@ class BuildMetadata(object):
                  treeherder_url=None):
         self._date = None
         self.url = url
-        self.dir = dir
+        if not dir:
+            self.dir = None
+            self.symbols = None
+        else:
+            self.dir = os.path.abspath(dir)
+            self.symbols = os.path.join(self.dir, 'symbols')
+            if not os.path.exists(self.symbols):
+                self.symbols = None
         self.tree = tree
         self.id = id
         self.type = build_type
@@ -859,6 +866,7 @@ class BuildMetadata(object):
             '__class__': 'BuildMetadata',
             'url': self.url,
             'dir': self.dir,
+            'symbols': self.symbols,
             'tree': self.tree,
             'type': self.type,
             'id': self.id,
@@ -874,6 +882,7 @@ class BuildMetadata(object):
             raise ValueError
         self.url = j['url']
         self.dir = j['dir']
+        self.symbols = j['symbols']
         self.tree = j['tree']
         self.type = j['type']
         self.id = j['id']

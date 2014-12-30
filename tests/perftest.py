@@ -12,6 +12,7 @@ from math import sqrt
 
 from jot import jwt, jws
 
+from autophonecrash import AutophoneCrashProcessor
 from phonetest import PhoneTest, PhoneTestResult
 
 class PerfTest(PhoneTest):
@@ -64,6 +65,11 @@ class PerfTest(PhoneTest):
 
     def setup_job(self):
         PhoneTest.setup_job(self)
+        self.crash_processor = AutophoneCrashProcessor(self.dm,
+                                                       self.loggerdeco,
+                                                       self.profile_path,
+                                                       self.upload_dir)
+        self.crash_processor.clear()
 
         if self._resulturl.lower() == 'none':
             self._resulturl = None
@@ -116,10 +122,13 @@ class PerfTest(PhoneTest):
         raise NotImplementedError
 
     def teardown_job(self):
-        PhoneTest.teardown_job(self)
+        self.loggerdeco.debug('PerfTest.teardown_job')
+
         if self._resultfile:
             self._resultfile.close()
             self._resultfile = None
+
+        PhoneTest.teardown_job(self)
 
     def report_results(self, starttime=0, tstrt=0, tstop=0,
                        testname='', cache_enabled=True,

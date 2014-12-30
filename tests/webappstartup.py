@@ -374,15 +374,12 @@ class WebappStartupTest(PerfTest):
                     continue
                 if start_time and startup_time:
                     break
+            if self.fennec_crashed:
+                break
             if start_time == 0 or chrome_time == 0 or startup_time == 0:
                 sleep(wait_time)
                 attempt += 1
-        if self.check_for_crashes():
-            self.loggerdeco.info('fennec crashed')
-            fennec_crashed = True
-        else:
-            fennec_crashed = False
-        if chrome_time and startup_time == 0 and not fennec_crashed:
+        if chrome_time and startup_time == 0:
             self.loggerdeco.info('Unable to find WEBAPP STARTUP COMPLETE')
 
         # The captured time from the logcat lines is in the format

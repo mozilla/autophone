@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
+import glob
 import json
 import os
 import re
@@ -260,6 +261,7 @@ class AutophoneTreeherder(object):
             if t.test_result.failed == 0:
                 failed = '0'
             else:
+                test_status = PhoneTestResult.TESTFAILED
                 failed = '<em class="testfail">%s</em>' % t.test_result.failed
 
             t.job_details.append({
@@ -280,7 +282,7 @@ class AutophoneTreeherder(object):
 
             tj = tjc.get_job()
 
-            # Attach logcat
+            # Attach logs
             if self.worker.s3_bucket:
                 key_prefix = os.path.dirname(
                     urlparse.urlparse(self.worker.build.url).path)
@@ -323,6 +325,25 @@ class AutophoneTreeherder(object):
                             'value': 'Failed to upload log',
                             'content_type': 'text',
                             'title': 'Error:'})
+                # upload directory containing ANRs, tombstones and other items
+                # to be uploaded.
+                if t.upload_dir:
+                    for f in glob.glob(os.path.join(t.upload_dir, '*')):
+                        try:
+                            fname = os.path.basename(f)
+                            url = self.worker.s3_bucket.upload(f, "%s/%s" % (
+                                key_prefix, fname))
+                            t.job_details.append({
+                                'url': url,
+                                'value': fname,
+                                'content_type': 'link',
+                                'title': 'Artifact:'})
+                        except S3Error:
+                            self.worker.loggerdeco.exception('Error uploading artifact')
+                            t.job_details.append({
+                                'value': 'Failed to upload artifact %s' % fname,
+                                'content_type': 'text',
+                                'title': 'Error:'})
 
             tj.add_revision_hash(self.worker.build.revision_hash)
             tj.add_project(self.worker.build.tree)

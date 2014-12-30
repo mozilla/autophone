@@ -20,6 +20,7 @@ class AutophoneOptions(object):
         self.logfile = ''
         self.loglevel = ''
         self.test_path = ''
+        self.minidump_stackwalk = ''
         self.emailcfg = ''
         self.enable_pulse = False
         self.pulse_user = ''

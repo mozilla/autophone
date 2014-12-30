@@ -383,8 +383,8 @@ them.
 
 Before running the unit tests, you will need to copy
 configs/unittest_defaults.ini.example to configs/unittest_defaults.ini
-and edit configs/unittest_defaults.ini to change the xre_path,
-utility_path, and minidump_stackwalk values.
+and edit configs/unittest_defaults.ini to change the xre_path and
+utility_path values.
 
 For example,
 
@@ -464,6 +464,9 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
                                 to INFO
           -t TEST_PATH, --test-path=TEST_PATH
                                 path to test manifest
+          --minidump-stackwalk=MINIDUMP_STACKWALK
+                                Path to minidump_stackwalk executable; defaults to
+                                /usr/local/bin/minidump_stackwalk.
           --emailcfg=EMAILCFG   config file for email settings; defaults to none
           --enable-pulse        Enable connecting to pulse to look for new builds. If
                                 specified, --pulse-user and --pulse-password must also

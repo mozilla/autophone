@@ -8,10 +8,6 @@ xre_path = path-to-firefox-bin
 # xpcshell etc.
 utility_path = path-to-firefox-bin
 
-# minidump_stackwalk is the path to the breakpad utility to process
-# minidumps.
-minidump_stackwalk = path-to-minidump_stackwalk
-
 # Specify androidprocname if you are testing with a custom build which
 # does not follow the conventions in autophone.py:build_job. e.g.
 # androidprocname = org.mozilla.fennec_foobar

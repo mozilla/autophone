@@ -60,12 +60,8 @@ class UnitTest(PhoneTest):
 
         self.parms['xre_path'] = self.unittest_cfg.get('runtests', 'xre_path')
         self.parms['utility_path'] = self.unittest_cfg.get('runtests', 'utility_path')
-        if self.unittest_cfg.has_option('runtests', 'minidump_stackwalk'):
-            self.parms['minidump_stackwalk'] = self.unittest_cfg.get('runtests', 'minidump_stackwalk')
-            os.environ['MINIDUMP_STACKWALK'] = self.parms['minidump_stackwalk']
-        elif 'MINIDUMP_STACKWALK' in os.environ:
-            self.parms['minidump_stackwalk'] = None
-            del os.environ['MINIDUMP_STACKWALK']
+        self.parms['minidump_stackwalk'] = self.options.minidump_stackwalk
+        os.environ['MINIDUMP_STACKWALK'] = self.options.minidump_stackwalk
         if self.unittest_cfg.has_option('runtests', 'include_pass'):
             self.parms['include_pass'] = self.unittest_cfg.getboolean('runtests', 'include_pass')
         else:
@@ -94,9 +90,9 @@ class UnitTest(PhoneTest):
 
     def setup_job(self):
         PhoneTest.setup_job(self)
-        build_dir = os.path.abspath(self.build.dir)
-        symbols_path = os.path.join(build_dir, 'symbols')
-        if not os.path.exists(symbols_path):
+        build_dir = self.build.dir
+        symbols_path = self.build.symbols
+        if symbols_path and not os.path.exists(symbols_path):
             symbols_path = None
         re_revision = re.compile(r'http.*/rev/(.*)')
         match = re_revision.match(self.build.revision)
@@ -112,15 +108,15 @@ class UnitTest(PhoneTest):
         self.parms['buildid'] = self.build.id
         self.parms['tree'] = self.build.tree
 
-        if self.parms['symbols_path'] is not None and self.parms['minidump_stackwalk']:
-            os.environ['MINIDUMP_STACKWALK'] = self.parms['minidump_stackwalk']
-        elif 'MINIDUMP_STACKWALK' in os.environ:
-            del os.environ['MINIDUMP_STACKWALK']
-
         self._log = '%s/tests/%s-%s-%s.log' % (build_dir,
                                                self.parms['test_name'],
                                                self.chunk,
                                                self.parms['phoneid'])
+        os.putenv('MOZ_UPLOAD_DIR', self.upload_dir)
+
+    def teardown_job(self):
+        os.unsetenv('MOZ_UPLOAD_DIR')
+        PhoneTest.teardown_job(self)
 
     def run_job(self):
         self.loggerdeco.debug('runtestsremote.py run_job start')

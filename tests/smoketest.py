@@ -7,10 +7,23 @@ from time import sleep
 
 from mozprofile import FirefoxProfile
 
+from autophonecrash import AutophoneCrashProcessor
 from phonetest import PhoneTest, PhoneTestResult
 
 
 class SmokeTest(PhoneTest):
+
+    def setup_job(self):
+        PhoneTest.setup_job(self)
+        self.crash_processor = AutophoneCrashProcessor(self.dm,
+                                                       self.loggerdeco,
+                                                       self.profile_path,
+                                                       self.upload_dir)
+        self.crash_processor.clear()
+
+    def teardown_job(self):
+        self.loggerdeco.debug('PerfTest.teardown_job')
+        PhoneTest.teardown_job(self)
 
     def run_job(self):
         self.update_status(message='Running smoketest')
@@ -41,7 +54,9 @@ class SmokeTest(PhoneTest):
                 sleep(3)
                 found_throbber = self.check_throbber()
 
-        if not fennec_launched:
+        if self.fennec_crashed:
+            pass # Handle the crash in teardown_job
+        elif not fennec_launched:
             self.test_result.status = PhoneTestResult.BUSTED
             self.message = 'Failed to launch Fennec'
             self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
