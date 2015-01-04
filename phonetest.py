@@ -281,7 +281,7 @@ class PhoneTest(object):
         self.loggerdeco.debug('PhoneTest.teardown_job')
         try:
             self.handle_crashes()
-            self.worker_subprocess.treeherder.submit_complete(tests=[self])
+            self.worker_subprocess.treeherder.submit_complete(test=self)
         finally:
             shutil.rmtree(self.upload_dir)
             self.upload_dir = None

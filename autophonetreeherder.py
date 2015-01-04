@@ -219,18 +219,52 @@ class AutophoneTreeherder(object):
 
         self.post_request(tjc)
 
-    def submit_complete(self, tests=[],
+    def submit_complete(self, test=None,
                         test_status=None,
                         test_message=None):
-        self.worker.loggerdeco.debug('AutophoneTreeherder.submit_complete: %s' % tests)
+        """Submit test results for the worker's current job to Treeherder.
+
+        submit_complete operates in two modes:
+
+        * To report an infrastructure error which has prevented any of the
+          tests from running.
+
+          In this case, the test argument is None and the test_status
+          and test_message will be used to report the error for each
+          of the tests defined for the worker using
+          PhoneTest.add_failure.
+
+        * To report the status of an individual test.
+
+          In this case, the test argument references a test object and
+          both test_status and test_message are required to be
+          None. The Treeherder test_status is determined by whether
+          there were any failures reported.
+
+        :param test: test to be reported.
+        :param test_status: global test status to be reported.
+        :param test_message: global test message to be reported.
+
+        """
+        self.worker.loggerdeco.debug('AutophoneTreeherder.submit_complete: %s' % test)
+
+        assert((test is None and test_status and test_message and
+                test_status != PhoneTestResult.SUCCESS) or
+               (test is not None and test_status is None and test_message is None))
+
         if not self.url or not self.worker.build.revision_hash:
             self.worker.loggerdeco.debug('AutophoneTreeherder.submit_complete: no url/revision hash')
             return
 
         tjc = TreeherderJobCollection()
 
-        if not tests:
+        if test:
+            tests = [test]
+        else:
             tests = self.worker.tests
+            for t in tests:
+                if t.test_this_repo:
+                    t.test_result.add_failure(t.name, test_status, test_message)
 
         for t in tests:
             if not t.test_this_repo:
@@ -243,25 +277,13 @@ class AutophoneTreeherder(object):
             # since it may have been cancelled before it started.
             if not t.start_timestamp:
                 t.start_timestamp = t.end_timestamp
-            if not test_status:
-                test_status = t.test_result.status
-            if not test_message:
-                test_message = t.message
-
-            if test_message:
-                if test_status == PhoneTestResult.SUCCESS:
-                    t.job_details.append({
-                        'value': test_message,
-                        'content_type': 'text',
-                        'title': 'Note'
-                        })
-                else:
-                    t.test_result.add_failure('', '', test_message)
 
             if t.test_result.failed == 0:
+                test_status = PhoneTestResult.SUCCESS
                 failed = '0'
             else:
-                test_status = PhoneTestResult.TESTFAILED
+                if not test_status:
+                    test_status = PhoneTestResult.TESTFAILED
                 failed = '<em class="testfail">%s</em>' % t.test_result.failed
 
             t.job_details.append({

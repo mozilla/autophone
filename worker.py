@@ -488,9 +488,8 @@ class PhoneWorkerSubProcess(object):
                 self.loggerdeco.warning('run_tests: not running test due '
                                         'to device error! %s %s %s' % (
                                             t.name, t.build.tree, t.build.id))
-                self.treeherder.submit_complete(tests=[t],
-                                                test_status=PhoneTestResult.USERCANCEL,
-                                                test_message='Device Error')
+                t.test_result.add_failure(t.name, PhoneTestResult.EXCEPTION, 'Device Error')
+                self.treeherder.submit_complete(test=t)
                 continue
             try:
                 t.setup_job()
