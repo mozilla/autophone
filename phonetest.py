@@ -273,6 +273,7 @@ class PhoneTest(object):
             os.unlink(self._log)
         self._log = None
         self.upload_dir = tempfile.mkdtemp()
+        self.test_result = PhoneTestResult()
 
     def run_job(self):
         raise NotImplementedError
