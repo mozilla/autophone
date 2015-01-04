@@ -557,10 +557,6 @@ class AutophoneTreeherder(object):
                         terms_requested[search_term] = bugs
                     else:
                         bugs = terms_requested[search_term]
-                    bug_suggestions.append({
-                        "search": line,
-                        "bugs": bugs
-                    })
 
                 if not bugs or not (bugs['open_recent']
                                     or bugs['all_others']):
@@ -574,10 +570,10 @@ class AutophoneTreeherder(object):
                         else:
                             bugs = terms_requested[crash_signature]
 
-                        bug_suggestions.append({
-                            "search": line,
-                            "bugs": bugs
-                        })
+                bug_suggestions.append({
+                    "search": line,
+                    "bugs": bugs
+                })
         except Exception:
             raise
 
