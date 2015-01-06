@@ -185,8 +185,8 @@ class PerfTest(PhoneTest):
                               {'Content-Type': content_type})
         try:
             f = urllib2.urlopen(req)
-        except urllib2.URLError, e:
-            self.loggerdeco.error('Error sending results to server: %s' % e)
+        except Exception, e:
+            self.loggerdeco.exception('Error sending results to server')
             self.worker_subprocess.mailer.send(
                 'Error sending %s results for phone %s, build %s' %
                 (self.name, self.phone.id, self.build.id),
@@ -251,11 +251,10 @@ class PerfTest(PhoneTest):
         try:
             url = self._resulturl + 'check/?' + urllib.urlencode(query)
             f = urllib2.urlopen(url)
-        except urllib2.URLError, e:
-            self.loggerdeco.error(
-                'check_results: %s could not check: '
+        except Exception:
+            self.loggerdeco.exception(
+                'check_results: could not check: '
                 'phoneid: %s, test: %s, revision: %s, product: %s' % (
-                    e,
                     query['phoneid'], query['test'],
                     query['revision'], query['product']))
             return False

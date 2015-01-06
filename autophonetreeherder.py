@@ -412,7 +412,11 @@ class AutophoneTreeherder(object):
         req = urllib2.Request(url)
         req.add_header('Accept', 'application/json')
         req.add_header('Content-Type', 'application/json')
-        conn = urllib2.urlopen(req)
+        try:
+            conn = urllib2.urlopen(req)
+        except Exception:
+            self.worker.loggerdeco.exception('%s' % url)
+            return None
 
         if not conn.getcode() == 200:
             return None

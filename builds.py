@@ -57,8 +57,10 @@ def url_links(url):
                 url, httplib.responses[r.getcode()]))
             return []
     except urllib2.HTTPError, e:
-        logger.warning("Unable to open url %s : %s" % (
-            url, e))
+        logger.warning('%s %s' % (e, url))
+        return []
+    except Exception:
+        logger.exception('%s' % url)
         return []
 
     soup = BeautifulSoup(content)
@@ -268,10 +270,15 @@ class BuildLocation(object):
         builds = []
 
         for repo in self.repos:
-            first_timestamp, last_timestamp = get_revision_timestamps(
-                repo,
-                first_revision,
-                last_revision)
+            try:
+                first_timestamp, last_timestamp = get_revision_timestamps(
+                    repo,
+                    first_revision,
+                    last_revision)
+            except Exception:
+                logger.exception('repo %s' % repo)
+                continue
+
             first_datetime = convert_timestamp_to_date(first_timestamp)
             last_datetime = convert_timestamp_to_date(last_timestamp)
             logger.debug('find_builds_by_revision: repo %s, '
@@ -371,7 +378,11 @@ class BuildLocation(object):
                                              search_directory_repo,
                                              search_directory, directory_repo,
                                              directory_name, build_url))
-                                contents = urllib2.urlopen(txturl).read()
+                                try:
+                                    contents = urllib2.urlopen(txturl).read()
+                                except Exception:
+                                    logger.exception('%s' % txturl)
+                                    contents = ''
                                 lines = contents.splitlines()
                                 if len(lines) > 1 and buildid_regex.match(lines[0]):
                                     buildid = lines[0]
@@ -595,10 +606,14 @@ class BuildCache(object):
         metadata items.
         """
         if self.override_build_dir:
+            metadata = self.build_metadata(buildurl, self.override_build_dir)
+            if metadata:
+                metadata_json = metadata.to_json()
+            else:
+                metadata_json = ''
             return {
-                'success': True,
-                'metadata': self.build_metadata(buildurl,
-                                                self.override_build_dir).to_json()
+                'success': metadata is not None,
+                'metadata': metadata_json
             }
         # If the buildurl is for a local build, force the download since it may
         # have changed even though the buildurl hasn't.
@@ -706,9 +721,14 @@ class BuildCache(object):
                     return {'success': False, 'error': err}
                 shutil.move(tmpf.name, fennec_ids_path)
 
+        metadata = self.build_metadata(buildurl, cache_build_dir)
+        if metadata:
+            metadata_json = metadata.to_json()
+        else:
+            metadata_json = ''
         return {
-            'success': True,
-            'metadata': self.build_metadata(buildurl, cache_build_dir).to_json()
+            'success': metadata is not None,
+            'metadata': metadata_json
         }
 
     def clean_cache(self, preserve=[]):
@@ -797,7 +817,8 @@ class BuildCache(object):
                                  build_type='opt',
                                  treeherder_url=self.treeherder_url)
         shutil.rmtree(tmpdir)
-        file(build_metadata_path, 'w').write(json.dumps(metadata.to_json()))
+        if metadata:
+            file(build_metadata_path, 'w').write(json.dumps(metadata.to_json()))
         return metadata
 
 
@@ -840,12 +861,12 @@ class BuildMetadata(object):
                 logger.debug('revision_lookup: %s' % revision_lookup)
                 self.push_timestamp = revision_lookup[changeset]['push_timestamp']
                 self.revision_hash = revision_lookup[changeset]['revision_hash']
-            except urllib2.HTTPError:
-                logger.exception('Failure to get the revision_lookup for %s' %
-                                 self.revision)
             except KeyError:
                 logger.exception('Invalid revision_lookup %s for %s' %
                                  (revision_lookup, self.revision))
+            except Exception:
+                logger.exception('Failure to get the revision_lookup for %s' %
+                                 self.revision)
         logger.debug('BuildMetadata: %s' % self.__dict__)
 
     @property
