@@ -713,7 +713,7 @@ if __name__ == '__main__':
                       dest='test_path', default='tests/manifest.ini',
                       help='path to test manifest')
     parser.add_option('--minidump-stackwalk', action='store', type='string',
-                      dest='minidump_stackwalk', default=' /usr/local/bin/minidump_stackwalk',
+                      dest='minidump_stackwalk', default='/usr/local/bin/minidump_stackwalk',
                       help='Path to minidump_stackwalk executable; defaults to /usr/local/bin/minidump_stackwalk.')
     parser.add_option('--emailcfg', action='store', type='string',
                       dest='emailcfg', default='',
