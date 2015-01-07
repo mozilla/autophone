@@ -60,8 +60,6 @@ class UnitTest(PhoneTest):
 
         self.parms['xre_path'] = self.unittest_cfg.get('runtests', 'xre_path')
         self.parms['utility_path'] = self.unittest_cfg.get('runtests', 'utility_path')
-        self.parms['minidump_stackwalk'] = self.options.minidump_stackwalk
-        os.environ['MINIDUMP_STACKWALK'] = self.options.minidump_stackwalk
         if self.unittest_cfg.has_option('runtests', 'include_pass'):
             self.parms['include_pass'] = self.unittest_cfg.getboolean('runtests', 'include_pass')
         else:
@@ -112,9 +110,13 @@ class UnitTest(PhoneTest):
                                                self.parms['test_name'],
                                                self.chunk,
                                                self.parms['phoneid'])
+        os.putenv('MINIDUMP_STACKWALK', self.options.minidump_stackwalk)
+        os.putenv('MINIDUMP_SAVE_PATH', self.upload_dir)
         os.putenv('MOZ_UPLOAD_DIR', self.upload_dir)
 
     def teardown_job(self):
+        os.unsetenv('MINIDUMP_STACKWALK')
+        os.unsetenv('MINIDUMP_SAVE_PATH')
         os.unsetenv('MOZ_UPLOAD_DIR')
         PhoneTest.teardown_job(self)
 

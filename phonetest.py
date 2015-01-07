@@ -231,7 +231,8 @@ class PhoneTest(object):
             return
 
         for error in self.crash_processor.get_errors(self.build.symbols,
-                                                     self.options.minidump_stackwalk):
+                                                     self.options.minidump_stackwalk,
+                                                     clean=False):
             if error['reason'] == 'java-exception':
                 self.test_result.add_failure(self.name,
                                              'PROCESS-CRASH',

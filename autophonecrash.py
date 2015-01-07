@@ -9,11 +9,9 @@
 
 import glob
 import os
-import shutil
 import subprocess
 import re
 import sys
-import tempfile
 from collections import namedtuple
 
 from adb import ADBError
@@ -175,7 +173,7 @@ class AutophoneCrashProcessor(object):
                 break
         return exception
 
-    def _process_dump_file(self, path, extra, symbols_path, stackwalk_binary):
+    def _process_dump_file(self, path, extra, symbols_path, stackwalk_binary, clean=True):
         """Process a single dump file using stackwalk_binary, and return a
         tuple containing properties of the crash dump.
 
@@ -183,6 +181,7 @@ class AutophoneCrashProcessor(object):
         :param extra: Path to the extra file to analyse.
         :param symbols_path: Path to the directory containing symbols.
         :param stackwalk_binary: Path to the minidump_stackwalk binary.
+        :param clean: If True, remove dump file after processing.
         :return: A StackInfo tuple with the fields::
                    minidump_path: Path of the dump file
                    signature: The top frame of the stack trace, or None if it
@@ -238,10 +237,11 @@ class AutophoneCrashProcessor(object):
             elif stackwalk_binary and not os.path.exists(stackwalk_binary):
                 errors.append("MINIDUMP_STACKWALK binary not found: %s" % stackwalk_binary)
 
-        if os.path.exists(path):
-            os.unlink(path)
-        if os.path.exists(extra):
-            os.unlink(extra)
+        if clean:
+            if os.path.exists(path):
+                os.unlink(path)
+            if os.path.exists(extra):
+                os.unlink(extra)
 
         self.logger.debug('AutophoneCrashProcessor.'
                           '_process_dump_file: %s %s signature: %s '
@@ -256,7 +256,7 @@ class AutophoneCrashProcessor(object):
                          errors,
                          extra)
 
-    def get_crashes(self, symbols_path, stackwalk_binary):
+    def get_crashes(self, symbols_path, stackwalk_binary, clean=True):
         """Returns a list of crash summaries for any crash dumps found on the device.
 
         Note that the crash dumps are deleted as a side effect.
@@ -265,6 +265,7 @@ class AutophoneCrashProcessor(object):
             containing the symbols for the Firefox build being tested.
         :param stackwalk_binary: path on host to the
             minidump_stackwalk binary to be used to parse the dump files.
+        :param clean: If True, remove dump files after processing.
 
         Example:
         [
@@ -280,53 +281,46 @@ class AutophoneCrashProcessor(object):
         self.check_for_tombstones()
 
         crashes = []
-        try:
-            dump_dir = tempfile.mkdtemp()
-            if not self.adb.is_dir(self.remote_dump_dir):
-                # If crash reporting is enabled (MOZ_CRASHREPORTER=1), the
-                # minidumps directory is automatically created when Fennec
-                # (first) starts, so its lack of presence is a hint that
-                # something went wrong.
-                self.logger.warning("Automation Error: No crash directory (%s) "
-                                    "found on remote device" % self.remote_dump_dir)
-                crashes.append({'reason': 'PROFILE-ERROR',
-                                'signature': "No crash directory (%s) found on remote device" %
-                                self.remote_dump_dir})
-                return crashes
-            self.adb.pull(self.remote_dump_dir, dump_dir)
-            dump_files = [(path, os.path.splitext(path)[0] + '.extra') for path in
-                          glob.glob(os.path.join(dump_dir, '*.dmp'))]
-            max_dumps = 10
-            if len(dump_files) > max_dumps:
-                self.logger.warning("Found %d dump files -- limited to %d!" % (len(dump_files), max_dumps))
-                del dump_files[max_dumps:]
-            self.logger.debug('AutophoneCrashProcessor.dump_files: %s' % dump_files)
-            for path, extra in dump_files:
-                info = self._process_dump_file(path, extra, symbols_path, stackwalk_binary)
-                stackwalk_output = ["Crash dump filename: %s" % info.minidump_path]
-                if info.stackwalk_stderr:
-                    stackwalk_output.append("stderr from minidump_stackwalk:")
-                    stackwalk_output.append(info.stackwalk_stderr)
-                elif info.stackwalk_stdout is not None:
-                    stackwalk_output.append(info.stackwalk_stdout)
-                if info.stackwalk_retcode is not None and info.stackwalk_retcode != 0:
-                    stackwalk_output.append("minidump_stackwalk exited with return code %d" %
-                                            info.stackwalk_retcode)
-                signature = info.signature if info.signature else "unknown top frame"
-                self.logger.info("application crashed [%s]" % signature)
-                crashes.append(
-                    {'reason': 'PROCESS-CRASH',
-                     'signature': signature,
-                     'stackwalk_output': '\n'.join(stackwalk_output),
-                     'stackwalk_errors': '\n'.join(info.stackwalk_errors)})
-        finally:
-            try:
-                shutil.rmtree(dump_dir)
-            except:
-                self.logger.exception("WARNING: unable to remove directory: %s" % dump_dir)
+        if not self.adb.is_dir(self.remote_dump_dir):
+            # If crash reporting is enabled (MOZ_CRASHREPORTER=1), the
+            # minidumps directory is automatically created when Fennec
+            # (first) starts, so its lack of presence is a hint that
+            # something went wrong.
+            self.logger.warning("Automation Error: No crash directory (%s) "
+                                "found on remote device" % self.remote_dump_dir)
+            crashes.append({'reason': 'PROFILE-ERROR',
+                            'signature': "No crash directory (%s) found on remote device" %
+                            self.remote_dump_dir})
+            return crashes
+        self.adb.pull(self.remote_dump_dir, self.upload_dir)
+        dump_files = [(path, os.path.splitext(path)[0] + '.extra') for path in
+                      glob.glob(os.path.join(self.upload_dir, '*.dmp'))]
+        max_dumps = 10
+        if len(dump_files) > max_dumps:
+            self.logger.warning("Found %d dump files -- limited to %d!" % (len(dump_files), max_dumps))
+            del dump_files[max_dumps:]
+        self.logger.debug('AutophoneCrashProcessor.dump_files: %s' % dump_files)
+        for path, extra in dump_files:
+            info = self._process_dump_file(path, extra, symbols_path, stackwalk_binary, clean=clean)
+            stackwalk_output = ["Crash dump filename: %s" % info.minidump_path]
+            if info.stackwalk_stderr:
+                stackwalk_output.append("stderr from minidump_stackwalk:")
+                stackwalk_output.append(info.stackwalk_stderr)
+            elif info.stackwalk_stdout is not None:
+                stackwalk_output.append(info.stackwalk_stdout)
+            if info.stackwalk_retcode is not None and info.stackwalk_retcode != 0:
+                stackwalk_output.append("minidump_stackwalk exited with return code %d" %
+                                        info.stackwalk_retcode)
+            signature = info.signature if info.signature else "unknown top frame"
+            self.logger.info("application crashed [%s]" % signature)
+            crashes.append(
+                {'reason': 'PROCESS-CRASH',
+                 'signature': signature,
+                 'stackwalk_output': '\n'.join(stackwalk_output),
+                 'stackwalk_errors': '\n'.join(info.stackwalk_errors)})
         return crashes
 
-    def get_errors(self, symbols_path, stackwalk_binary):
+    def get_errors(self, symbols_path, stackwalk_binary, clean=True):
         """Processes ANRs, tombstones and crash dumps on the device and
         returns a list of errors.
 
@@ -337,6 +331,7 @@ class AutophoneCrashProcessor(object):
             containing the symbols for the Firefox build being tested.
         :param stackwalk_binary: path on host to the
             minidump_stackwalk binary to be used to parse the dump files.
+        :param clean: If True, remove dump files after processing.
 
         :returns: list of error objects. Error object can be of the
         following types:
@@ -365,5 +360,5 @@ class AutophoneCrashProcessor(object):
         java_exception = self.get_java_exception()
         if java_exception:
             errors.append(java_exception)
-        errors.extend(self.get_crashes(symbols_path, stackwalk_binary))
+        errors.extend(self.get_crashes(symbols_path, stackwalk_binary, clean=clean))
         return errors
