@@ -54,7 +54,22 @@ class AutophoneTreeherder(object):
         self.retry_wait = self.worker.options.treeherder_retry_wait
         self.bugscache_uri = '%s/api/bugscache/' % self.url
 
-        self.worker.loggerdeco.debug('AutophoneTreeherder: %s' % self.__dict__)
+        self.worker.loggerdeco.debug('AutophoneTreeherder: %s' % self)
+
+    def __str__(self):
+        # Do not publish sensitive information
+        whitelist = ('worker',
+                     'url',
+                     'server',
+                     'protocol',
+                     'host',
+                     'retries',
+                     'retry_wait',
+                     'bugscache_uri')
+        d = {}
+        for attr in whitelist:
+            d[attr] = getattr(self, attr)
+        return '%s' % d
 
     def post_request(self, job_collection):
         self.worker.loggerdeco.debug('AutophoneTreeherder.post_request: %s' % job_collection.__dict__)
@@ -306,28 +321,43 @@ class AutophoneTreeherder(object):
 
             # Attach logs
             if self.worker.s3_bucket:
+                # We must make certain that S3 keys for uploaded files
+                # are unique. We can create a unique log_identifier as
+                # follows: For Unittests, t._log's basename contains a
+                # unique name based on the actual Unittest name, chunk
+                # and phone id. For Non-Unittests, the test classname,
+                # chunk and phone id can be used.
+
+                if t._log:
+                    log_identifier = os.path.splitext(os.path.basename(t._log))[0]
+                else:
+                    log_identifier = "%s-%s-%s" % (t.name, t.chunk, t.phone.id)
+
                 key_prefix = os.path.dirname(
                     urlparse.urlparse(self.worker.build.url).path)
                 key_prefix = re.sub('/tmp$', '', key_prefix)
+
                 # Logcat
+                fname = '%s-logcat.log' % log_identifier
+                lname = 'logcat'
                 with tempfile.NamedTemporaryFile(suffix='logcat.txt') as f:
                     for line in t.logcat.get(full=True):
                         f.write('%s\n' % line)
                     try:
                         url = self.worker.s3_bucket.upload(f.name, "%s/%s" % (
-                            key_prefix, 'logcat.txt'))
+                            key_prefix, fname))
                         t.job_details.append({
                             'url': url,
-                            'value': 'logcat.txt',
+                            'value': lname,
                             'content_type': 'link',
-                            'title': 'Logcat:'})
+                            'title': 'artifact uploaded:'})
                     except S3Error:
-                        self.worker.loggerdeco.exception('Error uploading logcat')
+                        self.worker.loggerdeco.exception('Error uploading logcat %s' % fname)
                         t.job_details.append({
-                            'value': 'Failed to upload logcat.txt',
+                            'value': 'Failed to upload %s' % fname,
                             'content_type': 'text',
                             'title': 'Error:'})
-                # Log
+                # UnitTest Log
                 if t._log:
                     logfile = os.path.basename(t._log)
                     try:
@@ -337,35 +367,61 @@ class AutophoneTreeherder(object):
                             'url': url,
                             'value': logfile,
                             'content_type': 'link',
-                            'title': 'Log:'})
+                            'title': 'artifact uploaded:'})
                         # don't add log reference  since we don't
                         # use treeherder's log parsing.
                         #tj.add_log_reference(logfile, url)
                     except S3Error:
-                        self.worker.loggerdeco.exception('Error uploading log')
+                        self.worker.loggerdeco.exception('Error uploading log %s' % logfile)
                         t.job_details.append({
-                            'value': 'Failed to upload log',
+                            'value': 'Failed to upload log %s' % logfile,
                             'content_type': 'text',
                             'title': 'Error:'})
-                # upload directory containing ANRs, tombstones and other items
+                # Upload directory containing ANRs, tombstones and other items
                 # to be uploaded.
                 if t.upload_dir:
                     for f in glob.glob(os.path.join(t.upload_dir, '*')):
                         try:
-                            fname = os.path.basename(f)
+                            lname = os.path.basename(f)
+                            fname = '%s-%s' % (log_identifier, lname)
                             url = self.worker.s3_bucket.upload(f, "%s/%s" % (
                                 key_prefix, fname))
                             t.job_details.append({
                                 'url': url,
-                                'value': fname,
+                                'value': lname,
                                 'content_type': 'link',
-                                'title': 'Artifact:'})
+                                'title': 'artifact uploaded:'})
                         except S3Error:
-                            self.worker.loggerdeco.exception('Error uploading artifact')
+                            self.worker.loggerdeco.exception('Error uploading artifact %s' % fname)
                             t.job_details.append({
                                 'value': 'Failed to upload artifact %s' % fname,
                                 'content_type': 'text',
                                 'title': 'Error:'})
+
+                # Since we are submitting results to Treeherder, we flush
+                # the worker's log before uploading the log to
+                # Treeherder. When we upload the log, it will contain
+                # results for a single test run with possibly an error
+                # message from the previous test if the previous log
+                # upload failed.
+                self.worker.filehandler.flush()
+                logfile = self.worker.logfile
+                fname = 'autophone-%s.log' % log_identifier
+                lname = 'Autophone Log'
+                try:
+                    url = self.worker.s3_bucket.upload(
+                        logfile, "%s/%s" % (key_prefix, fname))
+                    t.job_details.append({
+                        'url': url,
+                        'value': lname,
+                        'content_type': 'link',
+                        'title': 'artifact uploaded:'})
+                except S3Error:
+                    self.worker.loggerdeco.exception('Error uploading %s' % fname)
+                    t.job_details.append({
+                        'value': 'Failed to upload Autophone log',
+                        'content_type': 'text',
+                        'title': 'Error:'})
 
             tj.add_revision_hash(self.worker.build.revision_hash)
             tj.add_project(self.worker.build.tree)

@@ -258,6 +258,11 @@ class PhoneTest(object):
         self.logger_original = self.logger
         self.loggerdeco_original = self.loggerdeco
         self.dm_logger_original = self.dm._logger
+        # Clear the log file if we are submitting logs to Treeherder.
+        if (self.worker_subprocess.options.treeherder_url and
+            self.worker_subprocess.build.revision_hash and
+            self.worker_subprocess.s3_bucket):
+            self.worker_subprocess.initialize_log_filehandler()
         self.worker_subprocess.treeherder.submit_running(tests=[self])
 
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
@@ -285,7 +290,8 @@ class PhoneTest(object):
             self.handle_crashes()
             self.worker_subprocess.treeherder.submit_complete(test=self)
         finally:
-            shutil.rmtree(self.upload_dir)
+            if self.upload_dir and os.path.exists(self.upload_dir):
+                shutil.rmtree(self.upload_dir)
             self.upload_dir = None
 
         if self.logger.getEffectiveLevel() == logging.DEBUG and self._log:

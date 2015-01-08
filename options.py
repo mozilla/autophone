@@ -23,8 +23,6 @@ class AutophoneOptions(object):
         self.minidump_stackwalk = ''
         self.emailcfg = ''
         self.enable_pulse = False
-        self.pulse_user = ''
-        self.pulse_password = ''
         self.enable_unittests = False
         self.cache_dir = ''
         self.override_build_dir = ''
@@ -39,11 +37,14 @@ class AutophoneOptions(object):
         self.treeherder_retry_wait = 0
         self._treeherder_protocol = ''
         self._treeherder_server = ''
+        # Sensitive options should not be output to the logs
+        self.pulse_user = ''
+        self.pulse_password = ''
         self.s3_upload_bucket = ''
         self.aws_access_key_id = ''
         self.aws_access_key = ''
-
         #self.treeherder_credentials = {} # computed
+
         # ini options
         self.build_cache_size = BuildCache.MAX_NUM_BUILDS
         self.build_cache_expires = BuildCache.EXPIRE_AFTER_DAYS
@@ -79,4 +80,44 @@ class AutophoneOptions(object):
         return self._treeherder_server
 
     def __str__(self):
-        return '%s' % self.__dict__
+        # Do not publish sensitive information
+        whitelist = ('ipaddr',
+                     'port',
+                     'devicescfg',
+                     'logfile',
+                     'loglevel',
+                     'test_path',
+                     'minidump_stackwalk',
+                     'emailcfg',
+                     'enable_pulse',
+                     'enable_unittests',
+                     'cache_dir',
+                     'override_build_dir',
+                     'repos',
+                     'buildtypes',
+                     'lifo',
+                     'build_cache_port',
+                     'verbose',
+                     'treeherder_url',
+                     'treeherder_retries',
+                     'treeherder_retry_wait',
+                     '_treeherder_protocol',
+                     '_treeherder_server',
+                     'build_cache_size',
+                     'build_cache_expires',
+                     'device_ready_retry_wait',
+                     'device_ready_retry_attempts',
+                     'device_battery_min',
+                     'device_battery_max',
+                     'phone_retry_limit',
+                     'phone_retry_wait',
+                     'phone_max_reboots',
+                     'phone_ping_interval',
+                     'phone_command_queue_timeout',
+                     'phone_crash_window',
+                     'phone_crash_limit',
+                     'debug')
+        d = {}
+        for attr in whitelist:
+            d[attr] = getattr(self, attr)
+        return '%s' % d

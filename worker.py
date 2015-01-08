@@ -222,6 +222,20 @@ class PhoneWorkerSubProcess(object):
                                       options.aws_access_key_id,
                                       options.aws_access_key,
                                       self.loggerdeco)
+        self.filehandler = None
+
+    def initialize_log_filehandler(self):
+        if self.filehandler:
+            self.filehandler.flush()
+            self.filehandler.close()
+            self.logger.removeHandler(self.filehandler)
+        self.filehandler = MultiprocessingTimedRotatingFileHandler(self.logfile,
+                                                                   mode='wb',
+                                                                   when='midnight',
+                                                                   backupCount=7)
+        self.fileformatter = logging.Formatter('%(asctime)s|%(levelname)s|%(message)s')
+        self.filehandler.setFormatter(self.fileformatter)
+        self.logger.addHandler(self.filehandler)
 
     def _check_device(self):
         for attempt in range(1, self.options.phone_retry_limit+1):
@@ -678,14 +692,7 @@ class PhoneWorkerSubProcess(object):
 
         sys.stdout = file(self.outfile, 'a', 0)
         sys.stderr = sys.stdout
-        self.filehandler = MultiprocessingTimedRotatingFileHandler(self.logfile,
-                                                                   when='midnight',
-                                                                   backupCount=7)
-        fileformatstring = ('%(asctime)s|%(levelname)s'
-                            '|%(message)s')
-        self.fileformatter = logging.Formatter(fileformatstring)
-        self.filehandler.setFormatter(self.fileformatter)
-        self.logger.addHandler(self.filehandler)
+        self.initialize_log_filehandler()
 
         for t in self.tests:
             t.update_status_cb = self.update_status

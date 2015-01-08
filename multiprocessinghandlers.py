@@ -26,9 +26,11 @@ class MultiprocessingStreamHandler(logging.StreamHandler):
 
 class MultiprocessingTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
 
-    def __init__(self, filename, when='h', interval=1, backupCount=0,
+    def __init__(self, filename, mode='a', when='h', interval=1, backupCount=0,
                  encoding=None, delay=False, utc=False):
         self.lock = multiprocessing.Lock()
+        if mode.startswith('w') and os.path.exists(filename):
+            os.unlink(filename)
         logging.handlers.TimedRotatingFileHandler.__init__(self,
                                                            filename, when,
                                                            interval, backupCount,
