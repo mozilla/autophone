@@ -22,13 +22,13 @@ from multiprocessinghandlers import (MultiprocessingStreamHandler,
 
 from manifestparser import TestManifest
 from mozillapulse.config import PulseConfiguration
-from pulsebuildmonitor import start_pulse_monitor
 
 import builds
 import buildserver
 import jobs
 #from adb import ADBHost
 from adb_android import ADBAndroid as ADBDevice
+from autophonepulsebuildmonitor import AutophonePulseBuildMonitor
 from mailer import Mailer
 from options import AutophoneOptions
 from phonestatus import PhoneStatus
@@ -136,19 +136,23 @@ class AutoPhone(object):
         self.read_devices()
 
         if options.enable_pulse:
-            pulse_cfg = PulseConfiguration(user=options.pulse_user,
-                                           password=options.pulse_password)
-            self.pulsemonitor = start_pulse_monitor(buildCallback=self.on_build,
-                                                    trees=options.repos,
-                                                    platforms=['android',
-                                                               'android-api-9',
-                                                               'android-api-10',
-                                                               'android-api-11',
-                                                               'android-x86'],
-                                                    buildtypes=options.buildtypes,
-                                                    logger=self.logger,
-                                                    pulse_cfg=pulse_cfg)
-
+            pulse_config = PulseConfiguration(
+                user=options.pulse_user,
+                password=options.pulse_password)
+            self.pulsemonitor = AutophonePulseBuildMonitor(
+                build_callback=self.on_build,
+                trees=options.repos,
+                platforms=['android',
+                           'android-api-9',
+                           'android-api-10',
+                           'android-api-11',
+                           'android-x86'],
+                buildtypes=options.buildtypes,
+                logger=self.logger,
+                pulse_applabel=options.pulse_applabel,
+                pulse_config=pulse_config,
+                durable=self.options.pulse_durable_queue)
+            self.pulsemonitor.start()
         self.logger.debug('autophone_options: %s' % self.options)
 
         self.console_logger.info('Autophone started.')
@@ -511,15 +515,8 @@ class AutoPhone(object):
         if self._stop:
             return
         # Use the msg to get the build and install it then kick off our tests
-        self.logger.debug('---------- BUILD FOUND ----------')
-        self.logger.debug('%s' % msg)
-        self.logger.debug('---------------------------------')
-
-        # We will get a msg on busted builds with no URLs, so just ignore
-        # those, and only run the ones with real URLs
-        # We create jobs for all the phones and push them into the queue
-        if 'buildurl' in msg:
-            self.new_job(msg['buildurl'])
+        self.logger.debug('BUILD FOUND %s' % msg)
+        self.new_job(msg['packageUrl'])
 
     def stop(self):
         self._stop = True
@@ -723,6 +720,13 @@ if __name__ == '__main__':
                       help='Enable connecting to Pulse to look for new builds. '
                       'If specified, --pulse-user and --pulse-password must also '
                       'be specified.')
+    parser.add_option('--pulse-applabel', action='store', type='string',
+                      dest='pulse_applabel', default='autophone-build-monitor',
+                      help='Applabel for Pulse queue; '
+                      'defaults to autophone-build-monitor.')
+    parser.add_option('--pulse-durable-queue', action='store_true',
+                      dest="pulse_durable_queue", default=False,
+                      help='Use a durable queue when connecting to Pulse.')
     parser.add_option('--pulse-user', action='store', type='string',
                       dest='pulse_user', default='',
                       help='user id for connecting to PulseGuardian')

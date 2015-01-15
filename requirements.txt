@@ -8,5 +8,4 @@ mozautolog
 mozdevice
 mozprofile
 mozillapulse >= 1.0
-pulsebuildmonitor >= 0.90
 pytz
