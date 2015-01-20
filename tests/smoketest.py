@@ -13,6 +13,10 @@ from phonetest import PhoneTest, PhoneTestResult
 
 class SmokeTest(PhoneTest):
 
+    @property
+    def name(self):
+        return 'autophone-smoketest%s' % self.name_suffix
+
     def setup_job(self):
         PhoneTest.setup_job(self)
         self.crash_processor = AutophoneCrashProcessor(self.dm,

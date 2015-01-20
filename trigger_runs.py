@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
+import json
 import logging
 import re
 import socket
@@ -23,10 +24,11 @@ def from_iso_date_or_datetime(s):
     return d
 
 
-def command_str(build, devices):
-    s = 'triggerjobs %s' % build
-    if devices:
-        s += ' %s' % ' '.join(devices)
+def command_str(build, tests, devices):
+    job_data = {'build': build,
+                'tests': tests or [],
+                'devices': devices or []}
+    s = 'triggerjobs %s' % json.dumps(job_data)
     return s
 
 
@@ -106,7 +108,8 @@ def main(args, options):
 
     if not build_urls:
         return 1
-    commands = [command_str(b, options.devices) for b in build_urls]
+    commands = [command_str(b, options.tests, options.devices)
+                for b in build_urls]
     commands.append('exit')
     logger.info('- %s' % s.recv(1024).strip())
     for c in commands:
@@ -192,6 +195,14 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       help='url of build to test; may be an http or file schema;'
                       ' --repo must be specified if the build was not built from'
                       ' the mozilla-central repository.')
+    parser.add_option('--test',
+                      dest='tests',
+                      action='append',
+                      help='Test to be executed by the job.  Defaults to all '
+                      'if not specified. Can be specified multiple times. '
+                      'See Android-Only Unittest Suites at '
+                      'http://trychooser.pub.build.mozilla.org/ for supported '
+                      'test identifiers.')
     parser.add_option('--device',
                       dest='devices',
                       action='append',

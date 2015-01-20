@@ -85,6 +85,9 @@ class UnitTest(PhoneTest):
         else:
             self.parms['prefs'] = []
 
+    @property
+    def name(self):
+        return 'autophone-%s%s' % (self.parms['test_name'], self.name_suffix)
 
     def setup_job(self):
         PhoneTest.setup_job(self)

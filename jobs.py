@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
+import json
 import logging
 import os
 import sqlite3
@@ -25,7 +26,7 @@ class Jobs(object):
             c = conn.cursor()
             c.execute('create table jobs '
                       '(created text, last_attempt text, build_url text, '
-                      'attempts int, device text)')
+                      'tests text, attempts int, device text)')
             conn.commit()
 
     def report_sql_error(self, attempt, email_sent,
@@ -80,33 +81,45 @@ class Jobs(object):
                                                    (attempt,
                                                     self.SQL_RETRY_DELAY))
 
-    def new_job(self, build_url, device=None):
+    def new_job(self, build_url, tests=None, device=None):
         if not device:
             device = self.default_device
         now = datetime.datetime.now().isoformat()
         attempt = 0
         email_sent = False
+        tests.sort()
+        stests = json.dumps(tests)
+        try:
+            count = self._conn().cursor().execute(
+                'select count(ROWID) from jobs where device=? and '
+                'build_url=? and tests=?',
+                (device,build_url,stests)).fetchone()[0]
+        except sqlite3.OperationalError:
+            count = 0
+        if count > 0:
+            logger.warning('Not adding duplicate job: '
+                           'build: %s, device: %s, tests: %s' % (
+                               build_url, device, tests))
+            return
+
         while True:
             attempt += 1
             try:
                 conn = self._conn()
-                conn.cursor().execute('insert into jobs values (?, ?, ?, 0, ?)',
-                                      (now, None, build_url, device))
+                conn.cursor().execute(
+                    'insert into jobs values (?, ?, ?, ?, 0, ?)',
+                    (now, None, build_url, stests, device))
                 conn.commit()
                 break
             except sqlite3.OperationalError:
-                email_sent = self.report_sql_error(attempt, email_sent,
-                                                   'Unable to insert job into '
-                                                   'jobs database.',
-                                                   'Please check the logs for '
-                                                   'full details.',
-                                                   'Attempt %d failed to insert '
-                                                   'job (%s, %s, %s, %s) into '
-                                                   'database. Waiting for %d '
-                                                   'seconds.' %
-                                                   (attempt, now, None,
-                                                    build_url, device,
-                                                    self.SQL_RETRY_DELAY))
+                email_sent = self.report_sql_error(
+                    attempt, email_sent,
+                    'Unable to insert job into jobs database.',
+                    'Please check the logs for full details.',
+                    'Attempt %d failed to insert job (%s, %s, %s, %s, %s) into '
+                    'database. Waiting for %d seconds.' %
+                    (attempt, now, None,
+                     build_url, tests, device, self.SQL_RETRY_DELAY))
 
     def jobs_pending(self, device=None):
         if not device:
@@ -134,10 +147,11 @@ class Jobs(object):
                      'created': job[1],
                      'last_attempt': job[2],
                      'build_url': job[3],
-                     'attempts': job[4]}
+                     'tests': job[4],
+                     'attempts': job[5]}
                     for job in c.execute(
                             'select ROWID as id,created,last_attempt,build_url,'
-                            'attempts from jobs where device=? order by '
+                            'tests,attempts from jobs where device=? order by '
                             'created %s' % order,
                             (device,))]
             if not jobs:
@@ -149,6 +163,8 @@ class Jobs(object):
                       (next_job['attempts'], next_job['last_attempt'],
                        next_job['id']))
             conn.commit()
+            if next_job['tests']:
+                next_job['tests'] = json.loads(next_job['tests'])
         except sqlite3.OperationalError:
             next_job = None
         return next_job
@@ -165,14 +181,10 @@ class Jobs(object):
                 conn.commit()
                 break
             except sqlite3.OperationalError:
-                email_sent = self.report_sql_error(attempt, email_sent,
-                                                   'Unable to delete completed '
-                                                   'job from jobs database.',
-                                                   'Please check the logs for '
-                                                   'full details.',
-                                                   'Attempt %d failed to delete '
-                                                   'completed job %s from '
-                                                   'database. Waiting for %d '
-                                                   'seconds.' %
-                                                   (attempt, job_id,
-                                                    self.SQL_RETRY_DELAY))
+                email_sent = self.report_sql_error(
+                    attempt, email_sent,
+                    'Unable to delete completed job from jobs database.',
+                    'Please check the logs for full details.',
+                    'Attempt %d failed to delete completed job %s from '
+                    'database. Waiting for %d seconds.' %
+                    (attempt, job_id, self.SQL_RETRY_DELAY))

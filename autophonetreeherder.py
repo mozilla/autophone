@@ -133,14 +133,9 @@ class AutophoneTreeherder(object):
         tjc = TreeherderJobCollection(job_type='update')
 
         if not tests:
-            tests = self.worker.tests
+            tests = self.worker.runnable_tests
 
         for t in tests:
-            if not t.test_this_repo:
-                self.worker.loggerdeco.debug('AutophoneTreeherder.submit_pending: not creating '
-                                             'job for %s %s' % (t.name, t.build.tree))
-                continue
-
             t.message = None
             t.submit_timestamp = timestamp_now()
             t.job_guid = generate_guid()
@@ -195,11 +190,9 @@ class AutophoneTreeherder(object):
         tjc = TreeherderJobCollection(job_type='update')
 
         if not tests:
-            tests = self.worker.tests
+            tests = self.worker.runnable_tests
 
         for t in tests:
-            if not t.test_this_repo:
-                continue
             self.worker.loggerdeco.debug('AutophoneTreeherder.submit_running: '
                                          'for %s %s' % (t.name, t.build.tree))
 
@@ -276,14 +269,11 @@ class AutophoneTreeherder(object):
         if test:
             tests = [test]
         else:
-            tests = self.worker.tests
+            tests = self.worker.runnable_tests
             for t in tests:
-                if t.test_this_repo:
-                    t.test_result.add_failure(t.name, test_status, test_message)
+                t.test_result.add_failure(t.name, test_status, test_message)
 
         for t in tests:
-            if not t.test_this_repo:
-                continue
             self.worker.loggerdeco.debug('AutophoneTreeherder.submit_complete '
                                          'for %s %s' % (t.name, t.build.tree))
 

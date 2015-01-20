@@ -88,6 +88,10 @@ class S1S2Test(PerfTest):
         self._initialize_url = 'file://' + self._paths['dest'] + 'initialize_profile.html'
 
     @property
+    def name(self):
+        return 'autophone-s1s2%s' % self.name_suffix
+
+    @property
     def phonedash_url(self):
         # For s1s2test, there are 4 different test names due to historical design.
         # We pick local-blank as the default.

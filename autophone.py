@@ -13,6 +13,7 @@ import logging
 import logging.handlers
 import multiprocessing
 import os
+import re
 import signal
 import socket
 import sys
@@ -217,7 +218,11 @@ class AutoPhone(object):
             self.stop()
 
     # Start the phones for testing
-    def new_job(self, build_url, devices=None):
+    def new_job(self, job_data):
+        build_url = job_data['build']
+        devices = job_data['devices']
+        tests = job_data['tests']
+        self.logger.debug('NEW JOB: %s' % job_data)
         self.worker_lock.acquire()
         try:
             for p in self.phone_workers.values():
@@ -244,9 +249,10 @@ class AutoPhone(object):
                                       'for phone %s abi %s' %
                                       (build_url, phoneid, abi))
                     continue
-                self.jobs.new_job(build_url, phoneid)
-                self.logger.info('Notifying device %s of new job %s.' %
-                                 (phoneid, build_url))
+                self.jobs.new_job(build_url, tests=tests, device=phoneid)
+                self.logger.info('Notifying device %s of new job %s '
+                                 'for tests %s.' %
+                                 (phoneid, build_url, tests))
                 p.new_job()
         finally:
             self.worker_lock.release()
@@ -500,10 +506,10 @@ class AutoPhone(object):
 
     def trigger_jobs(self, data):
         self.logger.info('Received user-specified job: %s' % data)
-        args = data.split(' ')
-        if not args:
+        job_data = json.loads(data)
+        if 'build' not in job_data:
             return 'invalid args'
-        self.new_job(args[0], args[1:])
+        self.new_job(job_data)
         return 'ok'
 
     def reset_phones(self):
@@ -515,8 +521,20 @@ class AutoPhone(object):
         if self._stop:
             return
         # Use the msg to get the build and install it then kick off our tests
-        self.logger.debug('BUILD FOUND %s' % msg)
-        self.new_job(msg['packageUrl'])
+        self.logger.debug('PULSE BUILD FOUND %s' % msg)
+        tests = []
+        if msg['branch'] == 'try':
+            # Autophone try builds will have a comment of the form:
+            # try: -b o -p android-api-9,android-api-11 -u autophone-smoke,autophone-s1s2 -t none
+            reTests = re.compile('try:.* -u (.*) -t.*')
+            match = reTests.match(msg['comments'])
+            if match:
+                tests = [t for t in match.group(1).split(',')
+                         if t.startswith('autophone-')]
+                if 'autophone-tests' in tests:
+                    tests = []
+        job_data = {'build': msg['packageUrl'], 'tests': tests, 'devices': []}
+        self.new_job(job_data)
 
     def stop(self):
         self._stop = True

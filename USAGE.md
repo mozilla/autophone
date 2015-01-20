@@ -92,6 +92,8 @@ Guardian account from
 [Autophone's pulse related options](autophonepy-command-line-options):
 
     --enable-pulse
+    --pulse-applabel=PULSE_APPLABEL
+    --pulse-durable-queue
     --pulse-user=PULSE_USER
     --pulse-password=PULSE_PASSWORD
 
@@ -459,7 +461,7 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
                                 28001
           --logfile=LOGFILE     Log file to store logging from entire system.
                                 Individual phone worker logs will use
-                                &lt;logfile&gt;-&lt;phoneid&gt;[.&lt;ext&gt;]. Default: autophone.log
+                                <logfile>-<phoneid>[.<ext>]. Default: autophone.log
           --loglevel=LOGLEVEL   Log level - ERROR, WARNING, DEBUG, or INFO, defaults
                                 to INFO
           -t TEST_PATH, --test-path=TEST_PATH
@@ -468,9 +470,14 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
                                 Path to minidump_stackwalk executable; defaults to
                                 /usr/local/bin/minidump_stackwalk.
           --emailcfg=EMAILCFG   config file for email settings; defaults to none
-          --enable-pulse        Enable connecting to pulse to look for new builds. If
+          --enable-pulse        Enable connecting to Pulse to look for new builds. If
                                 specified, --pulse-user and --pulse-password must also
                                 be specified.
+          --pulse-applabel=PULSE_APPLABEL
+                                Applabel for Pulse queue; defaults to autophone-build-
+                                monitor.
+          --pulse-durable-queue
+                                Use a durable queue when connecting to Pulse.
           --pulse-user=PULSE_USER
                                 user id for connecting to PulseGuardian
           --pulse-password=PULSE_PASSWORD
@@ -525,6 +532,18 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
           --treeherder-retry-wait=TREEHERDER_RETRY_WAIT
                                 Number of seconds to wait between attempts
                                 to send data to Treeherder. Defaults to 300.
+          --s3-upload-bucket=S3_UPLOAD_BUCKET
+                                AWS S3 bucket name used to store logs.
+                                Defaults to None. If specified, --aws-access-key-id
+                                and --aws-secret-access-key must also be specified.
+          --aws-access-key-id=AWS_ACCESS_KEY_ID
+                                AWS Access Key ID used to access AWS S3.
+                                Defaults to None. If specified, --s3-upload-bucket
+                                and --aws-secret-access-key must also be specified.
+          --aws-access-key=AWS_ACCESS_KEY
+                                AWS Access Key used to access AWS S3.
+                                Defaults to None. If specified, --s3-upload-bucket
+                                and --aws-secret-access-key-id must also be specified.
 
 ##### Configuring Email notifications
 
@@ -550,60 +569,65 @@ get automatic email notifications.
 Once Autophone has started, `trigger_runs.py` can be used to trigger
 tests for specific builds.
 
-    Usage: trigger_runs.py [options] &lt;datetime, date/datetime, or date/datetime range&gt;
-    Triggers one or more test runs.
+        Usage: trigger_runs.py [options] <datetime, date/datetime, or date/datetime range>
+        Triggers one or more test runs.
 
-    The argument(s) should be one of the following:
-    - a build ID, e.g. 20120403063158
-    - a date/datetime, e.g. 2012-04-03 or 2012-04-03T06:31:58
-    - a date/datetime range, e.g. 2012-04-03T06:31:58 2012-04-05
-    - the string "latest"
+        The argument(s) should be one of the following:
+        - a build ID, e.g. 20120403063158
+        - a date/datetime, e.g. 2012-04-03 or 2012-04-03T06:31:58
+        - a date/datetime range, e.g. 2012-04-03T06:31:58 2012-04-05
+        - the string "latest"
 
-    If a build ID is given, a test run is initiated for that, and only that,
-    particular build.
+        If a build ID is given, a test run is initiated for that, and only that,
+        particular build.
 
-    If a single date or datetime is given, test runs are initiated for all builds
-    with build IDs between the given date/datetime and now.
+        If a single date or datetime is given, test runs are initiated for all builds
+        with build IDs between the given date/datetime and now.
 
-    If a date/datetime range is given, test runs are initiated for all builds
-    with build IDs in the given range.
+        If a date/datetime range is given, test runs are initiated for all builds
+        with build IDs in the given range.
 
-    If "latest" is given, test runs are initiated for the most recent build.
+        If "latest" is given, test runs are initiated for the most recent build.
 
-    Options:
-      -h, --help            show this help message and exit
-      -i IP, --ip=IP        IP address of autophone controller; defaults to
-                            localhost
-      -p PORT, --port=PORT  port of autophone controller; defaults to 28001
-      -b BUILD_LOCATION, --build-location=BUILD_LOCATION
-                            build location to search for builds, defaults to
-                            nightly; can be "tinderbox" or "inboundarchive" for
-                            both m-c and m-i
-      --logfile=LOGFILE     Log file to store build system logs, defaults to
-                            autophone.log
-      --loglevel=LOGLEVEL_NAME
-                            Log level - ERROR, WARNING, DEBUG, or INFO, defaults
-                            to INFO
-      --repo=REPOS          The repos to test. One of mozilla-central, mozilla-
-                            inbound, mozilla-aurora, mozilla-beta, fx-team, b2g-
-                            inbound, try. To specify multiple repos, specify them
-                            with additional --repo options. Defaults to mozilla-
-                            central.
-      --buildtype=BUILDTYPES
-                            The build types to test. One of opt or debug. To
-                            specify multiple build types, specify them with
-                            additional --buildtype options. Defaults to opt.
-      --first-revision=FIRST_REVISION
-                            revision of first build; must match a build; last
-                            revision must also be specified; can not be used with
-                            date arguments.
-      --last-revision=LAST_REVISION
-                            revision of second build; must match a build; first
-                            revision must also be specified; can not be used with
-                            date arguments.
-      --build-url=BUILD_URL
-                            url of build to test; may be an http or file schema;
-                            --repo must be specified if the build was not built
-                            from the mozilla-central repository.
-      --device=DEVICES      Device on which to run the job.  Defaults to all if
-                            not specified. Can be specified multiple times.
+        Options:
+          -h, --help            show this help message and exit
+          -i IP, --ip=IP        IP address of autophone controller; defaults to
+                                localhost
+          -p PORT, --port=PORT  port of autophone controller; defaults to 28001
+          -b BUILD_LOCATION, --build-location=BUILD_LOCATION
+                                build location to search for builds, defaults to
+                                nightly; can be "tinderbox" or "inboundarchive" for
+                                both m-c and m-i
+          --logfile=LOGFILE     Log file to store build system logs, defaults to
+                                autophone.log
+          --loglevel=LOGLEVEL_NAME
+                                Log level - ERROR, WARNING, DEBUG, or INFO, defaults
+                                to INFO
+          --repo=REPOS          The repos to test. One of mozilla-central, mozilla-
+                                inbound, mozilla-aurora, mozilla-beta, fx-team, b2g-
+                                inbound, try. To specify multiple repos, specify them
+                                with additional --repo options. Defaults to mozilla-
+                                central.
+          --buildtype=BUILDTYPES
+                                The build types to test. One of opt or debug. To
+                                specify multiple build types, specify them with
+                                additional --buildtype options. Defaults to opt.
+          --first-revision=FIRST_REVISION
+                                revision of first build; must match a build; last
+                                revision must also be specified; can not be used with
+                                date arguments.
+          --last-revision=LAST_REVISION
+                                revision of second build; must match a build; first
+                                revision must also be specified; can not be used with
+                                date arguments.
+          --build-url=BUILD_URL
+                                url of build to test; may be an http or file schema;
+                                --repo must be specified if the build was not built
+                                from the mozilla-central repository.
+          --test=TESTS          Test to be executed by the job.  Defaults to all if
+                                not specified. Can be specified multiple times. See
+                                Android-Only Unittest Suites at
+                                http://trychooser.pub.build.mozilla.org/ for supported
+                                test identifiers.
+          --device=DEVICES      Device on which to run the job.  Defaults to all if
+                                not specified. Can be specified multiple times.

@@ -24,6 +24,10 @@ class WebappStartupTest(PerfTest):
         self.webappstartup_name = None
 
     @property
+    def name(self):
+        return 'autophone-webapp%s' % self.name_suffix
+
+    @property
     def phonedash_url(self):
         # For webappstartup, Phonedash records the test name as
         # webappstartup.

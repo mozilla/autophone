@@ -125,20 +125,12 @@ class PhoneTest(object):
             raise ADBError('PhoneTest:_check_device: Failed')
 
     @property
-    def name(self):
-        return self.__class__.__name__
+    def name_suffix(self):
+        return  '-%s' % self.chunk if self.chunk > 1 else ''
 
     @property
-    def test_this_repo(self):
-        """Return True if the Phone should test the current build's repository"""
-        if self._repos is None:
-            if self.test_devices_repos:
-                self._repos = self.test_devices_repos[self.phone.id]
-            else:
-                self._repos = self.options.repos
-        if self.build.tree in self._repos:
-            return True
-        return False
+    def name(self):
+        return 'autophone-%s%s' % (self.__class__.__name__, self.name_suffix)
 
     @property
     def dm(self):

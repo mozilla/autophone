@@ -153,7 +153,7 @@ class PhoneWorker(object):
         self.cmd_queue.put_nowait(('ping', None))
 
     def process_msg(self, msg):
-        self.loggerdeco.debug('PhoneWorker:process_msg')
+        self.loggerdeco.debug('PhoneWorker:process_msg: %s' % msg)
         """These are status messages routed back from the autophone_queue
         listener in the main AutoPhone class. There is probably a bit
         clearer way to do this..."""
@@ -178,6 +178,8 @@ class PhoneWorkerSubProcess(object):
                  autophone_queue, cmd_queue, logfile_prefix, loglevel, mailer):
         self.worker_num = worker_num
         self.tests = tests
+        self.job = None
+        self.runnable_tests = []
         self.phone = phone
         self.options = options
         self.autophone_queue = autophone_queue
@@ -405,16 +407,6 @@ class PhoneWorkerSubProcess(object):
         return self._check_sdcard()
 
     def run_tests(self):
-        # Check if we will run any tests with this repo
-        # and bail if not.
-        test_this_repo = False
-        for t in self.tests:
-            if t.test_this_repo:
-                test_this_repo = True
-                break
-        if not test_this_repo:
-            return True
-
         if not self.has_error():
             self.loggerdeco.info('Rebooting...')
             self.reboot()
@@ -491,10 +483,8 @@ class PhoneWorkerSubProcess(object):
                     test_message='Failed to install fennec: %s' % exc)
             return False
 
-        self.loggerdeco.info('Running tests...')
-        for t in self.tests:
-            if not t.test_this_repo:
-                continue
+        self.loggerdeco.info('Running tests %s' % self.runnable_tests)
+        for t in self.runnable_tests:
             if self.has_error():
                 self.loggerdeco.info('Rebooting...')
                 self.reboot()
@@ -541,66 +531,71 @@ class PhoneWorkerSubProcess(object):
                     self.phone_disconnected('No response to ping.')
 
     def handle_job(self, job):
-        self.loggerdeco.debug('PhoneWorkerSubProcess:handle_job')
-        phoneid = self.phone.id
-        abi = self.phone.abi
-        sdk = self.phone.sdk
-        build_url = job['build_url']
-        self.loggerdeco.debug('handle_job: job: %s, abi: %s' % (job, abi))
+        self.loggerdeco.debug('PhoneWorkerSubProcess:handle_job: %s, %s' % (
+            self.phone, job))
+        self.job = job
+        self.runnable_tests = []
         incompatible_job = False
-        if abi == 'x86':
-            if 'x86' not in build_url:
+        if self.phone.abi == 'x86':
+            if 'x86' not in job['build_url']:
                 incompatible_job = True
         else:
-            if 'x86' in build_url:
+            if 'x86' in job['build_url']:
                 incompatible_job = True
-        if ('api-9' not in build_url and 'api-10' not in build_url and
-            'api-11' not in build_url):
+        if ('api-9' not in job['build_url'] and
+            'api-10' not in job['build_url'] and
+            'api-11' not in job['build_url']):
             pass
-        elif sdk not in build_url:
+        elif self.phone.sdk not in job['build_url']:
             incompatible_job  = True
         if incompatible_job:
-            self.loggerdeco.debug('Ignoring incompatible job %s '
-                                  'for phone abi %s' %
-                                  (build_url, abi))
+            self.loggerdeco.debug('Ignoring incompatible job')
             self.jobs.job_completed(job['id'])
             return
-        # Determine if we will test this build and if we need
-        # to enable unittests.
-        skip_build = True
+        # Determine if we will test this build, which tests to run and if we
+        # need to enable unittests.
         enable_unittests = False
-        for test in self.tests:
-            test_devices_repos = test.test_devices_repos
+        for t in self.tests:
+            self.loggerdeco.debug('handle_job: checking test %s' % t.name)
+            test = None
+            test_devices_repos = t.test_devices_repos
             if not test_devices_repos:
                 # We know we will test this build, but not yet
                 # if any of the other tests enable_unittests.
-                skip_build = False
-            elif not phoneid in test_devices_repos:
+                test = t
+            elif not self.phone.id in test_devices_repos:
                 # This device will not run this test.
                 pass
             else:
-                for repo in test_devices_repos[phoneid]:
-                    if repo in build_url:
-                        skip_build = False
-                        enable_unittests = test.enable_unittests
+                for repo in test_devices_repos[self.phone.id]:
+                    if repo in job['build_url']:
+                        test = t
+                        enable_unittests = (enable_unittests or
+                                            t.enable_unittests)
                         break
-            if not skip_build:
-                break
-        if skip_build:
-            self.loggerdeco.debug('Ignoring job %s ' % build_url)
+            if test and (
+                    not job['tests'] or test.name in job['tests']):
+                # This test is defined for this build/repo and either
+                # the user selected this test or did not select specific
+                # individual tests.
+                self.loggerdeco.debug('handle_job: adding test %s' % test.name)
+                self.runnable_tests.append(test)
+        if not self.runnable_tests:
+            self.loggerdeco.debug('Ignoring job %s ' % job['build_url'])
             self.jobs.job_completed(job['id'])
             return
-        self.loggerdeco.info('Checking job %s.' % build_url)
+        self.loggerdeco.info('Checking job %s.' % job['build_url'])
         client = buildserver.BuildCacheClient(port=self.options.build_cache_port)
         self.loggerdeco.info('Fetching build...')
-        cache_response = client.get(build_url, enable_unittests=enable_unittests)
+        cache_response = client.get(job['build_url'],
+                                    enable_unittests=enable_unittests)
         client.close()
         if not cache_response['success']:
             self.loggerdeco.warning('Errors occured getting build %s: %s' %
-                                    (build_url, cache_response['error']))
+                                    (job['build_url'], cache_response['error']))
             return
         self.build = BuildMetadata().from_json(cache_response['metadata'])
-        self.loggerdeco.info('Starting job %s.' % build_url)
+        self.loggerdeco.info('Starting job %s.' % job['build_url'])
         starttime = datetime.datetime.now()
         if self.run_tests():
             self.loggerdeco.info('Job completed.')
