@@ -177,7 +177,7 @@ class AutophonePulseBuildMonitor(object):
 
         for property in build['properties']:
             property_name = property[0]
-            if property_name in fields:
+            if property_name in fields and len(property) > 1 and property[1]:
                 build_data[property_name] = type(property[1])(property[1])
 
         for required_field in required_fields:
