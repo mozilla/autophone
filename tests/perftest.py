@@ -101,12 +101,13 @@ class PerfTest(PhoneTest):
     def _phonedash_url(self, testname):
         if not self.result_server or not self.build:
             return 'http://phonedash.mozilla.org/'
+        trybuild = 'try' if 'try-builds' in self.build.url else 'notry'
         buildday = (self.build.id[0:4] + '-' + self.build.id[4:6] + '-' +
                     self.build.id[6:8])
         url = ('%s/#/%s/throbberstart/%s/norejected/%s/%s/notcached/'
-               'noerrorbars/standarderror' % (
+               'noerrorbars/standarderror/%s' % (
                    self.result_server, self.build.app_name, testname,
-                   buildday, buildday))
+                   buildday, buildday, trybuild))
         return url
 
     @property
