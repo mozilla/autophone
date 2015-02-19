@@ -769,8 +769,9 @@ if __name__ == '__main__':
                       action='append',
                       default=['mozilla-central'],
                       help='The repos to test. '
-                      'One of mozilla-central, mozilla-inbound, mozilla-aurora, '
-                      'mozilla-beta, fx-team, b2g-inbound, try. To specify multiple '
+                      'One of b2g-inbound, fx-team, mozilla-aurora, '
+                      'mozilla-beta, mozilla-central, mozilla-inbound, '
+                      'mozilla-release, try. To specify multiple '
                       'repos, specify them with additional --repo options. '
                       'Defaults to mozilla-central.')
     parser.add_option('--buildtype',

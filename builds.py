@@ -32,11 +32,13 @@ logger = logging.getLogger('autophone.builds')
 repo_urls = {
     'b2g-inbound': 'http://hg.mozilla.org/integration/b2g-inbound/',
     'fx-team': 'http://hg.mozilla.org/integration/fx-team/',
-    'mozilla-central': 'http://hg.mozilla.org/mozilla-central/',
-    'try': 'http://hg.mozilla.org/try/',
     'mozilla-aurora': 'http://hg.mozilla.org/releases/mozilla-aurora/',
     'mozilla-beta': 'http://hg.mozilla.org/releases/mozilla-beta/',
-    'mozilla-inbound': 'http://hg.mozilla.org/integration/mozilla-inbound/'}
+    'mozilla-central': 'http://hg.mozilla.org/mozilla-central/',
+    'mozilla-inbound': 'http://hg.mozilla.org/integration/mozilla-inbound/',
+    'mozilla-release': 'http://hg.mozilla.org/releases/mozilla-release/',
+    'try': 'http://hg.mozilla.org/try/',
+}
 
 urls_repos = dict([(url, repo) for repo, url in repo_urls.items()])
 
@@ -773,40 +775,44 @@ class BuildCache(object):
             build_path = os.path.join(build_dir, 'build.apk')
             apkfile = zipfile.ZipFile(build_path)
             apkfile.extract('application.ini', tmpdir)
+            apkfile.extract('package-name.txt', tmpdir)
         except zipfile.BadZipfile:
             # we should have already tried to redownload bad zips, so treat
             # this as fatal.
-            logger.error('%s is a bad apk; aborting job.' % build_path)
+            logger.exception('%s is a bad apk; aborting job.' % build_path)
             shutil.rmtree(tmpdir)
             return None
+        with open(os.path.join(tmpdir, 'package-name.txt')) as package_file:
+            procname = package_file.read().strip()
         cfg = ConfigParser.RawConfigParser()
         cfg.read(os.path.join(tmpdir, 'application.ini'))
         rev = cfg.get('App', 'SourceStamp')
         ver = cfg.get('App', 'Version')
-        repo = cfg.get('App', 'SourceRepository')
+        try:
+            repo = cfg.get('App', 'SourceRepository')
+        except ConfigParser.NoOptionError:
+            logger.warning('%s does not specifiy SourceRepository. '
+                           'Guessing mozilla-central.' % build_url)
+            repo = 'https://hg.mozilla.org/mozilla-central/'
         buildid = cfg.get('App', 'BuildID')
-        codename = cfg.get('App', 'CodeName')
         tree = None
-        procname = None
-        for temp_tree, temp_procname in (
-                ('b2g-inbound', 'org.mozilla.fennec'),
-                ('fx-team', 'org.mozilla.fennec'),
-                ('mozilla-central', 'org.mozilla.fennec'),
-                ('mozilla-inbound', 'org.mozilla.fennec'),
-                ('try', 'org.mozilla.fennec'),
-                ('mozilla-aurora', 'org.mozilla.fennec_aurora'),
-                ('mozilla-beta', 'org.mozilla.firefox')):
+        for temp_tree in (
+                'b2g-inbound',
+                'fx-team',
+                'mozilla-aurora',
+                'mozilla-beta',
+                'mozilla-central',
+                'mozilla-inbound',
+                'mozilla-release',
+                'try'):
             if temp_tree in repo:
                 tree = temp_tree
-                procname = temp_procname
                 break
         if not tree:
             raise BuildCacheException('build %s contains an unknown SourceRepository %s' %
                                       (apkfile, repo))
 
-        if codename == 'Firefox':
-            # official build
-            procname = procname.replace('fennec', 'firefox')
+        build_type = 'debug' if 'debug' in build_url else 'opt'
         metadata = BuildMetadata(url=build_url,
                                  dir=build_dir,
                                  tree=tree,
@@ -814,7 +820,7 @@ class BuildCache(object):
                                  revision='%srev/%s' % (repo_urls[tree], rev),
                                  app_name=procname,
                                  version=ver,
-                                 build_type='opt',
+                                 build_type=build_type,
                                  treeherder_url=self.treeherder_url)
         shutil.rmtree(tmpdir)
         if metadata:
