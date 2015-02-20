@@ -148,10 +148,12 @@ class Jobs(object):
                      'last_attempt': job[2],
                      'build_url': job[3],
                      'tests': job[4],
-                     'attempts': job[5]}
+                     'attempts': job[5],
+                     'istry': job[6]}
                     for job in c.execute(
                             'select ROWID as id,created,last_attempt,build_url,'
-                            'tests,attempts from jobs where device=? order by '
+                            'tests,attempts,instr(build_url,"try") as istry '
+                            'from jobs where device=? order by istry desc, '
                             'created %s' % order,
                             (device,))]
             if not jobs:
