@@ -10,6 +10,7 @@ import logging
 import multiprocessing
 import os
 import posixpath
+import re
 import sys
 import tempfile
 import time
@@ -435,7 +436,17 @@ class PhoneWorkerSubProcess(object):
             exc = None
             e = None
             try:
-                self.dm.uninstall_app(self.build.app_name, reboot=True)
+                # Uninstall all org.mozilla.(fennec|firefox) packages
+                # to make sure there are no previous installations of
+                # different versions of fennec which may interfere
+                # with the test.
+                mozilla_packages = [
+                    p.replace('package:', '') for p in
+                    self.dm.shell_output("pm list package org.mozilla").split()
+                    if re.match('package:.*(fennec|firefox)', p)]
+                for p in mozilla_packages:
+                    self.dm.uninstall_app(p)
+                self.dm.reboot()
                 uninstalled = True
             except ADBError, e:
                 if e.message.find('Failure') == -1:
