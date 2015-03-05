@@ -59,10 +59,11 @@ class WebappStartupTest(PerfTest):
         if self.check_results(self.testname):
             # We already have good results for this test and build.
             # No need to test it again.
-            message = 'Already have results for this test.'
+            self.message = 'Already have results for this test.'
+            self.update_status(message=self.message)
             self.test_result.status = PhoneTestResult.USERCANCEL
-            self.message = message
-            self.loggerdeco.info(message)
+            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                         self.message)
             return
         self.loggerdeco.info('Running test for %d iterations' %
                              self._iterations)
@@ -180,8 +181,11 @@ class WebappStartupTest(PerfTest):
                 'Build Id:   %s\n'
                 'Revision:   %s\n' %
                 (self.build.tree, self.build.id, self.build.revision))
-            self.test_result.status = PhoneTestResult.BUSTED
             self.message = 'No measurements detected.'
+            self.update_status(message=self.message)
+            self.test_result.status = PhoneTestResult.BUSTED
+            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                         self.message)
 
     def kill_webappstartup(self):
         re_webapp = re.compile(r'%s|%s|%s:%s.Webapp0' % (

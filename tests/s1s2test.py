@@ -102,17 +102,19 @@ class S1S2Test(PerfTest):
 
     def run_job(self):
         if not self.install_local_pages():
-            message='Aborting test - Could not install local pages on phone.'
-            self.update_status(message=message)
+            self.message = 'Aborting test - Could not install local pages on phone.'
+            self.update_status(message=self.message)
             self.test_result.status = PhoneTestResult.EXCEPTION
-            self.message = message
+            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                         self.message)
             return
 
         if not self.create_profile():
-            message='Aborting test - Could not run Fennec.'
-            self.update_status(message=message)
-            self.test_result.status = PhoneTestResult.EXCEPTION
-            self.message = message
+            self.message = 'Aborting test - Could not run Fennec.'
+            self.update_status(message=self.message)
+            self.test_result.status = PhoneTestResult.BUSTED
+            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                         self.message)
             return
 
         testcount = len(self._urls.keys())
@@ -251,8 +253,11 @@ class S1S2Test(PerfTest):
                     'Build Id:   %s\n'
                     'Revision:   %s\n' %
                     (testname, self.build.tree, self.build.id, self.build.revision))
-                self.test_result.status = PhoneTestResult.BUSTED
                 self.message = 'No measurements detected.'
+                self.update_status(message=self.message)
+                self.test_result.status = PhoneTestResult.BUSTED
+                self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                             self.message)
                 break
         if not self.test_result.status:
             self.test_result.status = PhoneTestResult.SUCCESS
@@ -350,7 +355,6 @@ class S1S2Test(PerfTest):
         if not success:
             msg = 'Aborting Test - Failure initializing profile.'
             self.loggerdeco.error(msg)
-            self.update_status(message=msg)
 
         return success
 

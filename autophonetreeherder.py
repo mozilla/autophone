@@ -288,7 +288,10 @@ class AutophoneTreeherder(object):
                 failed = '0'
             else:
                 if not test_status:
-                    test_status = PhoneTestResult.TESTFAILED
+                    if t.test_result.status:
+                        test_status = t.test_result.status
+                    else:
+                        test_status = PhoneTestResult.TESTFAILED
                 failed = '<em class="testfail">%s</em>' % t.test_result.failed
 
             t.job_details.append({

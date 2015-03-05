@@ -320,6 +320,7 @@ class UnitTest(PhoneTest):
         self.parms['port_manager'] = PortManager(self.parms['host_ip_address'])
 
         try:
+            logfilehandle = None
             while True:
                 socket_collision = False
 
@@ -384,7 +385,8 @@ class UnitTest(PhoneTest):
                                (self.parms['test_name'],
                                 self.chunk, self.chunks))
         except:
-            logfilehandle.close()
+            if logfilehandle:
+                logfilehandle.close()
             error_message = ('Exception during test %s chunk %d of %d: %s' %
                              (self.parms['test_name'],
                               self.chunk, self.chunks,
@@ -394,7 +396,8 @@ class UnitTest(PhoneTest):
             self.test_result.status = PhoneTestResult.EXCEPTION
             self.message = error_message
         finally:
-            self.process_test_log(logfilehandle)
+            if logfilehandle:
+                self.process_test_log(logfilehandle)
 
         self.loggerdeco.debug('runtestsremote.py runtest exit')
 
