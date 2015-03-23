@@ -23,9 +23,8 @@ class AutophoneOptions(object):
         self.minidump_stackwalk = ''
         self.emailcfg = ''
         self.enable_pulse = False
-        self.pulse_applabel = ''
         self.pulse_durable_queue = True
-        self.enable_unittests = False
+        self.pulse_jobactions_exchange = ''
         self.cache_dir = ''
         self.override_build_dir = ''
         self.repos = []
@@ -92,9 +91,8 @@ class AutophoneOptions(object):
                      'minidump_stackwalk',
                      'emailcfg',
                      'enable_pulse',
-                     'pulse_applabel',
                      'pulse_durable_queue',
-                     'enable_unittests',
+                     'pulse_jobactions_exchange',
                      'cache_dir',
                      'override_build_dir',
                      'repos',

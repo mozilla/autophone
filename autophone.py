@@ -22,19 +22,21 @@ from multiprocessinghandlers import (MultiprocessingStreamHandler,
                                      MultiprocessingTimedRotatingFileHandler)
 
 from manifestparser import TestManifest
-from mozillapulse.config import PulseConfiguration
 
 import builds
 import buildserver
 import jobs
+import utils
+
 #from adb import ADBHost
 from adb_android import ADBAndroid as ADBDevice
-from autophonepulsebuildmonitor import AutophonePulseBuildMonitor
+from autophonepulsemonitor import AutophonePulseMonitor
+from autophonetreeherder import AutophoneTreeherder
 from mailer import Mailer
 from options import AutophoneOptions
 from phonestatus import PhoneStatus
 from phonetest import PhoneTest
-from worker import PhoneWorker
+from worker import PhoneWorker, lookup_test
 
 class PhoneData(object):
     def __init__(self, phoneid, serial, machinetype, osver, abi, sdk, ipaddr):
@@ -114,15 +116,18 @@ class AutoPhone(object):
         self._stop = False
         self._next_worker_num = 0
         self.jobs = jobs.Jobs(self.mailer)
-        self.phone_workers = {}  # indexed by mac address
+        self.phone_workers = {}  # indexed by phone id
         self.worker_lock = threading.Lock()
         self.cmd_lock = threading.Lock()
         self._tests = []
-        self._devices = {} # hash indexed by serialno of devices found in devices ini file
+        self._devices = {} # hash indexed by device names found in devices ini file
         self.server = None
         self.server_thread = None
-        self.pulsemonitor = None
+        self.pulse_monitor = None
         self.restart_workers = {}
+        self.treeherder = AutophoneTreeherder(None,
+                                              self.logger,
+                                              self.options)
 
         self.console_logger.info('Starting autophone.')
 
@@ -137,11 +142,13 @@ class AutoPhone(object):
         self.read_devices()
 
         if options.enable_pulse:
-            pulse_config = PulseConfiguration(
-                user=options.pulse_user,
-                password=options.pulse_password)
-            self.pulsemonitor = AutophonePulseBuildMonitor(
+            self.pulse_monitor = AutophonePulseMonitor(
+                userid=options.pulse_user,
+                password=options.pulse_password,
+                jobaction_exchange_name=options.pulse_jobactions_exchange,
                 build_callback=self.on_build,
+                jobaction_callback=self.on_jobaction,
+                treeherder_url=self.options.treeherder_url,
                 trees=options.repos,
                 platforms=['android',
                            'android-api-9',
@@ -149,11 +156,8 @@ class AutoPhone(object):
                            'android-api-11',
                            'android-x86'],
                 buildtypes=options.buildtypes,
-                logger=self.logger,
-                pulse_applabel=options.pulse_applabel,
-                pulse_config=pulse_config,
-                durable=self.options.pulse_durable_queue)
-            self.pulsemonitor.start()
+                durable_queues=self.options.pulse_durable_queue)
+            self.pulse_monitor.start()
         self.logger.debug('autophone_options: %s' % self.options)
 
         self.console_logger.info('Autophone started.')
@@ -206,6 +210,8 @@ class AutoPhone(object):
         try:
             while not self._stop:
                 self.check_for_dead_workers()
+                if self.pulse_monitor and not self.pulse_monitor.is_alive():
+                    self.pulse_monitor.start()
                 try:
                     msg = self.worker_msg_queue.get(timeout=5)
                 except Queue.Empty:
@@ -223,10 +229,29 @@ class AutoPhone(object):
         devices = job_data['devices']
         tests = job_data['tests']
         self.logger.debug('NEW JOB: %s' % job_data)
+
+        build_data = utils.get_build_data(build_url,
+                                          logger=self.logger)
+        self.logger.debug('new_job: build_data %s' % build_data)
+
+        if not build_data:
+            self.logger.warning('new_job: Could not find build_data for %s' %
+                                build_url)
+            return
+
+        revision_hash = utils.get_treeherder_revision_hash(
+            self.options.treeherder_url,
+            build_data['repo'],
+            build_data['revision'],
+            logger=self.logger)
+
+        self.logger.debug('new_job: revision_hash %s' % revision_hash)
+
         self.worker_lock.acquire()
         try:
             for p in self.phone_workers.values():
                 phoneid = p.phone.id
+                self.logger.debug('new_job: worker phoneid %s' % phoneid)
                 if devices and phoneid not in devices:
                     continue
                 abi = p.phone.abi
@@ -245,14 +270,62 @@ class AutoPhone(object):
                     incompatible_job  = True
 
                 if incompatible_job:
-                    self.logger.debug('Ignoring incompatible job %s '
+                    self.logger.debug('new_job: Ignoring incompatible job %s '
                                       'for phone %s abi %s' %
                                       (build_url, phoneid, abi))
                     continue
-                self.jobs.new_job(build_url, tests=tests, device=phoneid)
-                self.logger.info('Notifying device %s of new job %s '
-                                 'for tests %s.' %
-                                 (phoneid, build_url, tests))
+                # Determine if we will test this build, which tests to run and if we
+                # need to enable unittests.
+                runnable_tests = []
+                enable_unittests = False
+                for t in p.tests:
+                    self.logger.debug('new_job: checking test %s' % t.name)
+                    test = None
+                    test_devices_repos = t.test_devices_repos
+                    if not test_devices_repos:
+                        # We know we will test this build, but not yet
+                        # if any of the other tests enable_unittests.
+                        self.logger.debug('new_job: test %s defined for all repos' % t.name)
+                        test = t
+                    elif not phoneid in test_devices_repos:
+                        # This device will not run this test.
+                        self.logger.debug('new_job: phoneid %s not defined for test %s repos %s' % (
+                            phoneid, t.name, test_devices_repos))
+                        pass
+                    else:
+                        for repo in test_devices_repos[phoneid]:
+                            if repo in build_url:
+                                self.logger.debug('new_job: checking repo %s against build %s for test %s repos %s' % (
+                                    repo, build_url, t.name))
+                                test = t
+                                break
+                    if test and not tests or test.name in tests:
+                        # This test is defined for this build/repo and either
+                        # the user selected this test or did not select specific
+                        # individual tests.
+                        enable_unittests = (enable_unittests or test.enable_unittests)
+                        self.logger.debug('new_job: adding test %s for phone %s build %s' % (test.name, phoneid, build_url))
+                        runnable_tests.append(test)
+                if not runnable_tests:
+                    self.logger.debug('new_job: Ignoring build %s for phone %s' % (build_url, phoneid))
+                    continue
+                self.jobs.new_job(build_url,
+                                  build_id=build_data['id'],
+                                  changeset=build_data['changeset'],
+                                  tree=build_data['repo'],
+                                  revision=build_data['revision'],
+                                  revision_hash=revision_hash,
+                                  tests=runnable_tests,
+                                  enable_unittests=enable_unittests,
+                                  device=phoneid)
+                self.treeherder.submit_pending(p.phone.id,
+                                               build_url,
+                                               build_data['repo'],
+                                               revision_hash,
+                                               tests=runnable_tests)
+                self.logger.info('new_job: Notifying device %s of new job %s '
+                                 'for tests %s, enable_unittests=%s.' %
+                                 (phoneid, build_url, runnable_tests, enable_unittests))
                 p.new_job()
         finally:
             self.worker_lock.release()
@@ -334,7 +407,7 @@ class AutoPhone(object):
     def create_worker(self, phone):
         self.logger.info('Creating worker for %s: %s.' % (phone, self.options))
         tests = []
-        for test_class, config_file, enable_unittests, test_devices_repos in self._tests:
+        for test_class, config_file, test_devices_repos in self._tests:
             skip_test = True
             if not test_devices_repos:
                 # There is no restriction on this test being run by
@@ -347,7 +420,6 @@ class AutoPhone(object):
                 test = test_class(phone=phone,
                                   options=self.options,
                                   config_file=config_file,
-                                  enable_unittests=enable_unittests,
                                   test_devices_repos=test_devices_repos)
                 tests.append(test)
                 for chunk in range(2, test.chunks+1):
@@ -355,14 +427,13 @@ class AutoPhone(object):
                     tests.append(test_class(phone=phone,
                                             options=self.options,
                                             config_file=config_file,
-                                            enable_unittests=enable_unittests,
                                             test_devices_repos=test_devices_repos,
                                             chunk=chunk))
         if not tests:
-                self.logger.warning('Not creating worker: No tests defined for '
-                                    'worker for %s: %s.' %
-                                    (phone, self.options))
-                return
+            self.logger.warning('Not creating worker: No tests defined for '
+                                'worker for %s: %s.' %
+                                (phone, self.options))
+            return
         logfile_prefix = os.path.splitext(self.options.logfile)[0]
         worker = PhoneWorker(self.next_worker_num,
                              tests, phone, self.options,
@@ -435,7 +506,7 @@ class AutoPhone(object):
                 device['sdk'] = 'api-9' if sdk <= 10 else 'api-11'
             except ValueError:
                 device['sdk'] = 'api-9'
-            self._devices[serialno] = device
+            self._devices[device_name] = device
             self.register_cmd(device)
 
 
@@ -469,29 +540,21 @@ class AutoPhone(object):
                     #
                     # Other options are:
                     #
-                    # unittests = 1
-                    #
-                    # which determines if the tests zip file should
-                    # be downloaded along with the build.
-                    #
                     # <device> = <repo-list>
                     #
                     # which determines the devices which should
                     # run the test. If no devices are listed, then
                     # all devices will run the test.
 
-                    enable_unittests = bool(t.get('unittests', False))
-
                     devices = [device for device in t if device not in
                                ('name', 'here', 'manifest', 'path', 'config',
                                 'relpath', 'unittests', 'subsuite')]
                     self.logger.debug('read_tests: test: %s, class: %s, '
-                                      'config: %s, enable_unittests: %s, '
-                                      'devices: %s' % (member_name,
-                                                       member_value,
-                                                       config,
-                                                       enable_unittests,
-                                                       devices))
+                                      'config: %s, devices: %s' % (
+                                          member_name,
+                                          member_value,
+                                          config,
+                                          devices))
                     test_devices_repos = {}
                     for device in devices:
                         test_devices_repos[device] = t[device].split()
@@ -499,7 +562,7 @@ class AutoPhone(object):
                     for config_file in configs:
                         config_file = os.path.join(t['here'], config_file)
                         tests.append((member_value, config_file,
-                                      enable_unittests, test_devices_repos))
+                                      test_devices_repos))
 
             self._tests.extend(tests)
 
@@ -535,6 +598,42 @@ class AutoPhone(object):
                     tests = []
         job_data = {'build': msg['packageUrl'], 'tests': tests, 'devices': []}
         self.new_job(job_data)
+
+    def on_jobaction(self, job_action):
+        if self._stop or job_action['job_group_name'] != 'Autophone':
+            return
+        self.logger.debug('JOB ACTION FOUND %s' % json.dumps(
+            job_action, sort_keys=True, indent=4))
+
+        worker_locked = False
+        self.worker_lock.acquire()
+        worker_locked = True
+        try:
+            p = self.phone_workers[job_action['machine_name']]
+            if job_action['action'] == 'cancel':
+                request = (job_action['job_guid'],
+                           job_action['job_group_name'],
+                           job_action['job_type_name'])
+                self.worker_lock.release()
+                worker_locked = False
+                p.cancel_job(request)
+            elif job_action['action'] == 'retrigger':
+                job_data = {
+                    'build': job_action['build_url'],
+                    'tests': [lookup_test(p.tests,
+                                          job_action['job_group_name'],
+                                          job_action['job_type_name']).name],
+                    'devices': [job_action['machine_name']]
+                }
+                self.worker_lock.release()
+                worker_locked = False
+                self.new_job(job_data)
+            else:
+                self.logger.warning('on_jobaction: unknown action %s' %
+                                    job_action['action'])
+        finally:
+            if worker_locked:
+                self.worker_lock.release()
 
     def stop(self):
         self._stop = True
@@ -646,7 +745,6 @@ def main(options):
             buildfile_ext,
             cache_dir=options.cache_dir,
             override_build_dir=options.override_build_dir,
-            enable_unittests=options.enable_unittests,
             build_cache_size=options.build_cache_size,
             build_cache_expires=options.build_cache_expires,
             treeherder_url=options.treeherder_url)
@@ -738,10 +836,6 @@ if __name__ == '__main__':
                       help='Enable connecting to Pulse to look for new builds. '
                       'If specified, --pulse-user and --pulse-password must also '
                       'be specified.')
-    parser.add_option('--pulse-applabel', action='store', type='string',
-                      dest='pulse_applabel', default='autophone-build-monitor',
-                      help='Applabel for Pulse queue; '
-                      'defaults to autophone-build-monitor.')
     parser.add_option('--pulse-durable-queue', action='store_true',
                       dest="pulse_durable_queue", default=False,
                       help='Use a durable queue when connecting to Pulse.')
@@ -751,10 +845,11 @@ if __name__ == '__main__':
     parser.add_option('--pulse-password', action='store', type='string',
                       dest='pulse_password', default='',
                       help='password for connecting to PulseGuardian')
-    parser.add_option('--enable-unittests', action='store_true',
-                      dest='enable_unittests', default=False,
-                      help='Enable running unittests by downloading and installing '
-                      'the unittests package for each build')
+    parser.add_option('--pulse-jobactions-exchange', action='store', type='string',
+                      dest='pulse_jobactions_exchange',
+                      default='exchange/treeherder/v1/job-actions',
+                      help='Exchange for Pulse Job Actions queue; '
+                      'defaults to exchange/treeherder/v1/job-actions.')
     parser.add_option('--cache-dir', type='string',
                       dest='cache_dir', default='builds',
                       help='Use the specified directory as the build '

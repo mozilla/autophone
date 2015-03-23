@@ -473,17 +473,15 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
           --enable-pulse        Enable connecting to Pulse to look for new builds. If
                                 specified, --pulse-user and --pulse-password must also
                                 be specified.
-          --pulse-applabel=PULSE_APPLABEL
-                                Applabel for Pulse queue; defaults to autophone-build-
-                                monitor.
           --pulse-durable-queue
                                 Use a durable queue when connecting to Pulse.
           --pulse-user=PULSE_USER
                                 user id for connecting to PulseGuardian
           --pulse-password=PULSE_PASSWORD
                                 password for connecting to PulseGuardian
-          --enable-unittests    Enable running unittests by downloading and installing
-                                the unittests package for each build
+          --pulse-jobactions-exchange=PULSE_JOBACTIONS_EXCHANGE
+                                Exchange for Pulse Job Actions queue; defaults to
+                                exchange/treeherder/v1/job-actions.
           --cache-dir=CACHE_DIR
                                 Use the specified directory as the build cache
                                 directory; defaults to builds.
@@ -491,11 +489,11 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
                                 Use the specified directory as the current build cache
                                 directory without attempting to download a build or
                                 test package.
-          --repo=REPOS          The repos to test. One of mozilla-central, mozilla-
-                                inbound, mozilla-aurora, mozilla-beta, fx-team, b2g-
-                                inbound, try. To specify multiple repos, specify them
-                                with additional --repo options. Defaults to mozilla-
-                                central.
+          --repo=REPOS          The repos to test. One of b2g-inbound, fx-team,
+                                mozilla-aurora, mozilla-beta, mozilla-central,
+                                mozilla-inbound, mozilla-release, try. To specify
+                                multiple repos, specify them with additional --repo
+                                options. Defaults to mozilla-central.
           --buildtype=BUILDTYPES
                                 The build types to test. One of opt or debug. To
                                 specify multiple build types, specify them with
