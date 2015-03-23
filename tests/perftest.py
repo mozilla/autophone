@@ -12,6 +12,7 @@ from math import sqrt
 
 from jot import jwt, jws
 
+import utils
 from autophonecrash import AutophoneCrashProcessor
 from phonetest import PhoneTest, PhoneTestResult
 
@@ -249,21 +250,18 @@ class PerfTest(PhoneTest):
 
         self.loggerdeco.debug('check_results for: %s' % query)
 
-        try:
-            url = self._resulturl + 'check/?' + urllib.urlencode(query)
-            f = urllib2.urlopen(url)
-        except Exception:
-            self.loggerdeco.exception(
-                'check_results: could not check: '
-                'phoneid: %s, test: %s, revision: %s, product: %s' % (
-                    query['phoneid'], query['test'],
-                    query['revision'], query['product']))
-            return False
-        data = f.read()
-        self.loggerdeco.debug('check_results: data: %s' % data)
-        f.close()
-        response = json.loads(data)
-        return response['result']
+        url = self._resulturl + 'check/?' + urllib.urlencode(query)
+        response = utils.get_remote_json(url, logger=self.loggerdeco)
+        self.loggerdeco.debug('check_results: content: %s' % response)
+        if response:
+            return response['result']
+
+        self.loggerdeco.warning(
+            'check_results: could not check: '
+            'phoneid: %s, test: %s, revision: %s, product: %s' % (
+                query['phoneid'], query['test'],
+                query['revision'], query['product']))
+        return False
 
     def get_stats(self, values):
         """Calculate and return an object containing the count, mean,

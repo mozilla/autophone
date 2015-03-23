@@ -4,26 +4,21 @@
 
 import datetime
 import glob
-import json
 import os
 import re
 import tempfile
 import time
 import urllib
-import urllib2
 import urlparse
-import uuid
 
 from thclient import (TreeherderRequest, TreeherderJobCollection)
 
+import utils
 from phonetest import PhoneTestResult
 from s3 import S3Error
 
 LEAK_RE = re.compile('\d+ bytes leaked \((.+)\)$')
 CRASH_RE = re.compile('.+ application crashed \[@ (.+)\]$')
-
-def generate_guid():
-    return str(uuid.uuid4())
 
 def timestamp_now():
     return int(time.mktime(datetime.datetime.now().timetuple()))
@@ -138,7 +133,7 @@ class AutophoneTreeherder(object):
         for t in tests:
             t.message = None
             t.submit_timestamp = timestamp_now()
-            t.job_guid = generate_guid()
+            t.job_guid = utils.generate_guid()
             t.job_details = []
 
             self.worker.loggerdeco.info('creating Treeherder job %s for %s %s, '
@@ -454,29 +449,6 @@ class AutophoneTreeherder(object):
         self.post_request(tjc)
 
     # copied from https://github.com/mozilla/treeherder-service/blob/master/treeherder/log_parser/utils.py
-    # get_remote_content from treeherder/etc/common.py
-
-    def _get_remote_content(self, url):
-        """A thin layer of abstraction over urllib. """
-        req = urllib2.Request(url)
-        req.add_header('Accept', 'application/json')
-        req.add_header('Content-Type', 'application/json')
-        try:
-            conn = urllib2.urlopen(req)
-        except Exception:
-            self.worker.loggerdeco.exception('%s' % url)
-            return None
-
-        if not conn.getcode() == 200:
-            return None
-        try:
-            content = json.loads(conn.read())
-        except:
-            content = None
-        finally:
-            conn.close()
-
-        return content
 
     def _is_helpful_search_term(self, search_term):
         # Search terms that will match too many bug summaries
@@ -575,7 +547,7 @@ class AutophoneTreeherder(object):
             self.bugscache_uri,
             query_string
         )
-        return self._get_remote_content(url)
+        return utils.get_remote_json(url, logger=self.worker.loggerdeco)
 
     # copied from https://github.com/mozilla/treeherder-service/blob/master/treeherder/log_parser/tasks.py
 

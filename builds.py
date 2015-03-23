@@ -6,7 +6,6 @@ import ConfigParser
 import base64
 import datetime
 import glob
-import httplib
 import json
 import logging
 import math
@@ -22,6 +21,7 @@ import zipfile
 
 from bs4 import BeautifulSoup
 
+import utils
 from build_dates import (TIMESTAMP, DIRECTORY_DATE, DIRECTORY_DATETIME,
                          parse_datetime, convert_datetime_to_string,
                          set_time_zone, convert_buildid_to_date,
@@ -51,18 +51,8 @@ def url_links(url):
 
     returns: list of BeautifulSoup links.
     """
-    try:
-        r = urllib2.urlopen(url)
-        content = r.read()
-        if r.getcode() != 200:
-            logger.warning("Unable to open url %s : %s" % (
-                url, httplib.responses[r.getcode()]))
-            return []
-    except urllib2.HTTPError, e:
-        logger.warning('%s %s' % (e, url))
-        return []
-    except Exception:
-        logger.exception('%s' % url)
+    content = utils.get_remote_text(url, logger=logger)
+    if not content:
         return []
 
     soup = BeautifulSoup(content)
@@ -88,10 +78,11 @@ def get_revision_timestamps(repo, first_revision, last_revision):
     including the tochange.
     """
     revisions = []
-    r = urllib2.urlopen('%sjson-pushes?fromchange=%s&tochange=%s' % (
-        repo_urls[repo], first_revision, last_revision))
-
-    pushlog = json.loads(r.read())
+    url = '%sjson-pushes?fromchange=%s&tochange=%s' % (
+        repo_urls[repo], first_revision, last_revision)
+    pushlog = utils.get_remote_json(url, logger=logger)
+    if not pushlog:
+        return None, None
     for pushid in sorted(pushlog.keys()):
         push = pushlog[pushid]
         revisions.append((push['changesets'][-1], push['date']))
@@ -268,7 +259,6 @@ class BuildLocation(object):
                      (first_revision, last_revision))
 
         range = datetime.timedelta(hours=12)
-        buildid_regex = re.compile(r'([\d]{14})$')
         builds = []
 
         for repo in self.repos:
@@ -364,8 +354,6 @@ class BuildLocation(object):
                             href = link.get('href')
                             match = self.buildtxt_regex.match(href)
                             if match:
-                                txturl = "%s%s/%s" % (search_directory,
-                                                      directory_name, href)
                                 build_url = "%s%s/%s%s" % (search_directory,
                                                          directory_name,
                                                          match.group(1),
@@ -380,27 +368,18 @@ class BuildLocation(object):
                                              search_directory_repo,
                                              search_directory, directory_repo,
                                              directory_name, build_url))
-                                try:
-                                    contents = urllib2.urlopen(txturl).read()
-                                except Exception:
-                                    logger.exception('%s' % txturl)
-                                    contents = ''
-                                lines = contents.splitlines()
-                                if len(lines) > 1 and buildid_regex.match(lines[0]):
-                                    buildid = lines[0]
-                                    parts = lines[1].split('rev/')
-                                    if len(parts) == 2:
-                                        if repo != urls_repos[parts[0]]:
-                                            logger.info('find_builds_by_revisions: '
-                                                        'skipping build: %s != %s'
-                                                        % (repo,
-                                                           urls_repos[parts[0]]))
-                                            continue
-                                        revision = parts[1]
-                                        if revision.startswith(first_revision):
-                                            start_time = convert_buildid_to_date(buildid)
-                                        elif revision.startswith(last_revision):
-                                            end_time = convert_buildid_to_date(buildid)
+                                build_data = utils.get_build_data(build_url, logger=logger)
+                                if build_data:
+                                    if repo != urls_repos[build_data['repo']]:
+                                        logger.info('find_builds_by_revisions: '
+                                                    'skipping build: %s != %s'
+                                                    % (repo,
+                                                       urls_repos[build_data['repo']]))
+                                        continue
+                                    if build_data['revision'].startswith(first_revision):
+                                        start_time = convert_buildid_to_date(build_data['id'])
+                                    elif build_data['revision'].startswith(last_revision):
+                                        end_time = convert_buildid_to_date(build_data['id'])
                                     if start_time:
                                         builds.append(build_url)
                                         break
@@ -855,24 +834,18 @@ class BuildMetadata(object):
         self.revision = revision
         self.app_name = app_name
         self.version = version
-        self.push_timestamp = None
         self.revision_hash = None
 
         if treeherder_url:
+            # TODO: Should be consistent with changeset and revision
+            # variable names in terms of the changeset url and the
+            # revision id.
             changeset = os.path.basename(urlparse.urlparse(revision).path)
-            try:
-                r = urllib2.urlopen('%s/api/project/%s/revision-lookup/?revision=%s' %
-                                    (treeherder_url, tree, changeset))
-                revision_lookup = json.loads(r.read())
-                logger.debug('revision_lookup: %s' % revision_lookup)
-                self.push_timestamp = revision_lookup[changeset]['push_timestamp']
-                self.revision_hash = revision_lookup[changeset]['revision_hash']
-            except KeyError:
-                logger.exception('Invalid revision_lookup %s for %s' %
-                                 (revision_lookup, self.revision))
-            except Exception:
-                logger.exception('Failure to get the revision_lookup for %s' %
-                                 self.revision)
+            self.revision_hash = utils.get_treeherder_revision_hash(
+                treeherder_url, tree, changeset, logger=logger)
+            if not self.revision_hash:
+                logger.warning('Failed to get the revision_hash for %s' %
+                               self.revision)
         logger.debug('BuildMetadata: %s' % self.__dict__)
 
     @property
@@ -900,7 +873,6 @@ class BuildMetadata(object):
             'revision': self.revision,
             'app_name': self.app_name,
             'version': self.version,
-            'push_timestamp': self.push_timestamp,
             'revision_hash': self.revision_hash,
         }
 
@@ -916,6 +888,5 @@ class BuildMetadata(object):
         self.revision = j['revision']
         self.app_name = j['app_name']
         self.version = j['version']
-        self.push_timestamp = j['push_timestamp']
         self.revision_hash = j['revision_hash']
         return self
