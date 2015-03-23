@@ -594,6 +594,7 @@ class BuildCache(object):
                 metadata_json = ''
             return {
                 'success': metadata is not None,
+                'error': '' if metadata is not None else 'metadata is None',
                 'metadata': metadata_json
             }
         # If the buildurl is for a local build, force the download since it may
@@ -709,6 +710,7 @@ class BuildCache(object):
             metadata_json = ''
         return {
             'success': metadata is not None,
+            'error': '' if metadata is not None else 'metadata is None',
             'metadata': metadata_json
         }
 
