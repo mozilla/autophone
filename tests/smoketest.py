@@ -43,11 +43,15 @@ class SmokeTest(PhoneTest):
         self.loggerdeco.debug('running fennec')
         self.run_fennec_with_profile(self.build.app_name, 'about:fennec')
 
+        command = None
         fennec_launched = self.dm.process_exist(self.build.app_name)
         found_throbber = False
         start = datetime.datetime.now()
         while (not fennec_launched and (datetime.datetime.now() - start
                                         <= datetime.timedelta(seconds=60))):
+            command = self.worker_subprocess.process_autophone_cmd(self)
+            if command['interrupt']:
+                break
             sleep(3)
             fennec_launched = self.dm.process_exist(self.build.app_name)
 
@@ -55,9 +59,14 @@ class SmokeTest(PhoneTest):
             found_throbber = self.check_throbber()
             while (not found_throbber and (datetime.datetime.now() - start
                                            <= datetime.timedelta(seconds=60))):
+                command = self.worker_subprocess.process_autophone_cmd(self)
+                if command['interrupt']:
+                    break
                 sleep(3)
                 found_throbber = self.check_throbber()
 
+        if command and command['interrupt']:
+            self.handle_test_interrupt(command['reason'])
         if self.fennec_crashed:
             pass # Handle the crash in teardown_job
         elif not fennec_launched:
@@ -71,7 +80,6 @@ class SmokeTest(PhoneTest):
             self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
                                          self.message)
         else:
-            self.test_result.status = PhoneTestResult.SUCCESS
             self.test_result.add_pass(self.name)
 
         if fennec_launched:

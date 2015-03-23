@@ -20,11 +20,10 @@ from phonetest import PhoneTestResult
 
 class S1S2Test(PerfTest):
     def __init__(self, phone, options, config_file=None,
-                 enable_unittests=False, test_devices_repos={},
+                 test_devices_repos={},
                  chunk=1):
         PerfTest.__init__(self, phone, options,
                           config_file=config_file,
-                          enable_unittests=enable_unittests,
                           test_devices_repos=test_devices_repos,
                           chunk=chunk)
 
@@ -129,12 +128,6 @@ class S1S2Test(PerfTest):
                                            '%(phoneid)s|%(pid)s|%(buildid)s|'
                                            '%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
-            if self.check_results(testname):
-                # We already have good results for this test and build.
-                # No need to test it again.
-                self.loggerdeco.info('Skipping test (%d/%d) for %d iterations' %
-                                     (testnum, testcount, self._iterations))
-                continue
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
                                  (testnum, testcount, self._iterations))
 
@@ -143,6 +136,7 @@ class S1S2Test(PerfTest):
             # typically due to a regression in the brower which should
             # be reported.
             success = False
+            command = None
             for attempt in range(1, self.stderrp_attempts+1):
                 if self.fennec_crashed:
                     break
@@ -160,6 +154,10 @@ class S1S2Test(PerfTest):
 
                 dataset = []
                 for iteration in range(1, self._iterations+1):
+                    command = self.worker_subprocess.process_autophone_cmd(self)
+                    if command['interrupt']:
+                        self.handle_test_interrupt(command['reason'])
+                        break
                     if self.fennec_crashed:
                         break
                     self.update_status(message='Attempt %d/%d for Test %d/%d, '
@@ -176,7 +174,9 @@ class S1S2Test(PerfTest):
                         continue
 
                     measurement = self.runtest(url)
-                    if not measurement:
+                    if measurement:
+                        self.test_result.add_pass(url)
+                    else:
                         self.test_result.add_failure(
                             url,
                             'TEST_UNEXPECTED_FAIL',
@@ -186,7 +186,9 @@ class S1S2Test(PerfTest):
                     success = True
 
                     measurement = self.runtest(url)
-                    if not measurement:
+                    if measurement:
+                        self.test_result.add_pass(url)
+                    else:
                         self.test_result.add_failure(
                             url,
                             'TEST_UNEXPECTED_FAIL',
@@ -204,15 +206,31 @@ class S1S2Test(PerfTest):
                             (testnum, testcount, iteration, self._iterations))
                         break
 
-                # If we have not gotten a single measurement at this point,
-                # just bail and report the failure rather than wasting time
-                # continuing more attempts.
+                if command and command['interrupt']:
+                    break
                 if not success:
+                    # If we have not gotten a single measurement at this point,
+                    # just bail and report the failure rather than wasting time
+                    # continuing more attempts.
                     self.loggerdeco.info(
                         'Failed to get measurements for test %s after %d/%d attempt '
                         'of %d iterations' % (testname, attempt,
                                               self.stderrp_attempts,
                                               self._iterations))
+                    self.worker_subprocess.mailer.send(
+                        'S1S2Test %s failed for Build %s %s on Phone %s' %
+                        (testname, self.build.tree, self.build.id,
+                         self.phone.id),
+                        'No measurements were detected for test %s.\n\n'
+                        'Repository: %s\n'
+                        'Build Id:   %s\n'
+                        'Revision:   %s\n' %
+                        (testname, self.build.tree, self.build.id, self.build.revision))
+                    self.message = 'No measurements detected.'
+                    self.update_status(message=self.message)
+                    self.test_result.status = PhoneTestResult.BUSTED
+                    self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                                 self.message)
                     break
 
                 if self.is_stderr_below_threshold(
@@ -241,26 +259,10 @@ class S1S2Test(PerfTest):
                 if not rejected:
                     break
 
-            if success:
-                self.test_result.add_pass(url)
-            else:
-                self.worker_subprocess.mailer.send(
-                    'S1S2Test %s failed for Build %s %s on Phone %s' %
-                    (testname, self.build.tree, self.build.id,
-                     self.phone.id),
-                    'No measurements were detected for test %s.\n\n'
-                    'Repository: %s\n'
-                    'Build Id:   %s\n'
-                    'Revision:   %s\n' %
-                    (testname, self.build.tree, self.build.id, self.build.revision))
-                self.message = 'No measurements detected.'
-                self.update_status(message=self.message)
-                self.test_result.status = PhoneTestResult.BUSTED
-                self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                             self.message)
+            if command and command['interrupt']:
                 break
-        if not self.test_result.status:
-            self.test_result.status = PhoneTestResult.SUCCESS
+            elif not success:
+                break
 
     def runtest(self, url):
         # Clear logcat

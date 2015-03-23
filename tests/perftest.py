@@ -18,11 +18,10 @@ from phonetest import PhoneTest, PhoneTestResult
 
 class PerfTest(PhoneTest):
     def __init__(self, phone, options, config_file=None,
-                 enable_unittests=False, test_devices_repos={},
+                 test_devices_repos={},
                  chunk=1):
         PhoneTest.__init__(self, phone, options,
                            config_file=config_file,
-                           enable_unittests=enable_unittests,
                            test_devices_repos=test_devices_repos,
                            chunk=chunk)
         self._result_server = None

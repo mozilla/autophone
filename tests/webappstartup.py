@@ -14,11 +14,10 @@ from phonetest import PhoneTestResult
 
 class WebappStartupTest(PerfTest):
     def __init__(self, phone, options, config_file=None,
-                 enable_unittests=False, test_devices_repos={},
+                 test_devices_repos={},
                  chunk=1):
         PerfTest.__init__(self, phone, options,
                           config_file=config_file,
-                          enable_unittests=enable_unittests,
                           test_devices_repos=test_devices_repos,
                           chunk=chunk)
         self.webappstartup_name = None
@@ -49,22 +48,18 @@ class WebappStartupTest(PerfTest):
 
     def teardown_job(self):
         if self.webappstartup_name:
-            self.dm.uninstall_app(self.webappstartup_name)
+            try:
+                # Make certain to catch any exceptions in order
+                # to ensure that the test teardown completes.
+                self.dm.uninstall_app(self.webappstartup_name)
+            except:
+                self.loggerdeco.exception('Exception uninstalling %s' % self.webappstartup_name)
         PerfTest.teardown_job(self)
 
     def run_job(self):
 
         self.testname = 'webappstartup'
 
-        if self.check_results(self.testname):
-            # We already have good results for this test and build.
-            # No need to test it again.
-            self.message = 'Already have results for this test.'
-            self.update_status(message=self.message)
-            self.test_result.status = PhoneTestResult.USERCANCEL
-            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                         self.message)
-            return
         self.loggerdeco.info('Running test for %d iterations' %
                              self._iterations)
 
@@ -73,6 +68,7 @@ class WebappStartupTest(PerfTest):
         # typically due to a regression in the brower which should
         # be reported.
         success = False
+        command = None
         for attempt in range(1, self.stderrp_attempts+1):
             # dataset is a list of the measurements made for the
             # iterations for this test.
@@ -88,6 +84,11 @@ class WebappStartupTest(PerfTest):
 
             dataset = []
             for iteration in range(1, self._iterations+1):
+                command = self.worker_subprocess.process_autophone_cmd(self)
+                if command['interrupt']:
+                    self.handle_test_interrupt(command['reason'])
+                    break
+
                 self.update_status(message='Attempt %d/%d for Test %s, '
                                    'run %d' %
                                    (attempt, self.stderrp_attempts,
@@ -100,25 +101,35 @@ class WebappStartupTest(PerfTest):
                                        'run %d failed to install webappstartup' %
                                        (attempt, self.stderrp_attempts,
                                         self.testname, iteration))
-                    continue
-
-                measurement = self.runtest()
-                if not measurement:
                     self.test_result.add_failure(
                         self.name,
                         'TEST_UNEXPECTED_FAIL',
                         'Failed to get uncached measurement.')
                     continue
+
+                measurement = self.runtest()
+                if measurement:
+                    self.test_result.add_pass(self.name)
+                else:
+                    self.test_result.add_failure(
+                        self.name,
+                        'TEST_UNEXPECTED_FAIL',
+                        'Failed to get uncached measurement.')
+                    continue
+
                 dataset[-1]['uncached'] = measurement
                 success = True
 
                 measurement = self.runtest()
-                if not measurement:
+                if measurement:
+                    self.test_result.add_pass(self.name)
+                else:
                     self.test_result.add_failure(
                         self.name,
                         'TEST_UNEXPECTED_FAIL',
                         'Failed to get cached measurement.')
                     continue
+
                 dataset[-1]['cached'] = measurement
 
                 if self.is_stderr_below_threshold(
@@ -131,17 +142,30 @@ class WebappStartupTest(PerfTest):
                         (self.testname, iteration, self._iterations))
                     break
 
-            # If we have not gotten a single measurement at this point,
-            # just bail and report the failure rather than wasting time
-            # continuing more attempts.
-            if success:
-                self.test_result.add_pass(self.name)
-            else:
+            if command and command['interrupt']:
+                break
+            if not success:
+                # If we have not gotten a single measurement at this point,
+                # just bail and report the failure rather than wasting time
+                # continuing more attempts.
                 self.loggerdeco.info(
                     'Failed to get measurements for test %s after %d/%d attempt '
                     'of %d iterations' % (self.testname, attempt,
                                           self.stderrp_attempts,
                                           self._iterations))
+                self.worker_subprocess.mailer.send(
+                    'Webappstartup test failed for Build %s %s on Phone %s' %
+                    (self.build.tree, self.build.id, self.phone.id),
+                    'No measurements were detected for test webappstartup.\n\n'
+                    'Repository: %s\n'
+                    'Build Id:   %s\n'
+                    'Revision:   %s\n' %
+                    (self.build.tree, self.build.id, self.build.revision))
+                self.message = 'No measurements detected.'
+                self.update_status(message=self.message)
+                self.test_result.status = PhoneTestResult.BUSTED
+                self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                             self.message)
                 break
 
             if self.is_stderr_below_threshold(
@@ -169,23 +193,6 @@ class WebappStartupTest(PerfTest):
                         rejected=rejected)
             if not rejected:
                 break
-
-        if success:
-            self.test_result.status = PhoneTestResult.SUCCESS
-        else:
-            self.worker_subprocess.mailer.send(
-                'Webappstartup test failed for Build %s %s on Phone %s' %
-                (self.build.tree, self.build.id, self.phone.id),
-                'No measurements were detected for test webappstartup.\n\n'
-                'Repository: %s\n'
-                'Build Id:   %s\n'
-                'Revision:   %s\n' %
-                (self.build.tree, self.build.id, self.build.revision))
-            self.message = 'No measurements detected.'
-            self.update_status(message=self.message)
-            self.test_result.status = PhoneTestResult.BUSTED
-            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                         self.message)
 
     def kill_webappstartup(self):
         re_webapp = re.compile(r'%s|%s|%s:%s.Webapp0' % (

@@ -20,13 +20,13 @@ from phonetest import PhoneTest, PhoneTestResult
 
 class UnitTest(PhoneTest):
     def __init__(self, phone, options, config_file=None,
-                 enable_unittests=False, test_devices_repos={},
+                 test_devices_repos={},
                  chunk=1):
         PhoneTest.__init__(self, phone, options,
                            config_file=config_file,
-                           enable_unittests=enable_unittests,
                            test_devices_repos=test_devices_repos,
                            chunk=chunk)
+        self.enable_unittests = True
         self.unittest_cfg = ConfigParser.RawConfigParser()
 
         unittest_config_file = self.cfg.get('runtests', 'unittest_defaults')
@@ -359,10 +359,20 @@ class UnitTest(PhoneTest):
                     stderr=subprocess.STDOUT,
                     close_fds=True
                 )
-                proc.wait()
-                if proc.returncode == 0:
-                    self.test_result.status = PhoneTestResult.SUCCESS
-                else:
+                returncode = None
+                while True:
+                    returncode = proc.poll()
+                    if returncode is not None:
+                        break
+                    command = self.worker_subprocess.process_autophone_cmd(self)
+                    if command['interrupt']:
+                        proc.kill()
+                        self.handle_test_interrupt(command['reason'])
+                        break
+
+                if command and command['interrupt']:
+                    break
+                elif proc.returncode != 0:
                     self.test_result.status = PhoneTestResult.EXCEPTION
                     self.message = 'Test exited with return code %d' % proc.returncode
 

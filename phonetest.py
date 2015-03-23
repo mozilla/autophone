@@ -11,6 +11,7 @@ import time
 
 from mozprofile import FirefoxProfile
 
+import utils
 from adb import ADBError
 from adb_android import ADBAndroid as ADBDevice
 from logdecorator import LogDecorator
@@ -61,12 +62,12 @@ class Logcat(object):
 
 class PhoneTest(object):
     def __init__(self, phone, options, config_file=None,
-                 enable_unittests=False, test_devices_repos={},
+                 test_devices_repos={},
                  chunk=1):
         self.config_file = config_file
         self.cfg = ConfigParser.RawConfigParser()
         self.cfg.read(self.config_file)
-        self.enable_unittests = enable_unittests
+        self.enable_unittests = False
         self.test_devices_repos = test_devices_repos
         self.chunk = chunk
         self.chunks = 1
@@ -95,6 +96,10 @@ class PhoneTest(object):
         self._group_symbol = None
         self.test_result = PhoneTestResult()
         self.message = None
+        # A unique consistent guid is necessary for identifying the
+        # test job in treeherder. The test job_guid is updated when a
+        # test is added to the pending jobs/tests in the jobs
+        # database.
         self.job_guid = None
         self.job_details = []
         self.submit_timestamp = None
@@ -213,10 +218,18 @@ class PhoneTest(object):
     def build(self):
         return self.worker_subprocess.build
 
-    @property
-    def buildername(self):
+    def generate_guid(self):
+        self.job_guid = utils.generate_guid()
+
+    def get_buildername(self, tree):
         return "%s %s opt test %s-%s" % (
-            self.phone.platform, self.build.tree, self.job_name, self.job_symbol)
+            self.phone.platform, tree, self.job_name, self.job_symbol)
+
+    def handle_test_interrupt(self, reason):
+        self.message = reason
+        self.update_status(message=reason)
+        self.test_result.status = PhoneTestResult.USERCANCEL
+        self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL', reason)
 
     def handle_crashes(self):
         if not self.crash_processor:
@@ -255,7 +268,12 @@ class PhoneTest(object):
             self.worker_subprocess.build.revision_hash and
             self.worker_subprocess.s3_bucket):
             self.worker_subprocess.initialize_log_filehandler()
-        self.worker_subprocess.treeherder.submit_running(tests=[self])
+        self.worker_subprocess.treeherder.submit_running(
+            self.phone.id,
+            self.build.url,
+            self.build.tree,
+            self.build.revision_hash,
+            tests=[self])
 
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
@@ -272,6 +290,9 @@ class PhoneTest(object):
         self._log = None
         self.upload_dir = tempfile.mkdtemp()
         self.test_result = PhoneTestResult()
+        if not self.worker_subprocess.is_disabled():
+            self.update_status(phone_status=PhoneStatus.WORKING,
+                               message='Setting up %s' % self.name)
 
     def run_job(self):
         raise NotImplementedError
@@ -280,7 +301,27 @@ class PhoneTest(object):
         self.loggerdeco.debug('PhoneTest.teardown_job')
         try:
             self.handle_crashes()
-            self.worker_subprocess.treeherder.submit_complete(test=self)
+        except Exception, e:
+            self.test_result.status = PhoneTestResult.EXCEPTION
+            self.test_result.add_failure(
+                self.name, 'TEST-UNEXPECTED-FAIL',
+                'Exception %s during crash processing' % e)
+        try:
+            if (self.worker_subprocess.is_disabled() and
+                self.test_result.status != PhoneTestResult.USERCANCEL):
+                # The worker was disabled while running one test of a job.
+                # Record the cancellation on any remaining tests in that job.
+                self.test_result.status = PhoneTestResult.USERCANCEL
+                self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                                     'The worker was disabled.')
+            self.worker_subprocess.treeherder.submit_complete(
+                self.phone.id,
+                self.build.url,
+                self.build.tree,
+                self.build.revision_hash,
+                tests=[self])
+        except:
+            self.loggerdeco.exception('Exception tearing down job')
         finally:
             if self.upload_dir and os.path.exists(self.upload_dir):
                 shutil.rmtree(self.upload_dir)
@@ -288,9 +329,12 @@ class PhoneTest(object):
 
         if self.logger.getEffectiveLevel() == logging.DEBUG and self._log:
             self.loggerdeco.debug(40 * '=')
-            logfilehandle = open(self._log)
-            self.loggerdeco.debug(logfilehandle.read())
-            logfilehandle.close()
+            try:
+                logfilehandle = open(self._log)
+                self.loggerdeco.debug(logfilehandle.read())
+                logfilehandle.close()
+            except Exception:
+                self.logger.exception('Exception %s loading log')
             self.loggerdeco.debug(40 * '-')
         self._log = None
         self.logcat = Logcat(self)
@@ -306,10 +350,10 @@ class PhoneTest(object):
         if self._dm:
             self._dm.log_level = level
 
-    def update_status(self, phone_status=PhoneStatus.WORKING, message=None):
+    def update_status(self, phone_status=None, message=None):
         if self.update_status_cb:
-            self.update_status_cb(phone_status=phone_status,
-                                  build=self.build,
+            self.update_status_cb(build=self.build,
+                                  phone_status=phone_status,
                                   message=message)
 
     def install_profile(self, profile=None):
@@ -388,7 +432,7 @@ class PhoneTestResult(object):
     SUCCESS = 'success'
 
     def __init__(self):
-        self.status = None
+        self.status = PhoneTestResult.SUCCESS
         self.passes = []
         self.failures = []
         self.todo = 0
