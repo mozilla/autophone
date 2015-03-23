@@ -490,7 +490,6 @@ class BuildCache(object):
     def __init__(self, repos, buildtypes,
                  product, build_platforms, buildfile_ext,
                  cache_dir='builds', override_build_dir=None,
-                 enable_unittests=False,
                  build_cache_size=MAX_NUM_BUILDS,
                  build_cache_expires=EXPIRE_AFTER_DAYS,
                  treeherder_url=None):
@@ -500,7 +499,6 @@ class BuildCache(object):
         self.build_platforms = build_platforms
         self.buildfile_ext = buildfile_ext
         self.cache_dir = cache_dir
-        self.enable_unittests = enable_unittests
         self.override_build_dir = override_build_dir
         if override_build_dir:
             if not os.path.exists(override_build_dir):
@@ -509,11 +507,6 @@ class BuildCache(object):
             build_path = os.path.join(override_build_dir, 'build.apk')
             if not os.path.exists(build_path):
                 raise BuildCacheException('Override Build Directory %s does not contain a build.apk.' %
-                                          override_build_dir)
-
-            tests_path = os.path.join(override_build_dir, 'tests')
-            if self.enable_unittests and not os.path.exists(tests_path):
-                raise BuildCacheException('Override Build Directory %s does not contain a tests directory.' %
                                           override_build_dir)
         if not os.path.exists(self.cache_dir):
             os.mkdir(self.cache_dir)
@@ -577,7 +570,7 @@ class BuildCache(object):
         If 'success' is True, the dict also contains a 'metadata' item, which is
         a json encoding of BuildMetadata.  The path to the build is the
         'dir' item, which is a directory containing build.apk,
-        symbols/, and, if self.enable_unittests is true, robocop.apk and tests/.
+        symbols/, and, if enable_unittests is true, robocop.apk and tests/.
         If not found, fetches them, assuming a standard file structure.
         Cleans the cache before getting started.
         If self.override_build_dir is set, 'dir' is set to
@@ -587,6 +580,10 @@ class BuildCache(object):
         metadata items.
         """
         if self.override_build_dir:
+            tests_path = os.path.join(self.override_build_dir, 'tests')
+            if enable_unittests and not os.path.exists(tests_path):
+                raise BuildCacheException('Override Build Directory %s does not contain a tests directory.' %
+                                          self.override_build_dir)
             metadata = self.build_metadata(buildurl, self.override_build_dir)
             if metadata:
                 metadata_json = metadata.to_json()
@@ -657,7 +654,7 @@ class BuildCache(object):
             os.unlink(tmpf.name)
 
         # tests
-        if self.enable_unittests or enable_unittests:
+        if enable_unittests:
             tests_path = os.path.join(cache_build_dir, 'tests')
             if force or not os.path.exists(tests_path):
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
