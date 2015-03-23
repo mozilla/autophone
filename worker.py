@@ -28,6 +28,13 @@ from phonestatus import PhoneStatus
 from phonetest import PhoneTestResult
 from s3 import S3Bucket
 
+def lookup_test(tests, job_group_name, job_type_name):
+    for test in tests:
+        if (test.group_name == job_group_name and
+            test.job_name == job_type_name):
+            return test
+    return None
+
 class Crashes(object):
 
     CRASH_WINDOW = 30
@@ -89,6 +96,7 @@ class PhoneWorker(object):
 
     def __init__(self, worker_num, tests, phone, options,
                  autophone_queue, logfile_prefix, loglevel, mailer):
+        self.tests = tests
         self.phone = phone
         self.options = options
         self.worker_num = worker_num
@@ -139,6 +147,10 @@ class PhoneWorker(object):
         self.loggerdeco.debug('PhoneWorker:enable')
         self.cmd_queue.put_nowait(('enable', None))
 
+    def cancel_job(self, request):
+        self.loggerdeco.debug('PhoneWorker:cancel_job')
+        self.cmd_queue.put_nowait(('cancel_job', request))
+
     def debug(self, level):
         self.loggerdeco.debug('PhoneWorker:debug')
         try:
@@ -179,8 +191,6 @@ class PhoneWorkerSubProcess(object):
                  autophone_queue, cmd_queue, logfile_prefix, loglevel, mailer):
         self.worker_num = worker_num
         self.tests = tests
-        self.job = None
-        self.runnable_tests = []
         self.phone = phone
         self.options = options
         self.autophone_queue = autophone_queue
@@ -217,7 +227,6 @@ class PhoneWorkerSubProcess(object):
         self.loggerdeco.debug('PhoneWorkerSubProcess:__init__')
         for t in tests:
             t.worker_subprocess = self
-        self.treeherder = AutophoneTreeherder(self)
         if not options.s3_upload_bucket:
             self.s3_bucket = None
         else:
@@ -225,6 +234,11 @@ class PhoneWorkerSubProcess(object):
                                       options.aws_access_key_id,
                                       options.aws_access_key,
                                       self.loggerdeco)
+        self.treeherder = AutophoneTreeherder(self,
+                                              self.loggerdeco,
+                                              self.options,
+                                              s3_bucket=self.s3_bucket,
+                                              mailer=self.mailer)
         self.filehandler = None
 
     def initialize_log_filehandler(self):
@@ -280,16 +294,19 @@ class PhoneWorkerSubProcess(object):
             self.p.join(self.options.phone_command_queue_timeout*2)
         self.loggerdeco.debug('PhoneWorkerSubProcess:stopped')
 
-    def has_error(self):
-        return (self.phone_status == PhoneStatus.DISABLED or
-                self.phone_status == PhoneStatus.DISCONNECTED)
+    def is_disconnected(self):
+        return self.phone_status == PhoneStatus.DISCONNECTED
+
+    def is_disabled(self):
+        return self.phone_status == PhoneStatus.DISABLED
 
     def update_status(self, build=None, phone_status=None,
                       message=None):
         self.loggerdeco.debug('PhoneWorkerSubProcess:update_status')
-        self.phone_status = phone_status
+        if phone_status:
+            self.phone_status = phone_status
         phone_message = PhoneTestMessage(self.phone, build=build,
-                                         phone_status=phone_status,
+                                         phone_status=self.phone_status,
                                          message=message)
         self.loggerdeco.info(str(phone_message))
         try:
@@ -327,7 +344,8 @@ class PhoneWorkerSubProcess(object):
 
         # reset status if there had previous been an error.
         # FIXME: should send email that phone is back up.
-        self.update_status(phone_status=PhoneStatus.IDLE)
+        if self.is_disconnected():
+            self.update_status(phone_status=PhoneStatus.IDLE)
         return True
 
     def clear_test_base_paths(self):
@@ -368,7 +386,7 @@ class PhoneWorkerSubProcess(object):
     def phone_disconnected(self, msg_body):
         """Indicate that a phone has become unreachable or experienced a
         error from which we might be able to recover."""
-        if self.has_error():
+        if self.is_disconnected() or self.is_disabled():
             return
         self.loggerdeco.warning('Phone disconnected: %s.' % msg_body)
         self.loggerdeco.info('Sending notification...')
@@ -407,34 +425,40 @@ class PhoneWorkerSubProcess(object):
         # adb land. Just do a check_sdcard
         return self._check_sdcard()
 
-    def run_tests(self):
-        if not self.has_error():
-            self.loggerdeco.info('Rebooting...')
-            self.reboot()
-
-        self.treeherder.submit_pending()
-        # may have gotten an error trying to reboot, so test again
-        if self.has_error():
-            self.loggerdeco.info('Phone is in error state; not running tests.')
-            self.treeherder.submit_complete(test_status=PhoneTestResult.USERCANCEL,
-                                            test_message='Device Error')
-            return False
-
+    def check_battery(self):
         if self.dm.get_battery_percentage() < self.options.device_battery_min:
             while self.dm.get_battery_percentage() < self.options.device_battery_max:
                 self.update_status(phone_status=PhoneStatus.CHARGING,
                                    build=self.build)
                 time.sleep(900)
 
-        self.update_status(phone_status=PhoneStatus.INSTALLING,
-                           build=self.build)
-        self.loggerdeco.info('Installing build %s.' % self.build.id)
+    def cancel_job(self, test_guid, job_group_name, job_type_name):
+        """Cancel a job.
 
-        installed = False
+        Delete the test from the entry in the jobs database and then
+        we are done. There is no need to notify treeherder as it will
+        handle marking the job as cancelled.
+
+        """
+        test = lookup_test(self.tests, job_group_name, job_type_name)
+        self.loggerdeco.debug('cancel_job: %s %s %s %s' % (
+            test_guid, job_group_name, job_type_name, test.name))
+
+        self.jobs.cancel_job(test.name, test_guid, device=self.phone.id)
+
+    def install_build(self, job):
+        ### Why are we retrying here? is it helpful at all?
+        """Install the build for this job.
+
+        returns {success: Boolean, message: ''}
+        """
+        self.update_status(phone_status=PhoneStatus.INSTALLING,
+                           build=self.build,
+                           message='%s %s' % (job['tree'], job['build_id']))
+        self.loggerdeco.info('Installing build %s.' % self.build.id)
+        message = ''
         for attempt in range(1, self.options.phone_retry_limit+1):
             uninstalled = False
-            exc = None
-            e = None
             try:
                 # Uninstall all org.mozilla.(fennec|firefox) packages
                 # to make sure there are no previous installations of
@@ -448,158 +472,157 @@ class PhoneWorkerSubProcess(object):
                     self.dm.uninstall_app(p)
                 self.dm.reboot()
                 uninstalled = True
+                break
             except ADBError, e:
-                if e.message.find('Failure') == -1:
-                    exc = 'Exception uninstalling fennec attempt %d!\n\n%s' % (
-                        attempt, traceback.format_exc())
-                else:
+                if e.message.find('Failure') != -1:
                     # Failure indicates the failure was due to the
                     # app not being installed.
                     uninstalled = True
-            except ADBTimeoutError, e:
-                exc = 'Timed out uninstalling fennec attempt %d!\n\n%s' % (
-                    attempt, traceback.format_exc())
                 break
-            if uninstalled:
-                try:
-                    self.dm.install_app(os.path.join(self.build.dir,
-                                                    'build.apk'))
-                    installed = True
-                    break
-                except ADBError, e:
-                    exc = 'Exception installing fennec attempt %d!\n\n%s' % (
-                        attempt, traceback.format_exc())
-                    self.loggerdeco.exception('Exception installing fennec '
-                                              'attempt %d!' % attempt)
-                    time.sleep(self.options.phone_retry_wait)
-                except ADBTimeoutError, e:
-                    exc = 'Timed out installing fennec attempt %d!\n\n%s' % (
-                        attempt, traceback.format_exc())
-                    break
-        if not uninstalled:
-            self.phone_disconnected(exc)
-            self.treeherder.submit_complete(
-                test_status=PhoneTestResult.EXCEPTION,
-                test_message='Device Error: Failed to uninstall fennec: %s' % exc)
-            return False
-        elif not installed:
-            self.phone_disconnected(exc)
-            if isinstance(e, ADBTimeoutError):
-                self.treeherder.submit_complete(
-                    test_status=PhoneTestResult.EXCEPTION,
-                    test_message='Device Error: Failed to install fennec: %s' % exc)
-            else:
-                self.treeherder.submit_complete(
-                    test_status=PhoneTestResult.BUSTED,
-                    test_message='Failed to install fennec: %s' % exc)
-            return False
+                message = 'Exception uninstalling fennec attempt %d!\n\n%s' % (
+                    attempt, traceback.format_exc())
+                self.loggerdeco.exception('Exception uninstalling fennec '
+                                          'attempt %d' % attempt)
+            except ADBTimeoutError, e:
+                message = 'Timed out uninstalling fennec attempt %d!\n\n%s' % (
+                    attempt, traceback.format_exc())
+                self.loggerdeco.exception('Timedout uninstalling fennec '
+                                          'attempt %d' % attempt)
+            time.sleep(self.options.phone_retry_wait)
 
-        self.loggerdeco.info('Running tests %s' % self.runnable_tests)
-        for t in self.runnable_tests:
-            if self.has_error():
-                self.loggerdeco.info('Rebooting...')
-                self.reboot()
-            if self.has_error():
-                self.loggerdeco.warning('run_tests: not running test due '
-                                        'to device error! %s %s %s' % (
-                                            t.name, t.build.tree, t.build.id))
-                t.test_result.add_failure(t.name, PhoneTestResult.EXCEPTION, 'Device Error')
-                self.treeherder.submit_complete(test=t)
-                continue
+        if not uninstalled:
+            return {'success': False, 'message': message}
+
+        message = ''
+        for attempt in range(1, self.options.phone_retry_limit+1):
             try:
+                self.dm.install_app(os.path.join(self.build.dir,
+                                                'build.apk'))
+                return {'success': True, 'message': ''}
+            except ADBError, e:
+                message = 'Exception installing fennec attempt %d!\n\n%s' % (
+                    attempt, traceback.format_exc())
+                self.loggerdeco.exception('Exception installing fennec '
+                                          'attempt %d' % attempt)
+            except ADBTimeoutError, e:
+                message = 'Timed out installing fennec attempt %d!\n\n%s' % (
+                    attempt, traceback.format_exc())
+                self.loggerdeco.exception('Timedout installing fennec '
+                                          'attempt %d' % attempt)
+            time.sleep(self.options.phone_retry_wait)
+
+        return {'success': False, 'message': message}
+
+    def run_tests(self, job):
+        is_job_completed = True
+        install_status = self.install_build(job)
+        self.loggerdeco.info('Running tests for job %s' % job)
+        for t in job['tests']:
+            is_test_completed = False
+            try:
+                self.check_battery()
                 t.setup_job()
-                t.run_job()
+                if not install_status['success']:
+                    t.test_result.status = PhoneTestResult.EXCEPTION
+                    t.test_result.add_failure(t.name, 'TEST-UNEXPECTED-FAIL',
+                                              install_status['message'])
+                else:
+                    try:
+                        if not self.is_disabled():
+                            t.run_job()
+                        is_test_completed = True
+                    except (ADBError, ADBTimeoutError):
+                        self.loggerdeco.exception('device error during '
+                                                  '%s.run_job' % t.name)
+                        message = ('Uncaught device error during %s.run_job\n\n%s' % (
+                                   t.name, traceback.format_exc()))
+                        t.test_result.status = PhoneTestResult.EXCEPTION
+                        t.test_result.add_failure(t.name, 'TEST-UNEXPECTED-FAIL',
+                                                  message)
             except (ADBError, ADBTimeoutError):
-                exc = ('Uncaught device error while running test!\n\n%s' %
-                    traceback.format_exc())
+                self.loggerdeco.exception('device error during '
+                                          '%s.setup_job.' % t.name)
+                message = ('Uncaught device error during %s.setup_job.\n\n%s' % (
+                           t.name, traceback.format_exc()))
                 t.test_result.status = PhoneTestResult.EXCEPTION
-                t.message = exc
-                self.loggerdeco.exception('Uncaught device error while '
-                                          'running test!')
-                self.phone_disconnected(exc)
-            finally:
+                t.test_result.add_failure(t.name, 'TEST-UNEXPECTED-FAIL',
+                                          message)
+
+            if not is_test_completed and job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
+                # This test did not run successfully and we have not
+                # exceeded the maximum number of attempts, therefore
+                # mark this attempt as a RETRY.
+                t.test_result.status = PhoneTestResult.RETRY
+            try:
                 t.teardown_job()
-        self.dm.uninstall_app(self.build.app_name)
-        return True
+            except:
+                self.loggerdeco.exception('device error during '
+                                          '%s.teardown_job' % t.name)
+                message = ('Uncaught device error during %s.teardown_job\n\n%s' % (
+                           t.name, traceback.format_exc()))
+                t.test_result.status = PhoneTestResult.EXCEPTION
+                t.test_result.add_failure(t.name, 'TEST-UNEXPECTED-FAIL',
+                                          message)
+            is_job_completed = is_job_completed and is_test_completed
+            # Remove this test from the jobs database whether or not it
+            # ran successfully.
+            self.jobs.test_completed(t.job_guid)
+            if not is_test_completed and job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
+                # This test did not run successfully and we have not
+                # exceeded the maximum number of attempts, therefore
+                # re-add this test with a new guid so that Treeherder
+                # will generate a new job for the next attempt.
+                #
+                # We must do this after tearing down the job since the
+                # t.guid will change as a result of the call to
+                # self.jobs.new_job.
+                self.jobs.new_job(job['build_url'],
+                                  build_id=job['build_id'],
+                                  changeset=job['changeset'],
+                                  tree=job['tree'],
+                                  revision=job['revision'],
+                                  revision_hash=job['revision_hash'],
+                                  tests=[t],
+                                  enable_unittests=job['enable_unittests'],
+                                  device=self.phone.id)
+                self.treeherder.submit_pending(self.phone.id,
+                                               job['build_url'],
+                                               job['tree'],
+                                               job['revision_hash'],
+                                               tests=[t])
+
+        try:
+            self.dm.uninstall_app(self.build.app_name)
+        except:
+            self.loggerdeco.exception('device error during '
+                                      'uninstall_app %s' % self.build.app_name)
+        return is_job_completed
 
     def handle_timeout(self):
-        self.loggerdeco.debug('PhoneWorkerSubProcess:handle_timeout')
-        if (self.phone_status != PhoneStatus.DISABLED and
+        if (not self.is_disabled() and
             (not self.last_ping or
              (datetime.datetime.now() - self.last_ping >
               datetime.timedelta(seconds=self.options.phone_ping_interval)))):
             self.last_ping = datetime.datetime.now()
             if self.ping():
-                if self.phone_status == PhoneStatus.DISCONNECTED:
+                if self.is_disconnected():
                     self.recover_phone()
-                if not self.has_error():
-                    self.update_status(phone_status=PhoneStatus.IDLE)
             else:
                 self.loggerdeco.info('Ping unanswered.')
                 # No point in trying to recover, since we couldn't
                 # even perform a simple action.
-                if not self.has_error():
+                if not self.is_disconnected():
                     self.phone_disconnected('No response to ping.')
 
     def handle_job(self, job):
         self.loggerdeco.debug('PhoneWorkerSubProcess:handle_job: %s, %s' % (
             self.phone, job))
-        self.job = job
-        self.runnable_tests = []
-        incompatible_job = False
-        if self.phone.abi == 'x86':
-            if 'x86' not in job['build_url']:
-                incompatible_job = True
-        else:
-            if 'x86' in job['build_url']:
-                incompatible_job = True
-        if ('api-9' not in job['build_url'] and
-            'api-10' not in job['build_url'] and
-            'api-11' not in job['build_url']):
-            pass
-        elif self.phone.sdk not in job['build_url']:
-            incompatible_job  = True
-        if incompatible_job:
-            self.loggerdeco.debug('Ignoring incompatible job')
-            self.jobs.job_completed(job['id'])
-            return
-        # Determine if we will test this build, which tests to run and if we
-        # need to enable unittests.
-        enable_unittests = False
-        for t in self.tests:
-            self.loggerdeco.debug('handle_job: checking test %s' % t.name)
-            test = None
-            test_devices_repos = t.test_devices_repos
-            if not test_devices_repos:
-                # We know we will test this build, but not yet
-                # if any of the other tests enable_unittests.
-                test = t
-            elif not self.phone.id in test_devices_repos:
-                # This device will not run this test.
-                pass
-            else:
-                for repo in test_devices_repos[self.phone.id]:
-                    if repo in job['build_url']:
-                        test = t
-                        enable_unittests = (enable_unittests or
-                                            t.enable_unittests)
-                        break
-            if test and (
-                    not job['tests'] or test.name in job['tests']):
-                # This test is defined for this build/repo and either
-                # the user selected this test or did not select specific
-                # individual tests.
-                self.loggerdeco.debug('handle_job: adding test %s' % test.name)
-                self.runnable_tests.append(test)
-        if not self.runnable_tests:
-            self.loggerdeco.debug('Ignoring job %s ' % job['build_url'])
-            self.jobs.job_completed(job['id'])
-            return
         self.loggerdeco.info('Checking job %s.' % job['build_url'])
         client = buildserver.BuildCacheClient(port=self.options.build_cache_port)
-        self.loggerdeco.info('Fetching build...')
+        self.update_status(phone_status=PhoneStatus.FETCHING,
+                           message='%s %s' % (job['tree'], job['build_id']))
         cache_response = client.get(job['build_url'],
-                                    enable_unittests=enable_unittests)
+                                    enable_unittests=job['enable_unittests'])
         client.close()
         if not cache_response['success']:
             self.loggerdeco.warning('Errors occured getting build %s: %s' %
@@ -608,42 +631,73 @@ class PhoneWorkerSubProcess(object):
         self.build = BuildMetadata().from_json(cache_response['metadata'])
         self.loggerdeco.info('Starting job %s.' % job['build_url'])
         starttime = datetime.datetime.now()
-        if self.run_tests():
+        if not self.run_tests(job) and job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
+            self.loggerdeco.info('Job will be retried.')
+        else:
             self.loggerdeco.info('Job completed.')
             self.jobs.job_completed(job['id'])
+        if not self.is_disconnected() and not self.is_disabled():
             self.update_status(phone_status=PhoneStatus.IDLE,
                                build=self.build)
-        else:
-            self.loggerdeco.error('Job failed.')
         stoptime = datetime.datetime.now()
         self.loggerdeco.info('Job elapsed time: %s' % (stoptime - starttime))
 
-    def handle_cmd(self, request):
+    def handle_cmd(self, request, current_test=None):
+        """Execute the command dispatched from the Autophone process.
+
+        handle_cmd is used in the worker's main_loop method and in a
+        test's run_job method to process pending Autophone
+        commands. It returns a dict which is used by tests to
+        determine if the currently running test should be terminated
+        as a result of the command.
+
+        :param request: tuple containing the command name and
+            necessary argument values.
+
+        :param current_test: currently running test. Defaults to
+            None. A running test will pass this parameter which will
+            be used to determine if a cancel_job request pertains to
+            the currently running job and thus should be terminated.
+
+        :returns: {'interrupt': boolean, True if current activity should be aborted
+                   'reason': message to be used to indicate reason for interruption}
+        """
         self.loggerdeco.debug('PhoneWorkerSubProcess:handle_cmd')
         if not request:
             self.loggerdeco.debug('handle_cmd: No request')
-            pass
-        elif request[0] == 'stop':
+            return {'interrupt': False, 'reason': ''}
+        if request[0] == 'stop':
             self.loggerdeco.info('Stopping at user\'s request...')
             self._stop = True
-        elif request[0] == 'job':
+            return {'interrupt': True, 'reason': 'Worker stopped by administrator'}
+        if request[0] == 'job':
             # This is just a notification that breaks us from waiting on the
             # command queue; it's not essential, since jobs are stored in
             # a db, but it allows the worker to react quickly to a request if
             # it isn't doing anything else.
             self.loggerdeco.debug('Received job command request...')
-            pass
-        elif request[0] == 'reboot':
+            return {'interrupt': False, 'reason': ''}
+        if request[0] == 'reboot':
             self.loggerdeco.info('Rebooting at user\'s request...')
             self.reboot()
-        elif request[0] == 'disable':
+            return {'interrupt': True, 'reason': 'Worker rebooted by administrator'}
+        if request[0] == 'disable':
             self.disable_phone('Disabled at user\'s request', False)
-        elif request[0] == 'enable':
+            return {'interrupt': True, 'reason': 'Worker disabled by administrator'}
+        if request[0] == 'enable':
             self.loggerdeco.info('Enabling phone at user\'s request...')
-            if self.has_error():
+            if self.is_disabled():
                 self.update_status(phone_status=PhoneStatus.IDLE)
                 self.last_ping = None
-        elif request[0] == 'debug':
+            return {'interrupt': False, 'reason': ''}
+        if request[0] == 'cancel_job':
+            self.loggerdeco.info('Received cancel_job request %s' % list(request))
+            (test_guid, job_group_name, job_type_name) = request[1]
+            self.cancel_job(test_guid, job_group_name, job_type_name)
+            if current_test and current_test.job_guid == test_guid:
+                return {'interrupt': True, 'reason': 'Running Job Canceled'}
+            return {'interrupt': False, 'reason': ''}
+        if request[0] == 'debug':
             self.loggerdeco.info('Setting debug level %d at user\'s request...' % request[1])
             self.options.debug = request[1]
             # update any existing ADB objects
@@ -651,11 +705,23 @@ class PhoneWorkerSubProcess(object):
                 self.dm.log_level = self.options.debug
             for t in self.tests:
                 t.set_dm_debug(self.options.debug)
-        elif request[0] == 'ping':
+            return {'interrupt': False, 'reason': ''}
+        if request[0] == 'ping':
             self.loggerdeco.info('Pinging at user\'s request...')
             self.ping()
-        else:
-            self.loggerdeco.debug('handle_cmd: Unknown request %s' % request[0])
+            return {'interrupt': False, 'reason': ''}
+        self.loggerdeco.debug('handle_cmd: Unknown request %s' % request[0])
+        return {'interrupt': False, 'reason': ''}
+
+    def process_autophone_cmd(self, test):
+        while True:
+            try:
+                request = self.cmd_queue.get(True, 1)
+                command = self.handle_cmd(request, current_test=test)
+                if command['interrupt']:
+                    return command
+            except Queue.Empty:
+                return {'interrupt': False, 'reason': ''}
 
     def main_loop(self):
         self.loggerdeco.debug('PhoneWorkerSubProcess:main_loop')
@@ -674,12 +740,27 @@ class PhoneWorkerSubProcess(object):
                     return
             except Queue.Empty:
                 request = None
-                if self.has_error():
+                if self.is_disconnected():
                     self.recover_phone()
-                if not self.has_error():
-                    job = self.jobs.get_next_job(lifo=self.options.lifo)
+                if not self.is_disconnected():
+                    job = self.jobs.get_next_job(lifo=self.options.lifo, worker=self)
                     if job:
-                        self.handle_job(job)
+                        if not self.is_disabled():
+                            self.handle_job(job)
+                        else:
+                            self.loggerdeco.info('Job skipped because device is disabled: %s' % job)
+                            for t in job['tests']:
+                                if t.test_result.status != PhoneTestResult.USERCANCEL:
+                                    t.test_result.status = PhoneTestResult.USERCANCEL
+                                    t.test_result.add_failure(t.name, 'TEST_UNEXPECTED_FAIL',
+                                                              'Worker disabled by administrator')
+                                self.treeherder.submit_complete(
+                                    t.phone.id,
+                                    job['build_url'],
+                                    job['tree'],
+                                    job['revision_hash'],
+                                    tests=[t])
+                            self.jobs.job_completed(job['id'])
                     else:
                         try:
                             request = self.cmd_queue.get(
@@ -706,7 +787,7 @@ class PhoneWorkerSubProcess(object):
         self.update_status(phone_status=PhoneStatus.IDLE)
         if not self.check_sdcard():
             self.recover_phone()
-        if self.has_error():
+        if self.is_disconnected():
             self.loggerdeco.error('Initial SD card check failed.')
 
         self.main_loop()
