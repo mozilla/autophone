@@ -299,7 +299,7 @@ class AutoPhone(object):
                                     repo, build_url, t.name))
                                 test = t
                                 break
-                    if test and not tests or test.name in tests:
+                    if test and (not tests or test.name in tests):
                         # This test is defined for this build/repo and either
                         # the user selected this test or did not select specific
                         # individual tests.
