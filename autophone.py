@@ -295,7 +295,7 @@ class AutoPhone(object):
                     else:
                         for repo in test_devices_repos[phoneid]:
                             if repo in build_url:
-                                self.logger.debug('new_job: checking repo %s against build %s for test %s repos %s' % (
+                                self.logger.debug('new_job: checking repo %s against build %s for test %s' % (
                                     repo, build_url, t.name))
                                 test = t
                                 break
