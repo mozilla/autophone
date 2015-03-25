@@ -263,6 +263,8 @@ class PhoneTest(object):
         self.logger_original = self.logger
         self.loggerdeco_original = self.loggerdeco
         self.dm_logger_original = self.dm._logger
+        # Clear the Treeherder job details.
+        self.job_details = []
         # Clear the log file if we are submitting logs to Treeherder.
         if (self.worker_subprocess.options.treeherder_url and
             self.worker_subprocess.build.revision_hash and
