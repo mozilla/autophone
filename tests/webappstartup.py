@@ -101,20 +101,22 @@ class WebappStartupTest(PerfTest):
                                        'run %d failed to install webappstartup' %
                                        (attempt, self.stderrp_attempts,
                                         self.testname, iteration))
-                    self.test_result.add_failure(
+                    self.test_failure(
                         self.name,
                         'TEST_UNEXPECTED_FAIL',
-                        'Failed to get uncached measurement.')
+                        'Failed to get uncached measurement.',
+                        PhoneTestResult.TESTFAILED)
                     continue
 
                 measurement = self.runtest()
                 if measurement:
-                    self.test_result.add_pass(self.name)
+                    self.test_pass(self.name)
                 else:
-                    self.test_result.add_failure(
+                    self.test_failure(
                         self.name,
                         'TEST_UNEXPECTED_FAIL',
-                        'Failed to get uncached measurement.')
+                        'Failed to get uncached measurement.',
+                        PhoneTestResult.TESTFAILED)
                     continue
 
                 dataset[-1]['uncached'] = measurement
@@ -122,12 +124,13 @@ class WebappStartupTest(PerfTest):
 
                 measurement = self.runtest()
                 if measurement:
-                    self.test_result.add_pass(self.name)
+                    self.test_pass(self.name)
                 else:
-                    self.test_result.add_failure(
+                    self.test_failure(
                         self.name,
                         'TEST_UNEXPECTED_FAIL',
-                        'Failed to get cached measurement.')
+                        'Failed to get cached measurement.',
+                        PhoneTestResult.TESTFAILED)
                     continue
 
                 dataset[-1]['cached'] = measurement
@@ -161,11 +164,9 @@ class WebappStartupTest(PerfTest):
                     'Build Id:   %s\n'
                     'Revision:   %s\n' %
                     (self.build.tree, self.build.id, self.build.revision))
-                self.message = 'No measurements detected.'
-                self.update_status(message=self.message)
-                self.test_result.status = PhoneTestResult.BUSTED
-                self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                             self.message)
+                self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                  'No measurements detected.',
+                                  PhoneTestResult.BUSTED)
                 break
 
             if self.is_stderr_below_threshold(

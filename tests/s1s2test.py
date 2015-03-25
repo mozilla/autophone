@@ -101,19 +101,17 @@ class S1S2Test(PerfTest):
 
     def run_job(self):
         if not self.install_local_pages():
-            self.message = 'Aborting test - Could not install local pages on phone.'
-            self.update_status(message=self.message)
-            self.test_result.status = PhoneTestResult.EXCEPTION
-            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                         self.message)
+            self.test_failure(
+                self.name, 'TEST_UNEXPECTED_FAIL',
+                'Aborting test - Could not install local pages on phone.',
+                PhoneTestResult.EXCEPTION)
             return
 
         if not self.create_profile():
-            self.message = 'Aborting test - Could not run Fennec.'
-            self.update_status(message=self.message)
-            self.test_result.status = PhoneTestResult.BUSTED
-            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                         self.message)
+            self.test_failure(
+                self.name, 'TEST_UNEXPECTED_FAIL',
+                'Aborting test - Could not run Fennec.',
+                PhoneTestResult.BUSTED)
             return
 
         testcount = len(self._urls.keys())
@@ -168,31 +166,34 @@ class S1S2Test(PerfTest):
                     dataset.append({})
 
                     if not self.create_profile():
-                        self.test_result.add_failure(url,
-                                                     'TEST_UNEXPECTED_FAIL',
-                                                     'Failed to create profile')
+                        self.test_failure(url,
+                                          'TEST_UNEXPECTED_FAIL',
+                                          'Failed to create profile',
+                                          PhoneTestResult.TESTFAILED)
                         continue
 
                     measurement = self.runtest(url)
                     if measurement:
-                        self.test_result.add_pass(url)
+                        self.test_pass(url)
                     else:
-                        self.test_result.add_failure(
+                        self.test_failure(
                             url,
                             'TEST_UNEXPECTED_FAIL',
-                            'Failed to get uncached measurement.')
+                            'Failed to get uncached measurement.',
+                            PhoneTestResult.TESTFAILED)
                         continue
                     dataset[-1]['uncached'] = measurement
                     success = True
 
                     measurement = self.runtest(url)
                     if measurement:
-                        self.test_result.add_pass(url)
+                        self.test_pass(url)
                     else:
-                        self.test_result.add_failure(
+                        self.test_failure(
                             url,
                             'TEST_UNEXPECTED_FAIL',
-                            'Failed to get cached measurement.')
+                            'Failed to get cached measurement.',
+                            PhoneTestResult.TESTFAILED)
                         continue
                     dataset[-1]['cached'] = measurement
 
@@ -226,11 +227,9 @@ class S1S2Test(PerfTest):
                         'Build Id:   %s\n'
                         'Revision:   %s\n' %
                         (testname, self.build.tree, self.build.id, self.build.revision))
-                    self.message = 'No measurements detected.'
-                    self.update_status(message=self.message)
-                    self.test_result.status = PhoneTestResult.BUSTED
-                    self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                                 self.message)
+                    self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                      'No measurements detected.',
+                                      PhoneTestResult.BUSTED)
                     break
 
                 if self.is_stderr_below_threshold(

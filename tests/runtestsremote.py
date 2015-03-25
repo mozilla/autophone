@@ -278,12 +278,12 @@ class UnitTest(PhoneTest):
         self.test_result.passes = parsed_log.get('passes', [])
         failures = parsed_log.get('failures', [])
         if failures:
-            self.test_result.status = PhoneTestResult.TESTFAILED
             for failure in failures:
                 for test_failure in failure['failures']:
-                    self.test_result.add_failure(failure['test'],
-                                                 test_failure['status'],
-                                                 test_failure['text'])
+                    self.test_failure(failure['test'],
+                                      test_failure['status'],
+                                      test_failure['text'],
+                                      PhoneTestResult.TESTFAILED)
         self.loggerdeco.debug('process_test_log: test_result: %s' %
                               json.dumps(self.test_result.__dict__, indent=2))
 

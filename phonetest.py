@@ -226,10 +226,16 @@ class PhoneTest(object):
             self.phone.platform, tree, self.job_name, self.job_symbol)
 
     def handle_test_interrupt(self, reason):
-        self.message = reason
-        self.update_status(message=reason)
-        self.test_result.status = PhoneTestResult.USERCANCEL
-        self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL', reason)
+        self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL', reason,
+                          PhoneTestResult.USERCANCEL)
+
+    def test_pass(self, testpath):
+        self.test_result.add_pass(testpath)
+
+    def test_failure(self, testpath, status, message, testresult_status):
+        self.message = message
+        self.update_status(message=message)
+        self.test_result.add_failure(testpath, status, message, testresult_status)
 
     def handle_crashes(self):
         if not self.crash_processor:
@@ -239,13 +245,16 @@ class PhoneTest(object):
                                                      self.options.minidump_stackwalk,
                                                      clean=False):
             if error['reason'] == 'java-exception':
-                self.test_result.add_failure(self.name,
-                                             'PROCESS-CRASH',
-                                             error['signature'])
+                self.test_failure(
+                    self.name, 'PROCESS-CRASH',
+                    error['signature'],
+                    PhoneTestResult.EXCEPTION)
             elif error['reason'] == 'PROFILE-ERROR':
-                self.test_result.add_failure(self.name,
-                                             error['reason'],
-                                             error['signature'])
+                self.test_failure(
+                    self.name,
+                    error['reason'],
+                    error['signature'],
+                    PhoneTestResult.TESTFAILED)
             elif error['reason'] == 'PROCESS-CRASH':
                 self.loggerdeco.info("PROCESS-CRASH | %s | "
                                      "application crashed [%s]" % (self.name,
@@ -253,9 +262,10 @@ class PhoneTest(object):
                 self.loggerdeco.info(error['stackwalk_output'])
                 self.loggerdeco.info(error['stackwalk_errors'])
 
-                self.test_result.add_failure(self.name,
-                                             error['reason'],
-                                             'application crashed [%s]' % error['signature'])
+                self.test_failure(self.name,
+                                  error['reason'],
+                                  'application crashed [%s]' % error['signature'],
+                                  PhoneTestResult.TESTFAILED)
             else:
                 self.loggerdeco.warning('Unknown error reason: %s' % error['reason'])
 
@@ -304,18 +314,18 @@ class PhoneTest(object):
         try:
             self.handle_crashes()
         except Exception, e:
-            self.test_result.status = PhoneTestResult.EXCEPTION
-            self.test_result.add_failure(
+            self.test_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
-                'Exception %s during crash processing' % e)
+                'Exception %s during crash processing' % e,
+                PhoneTestResult.EXCEPTION)
         try:
             if (self.worker_subprocess.is_disabled() and
                 self.test_result.status != PhoneTestResult.USERCANCEL):
                 # The worker was disabled while running one test of a job.
                 # Record the cancellation on any remaining tests in that job.
-                self.test_result.status = PhoneTestResult.USERCANCEL
-                self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                                     'The worker was disabled.')
+                self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                                  'The worker was disabled.',
+                                  PhoneTestResult.USERCANCEL)
             self.worker_subprocess.treeherder.submit_complete(
                 self.phone.id,
                 self.build.url,
@@ -453,8 +463,10 @@ class PhoneTestResult(object):
     def add_pass(self, testpath):
         self.passes.append(testpath)
 
-    def add_failure(self, testpath, status, text):
+    def add_failure(self, testpath, test_status, text, testresult_status):
+        if testresult_status:
+            self.status = testresult_status
         self.failures.append({
             "test": testpath,
-            "status": status,
+            "status": test_status,
             "text": text})

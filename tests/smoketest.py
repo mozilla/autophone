@@ -70,17 +70,15 @@ class SmokeTest(PhoneTest):
         if self.fennec_crashed:
             pass # Handle the crash in teardown_job
         elif not fennec_launched:
-            self.test_result.status = PhoneTestResult.BUSTED
-            self.message = 'Failed to launch Fennec'
-            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                         self.message)
+            self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                              'Failed to launch Fennec',
+                              PhoneTestResult.BUSTED)
         elif not found_throbber:
-            self.test_result.status = PhoneTestResult.TESTFAILED
-            self.messaage = 'Failed to find Throbber'
-            self.test_result.add_failure(self.name, 'TEST_UNEXPECTED_FAIL',
-                                         self.message)
+            self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                              'Failed to find Throbber',
+                              PhoneTestResult.TESTFAILED)
         else:
-            self.test_result.add_pass(self.name)
+            self.test_pass(self.name)
 
         if fennec_launched:
             self.loggerdeco.debug('killing fennec')

@@ -523,9 +523,9 @@ class PhoneWorkerSubProcess(object):
                 self.check_battery()
                 t.setup_job()
                 if not install_status['success']:
-                    t.test_result.status = PhoneTestResult.EXCEPTION
-                    t.test_result.add_failure(t.name, 'TEST-UNEXPECTED-FAIL',
-                                              install_status['message'])
+                    t.test_failure(t.name, 'TEST-UNEXPECTED-FAIL',
+                                   install_status['message'],
+                                   PhoneTestResult.EXCEPTION)
                 else:
                     try:
                         if not self.is_disabled():
@@ -536,17 +536,18 @@ class PhoneWorkerSubProcess(object):
                                                   '%s.run_job' % t.name)
                         message = ('Uncaught device error during %s.run_job\n\n%s' % (
                                    t.name, traceback.format_exc()))
-                        t.test_result.status = PhoneTestResult.EXCEPTION
-                        t.test_result.add_failure(t.name, 'TEST-UNEXPECTED-FAIL',
-                                                  message)
+                        t.test_failure(
+                            t.name,
+                            'TEST-UNEXPECTED-FAIL',
+                            message,
+                            PhoneTestResult.EXCEPTION)
             except (ADBError, ADBTimeoutError):
                 self.loggerdeco.exception('device error during '
                                           '%s.setup_job.' % t.name)
                 message = ('Uncaught device error during %s.setup_job.\n\n%s' % (
                            t.name, traceback.format_exc()))
-                t.test_result.status = PhoneTestResult.EXCEPTION
-                t.test_result.add_failure(t.name, 'TEST-UNEXPECTED-FAIL',
-                                          message)
+                t.test_failure(t.name, 'TEST-UNEXPECTED-FAIL',
+                               message, PhoneTestResult.EXCEPTION)
 
             if not is_test_completed and job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
                 # This test did not run successfully and we have not
@@ -560,9 +561,8 @@ class PhoneWorkerSubProcess(object):
                                           '%s.teardown_job' % t.name)
                 message = ('Uncaught device error during %s.teardown_job\n\n%s' % (
                            t.name, traceback.format_exc()))
-                t.test_result.status = PhoneTestResult.EXCEPTION
-                t.test_result.add_failure(t.name, 'TEST-UNEXPECTED-FAIL',
-                                          message)
+                t.test_failure(t.name, 'TEST-UNEXPECTED-FAIL',
+                               message, PhoneTestResult.EXCEPTION)
             is_job_completed = is_job_completed and is_test_completed
             # Remove this test from the jobs database whether or not it
             # ran successfully.
@@ -751,9 +751,11 @@ class PhoneWorkerSubProcess(object):
                             self.loggerdeco.info('Job skipped because device is disabled: %s' % job)
                             for t in job['tests']:
                                 if t.test_result.status != PhoneTestResult.USERCANCEL:
-                                    t.test_result.status = PhoneTestResult.USERCANCEL
-                                    t.test_result.add_failure(t.name, 'TEST_UNEXPECTED_FAIL',
-                                                              'Worker disabled by administrator')
+                                    t.test_failure(
+                                        t.name,
+                                        'TEST_UNEXPECTED_FAIL',
+                                        'Worker disabled by administrator',
+                                        PhoneTestResult.USERCANCEL)
                                 self.treeherder.submit_complete(
                                     t.phone.id,
                                     job['build_url'],
