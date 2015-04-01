@@ -608,7 +608,8 @@ class BuildCache(object):
         try:
             download_build = (force or not os.path.exists(build_path) or
                               zipfile.ZipFile(build_path).testzip() is not None)
-        except zipfile.BadZipfile:
+        except (zipfile.BadZipfile, IOError), e:
+            logger.warning('%s checking build: %s. Forcing download.' % (e, buildurl))
             download_build = True
         if download_build:
             # retrieve to temporary file then move over, so we don't end
