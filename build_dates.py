@@ -115,7 +115,8 @@ def set_time_zone(dateval):
     returns: date value in Mozilla Time Zone.
     """
     if not dateval.tzinfo:
-        dateval = dateval.replace(tzinfo=pytz.timezone('US/Pacific'))
+        pacific = pytz.timezone('US/Pacific')
+        dateval = pacific.localize(dateval)
     return dateval
 
 def convert_buildid_to_date(buildid):

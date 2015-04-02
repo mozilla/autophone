@@ -99,10 +99,6 @@ def main(args, options):
                 end_time = from_iso_date_or_datetime(args[1])
             else:
                 end_time = datetime.datetime.now()
-        if not start_time.tzinfo:
-            start_time = start_time.replace(tzinfo=pytz.timezone('US/Pacific'))
-        if not end_time.tzinfo:
-            end_time = end_time.replace(tzinfo=pytz.timezone('US/Pacific'))
         build_urls = cache.find_builds_by_time(
             start_time, end_time, options.build_location)
 

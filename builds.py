@@ -73,25 +73,12 @@ def get_revision_timestamps(repo, first_revision, last_revision):
     last_revision - string.
 
     returns: first_timestamp, last_timestamp.
-
-    Note this will return the revisions after the fromchange up to and
-    including the tochange.
     """
-    revisions = []
-    url = '%sjson-pushes?fromchange=%s&tochange=%s' % (
-        repo_urls[repo], first_revision, last_revision)
-    pushlog = utils.get_remote_json(url, logger=logger)
-    if not pushlog:
-        return None, None
-    for pushid in sorted(pushlog.keys()):
-        push = pushlog[pushid]
-        revisions.append((push['changesets'][-1], push['date']))
+    prefix = '%sjson-pushes?changeset=' % repo_urls[repo]
+    first = utils.get_remote_json('%s%s' % (prefix, first_revision))
+    last = utils.get_remote_json('%s%s' % (prefix, last_revision))
 
-    if not revisions:
-        return None, None
-    revisions.sort(key=lambda r: r[1])
-
-    return revisions[0][1], revisions[-1][1]
+    return first[first.keys()[0]]['date'], last[last.keys()[0]]['date']
 
 
 class BuildLocation(object):
@@ -373,7 +360,7 @@ class BuildLocation(object):
                                              directory_name, build_url))
                                 build_data = utils.get_build_data(build_url, logger=logger)
                                 if build_data:
-                                    if repo != urls_repos[build_data['repo']]:
+                                    if repo != build_data['repo']:
                                         logger.info('find_builds_by_revisions: '
                                                     'skipping build: %s != %s'
                                                     % (repo,
