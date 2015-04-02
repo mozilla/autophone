@@ -192,6 +192,9 @@ class BuildLocation(object):
                      directory)
 
         builds = []
+        # Ensure directory ends with a trailing /.
+        # See https://docs.python.org/2.7/library/os.path.html#os.path.join
+        directory = os.path.join(directory, '')
 
         logger.debug('Checking directory %s...' % directory)
         if urlparse.urlparse(directory).scheme.startswith('http'):
