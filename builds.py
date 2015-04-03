@@ -184,7 +184,8 @@ class BuildLocation(object):
         directory = os.path.join(directory, '')
 
         logger.debug('Checking directory %s...' % directory)
-        if urlparse.urlparse(directory).scheme.startswith('http'):
+        directory_tuple = urlparse.urlparse(directory)
+        if directory_tuple.scheme.startswith('http'):
             build_links = url_links(directory)
             for build_link in build_links:
                 filename = build_link.get_text()
@@ -194,16 +195,20 @@ class BuildLocation(object):
                     builds.append('%s%s' % (directory, filename))
                     break
         else:
-            filepaths = glob.glob(directory + '/*')
+            # Make sure the directory does not have a file scheme.
+            directory = directory_tuple.path
+            filepaths = glob.glob(directory + '*')
             for filepath in filepaths:
                 filename = os.path.basename(filepath)
                 logger.debug('find_builds_by_directory: checking %s' % filepath)
                 if self.build_regex.match(filename):
                     logger.debug('find_builds_by_directory: found %s' % filepath)
-                    builds.append(filepath)
+                    # Make sure the returned build urls have a file scheme.
+                    builds.append(urlparse.urljoin('file:', filepath))
                     break
         if not builds:
             logger.error('No builds found.')
+        logger.debug('find_builds_by_directory: builds %s' % builds)
         return builds
 
     def find_builds_by_time(self, start_time, end_time):

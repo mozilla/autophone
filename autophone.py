@@ -18,6 +18,7 @@ import signal
 import socket
 import sys
 import threading
+import urlparse
 from multiprocessinghandlers import (MultiprocessingStreamHandler,
                                      MultiprocessingTimedRotatingFileHandler)
 
@@ -228,6 +229,7 @@ class AutoPhone(object):
         build_url = job_data['build']
         devices = job_data['devices']
         tests = job_data['tests']
+        build_url_scheme = urlparse.urlparse(build_url).scheme
         self.logger.debug('NEW JOB: %s' % job_data)
 
         build_data = utils.get_build_data(build_url,
@@ -294,9 +296,11 @@ class AutoPhone(object):
                         pass
                     else:
                         for repo in test_devices_repos[phoneid]:
-                            if repo in build_url:
-                                self.logger.debug('new_job: checking repo %s against build %s for test %s' % (
-                                    repo, build_url, t.name))
+                            if repo == build_data['repo']:
+                                self.logger.debug(
+                                    'new_job: checking repo %s against build '
+                                    '%s for test %s' % (
+                                        repo, build_url, t.name))
                                 test = t
                                 break
                     if test and (not tests or test.name in tests):

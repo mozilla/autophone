@@ -12,6 +12,7 @@ import random
 import re
 import time
 import urllib2
+import urlparse
 import uuid
 
 
@@ -27,24 +28,31 @@ def get_remote_text(url, logger=None):
     conn = None
     if not logger:
         logger = logging.getLogger()
+
     try:
+        scheme = urlparse.urlparse(url).scheme
+        if not scheme:
+            raise Exception('required scheme missing in url %s' % url)
+
+        if scheme.startswith('file'):
+            conn = urllib2.urlopen(url)
+            return conn.read()
+
         while True:
             conn = urllib2.urlopen(url)
             code = conn.getcode()
-            # code is None for file urls
-            if code:
-                if code == 200:
-                    content = conn.read()
-                    return content
-                if code != 503:
-                    logger.warning("Unable to open url %s : %s" % (
-                        url, httplib.responses[code]))
-                    return None
-                # Server is too busy. Wait and try again.
-                # See https://bugzilla.mozilla.org/show_bug.cgi?id=1146983#c10
-                logger.warning("HTTP 503 Server Too Busy: url %s" % url)
-                conn.close()
-                time.sleep(60 + random.randrange(0,30,1))
+            if code == 200:
+                content = conn.read()
+                return content
+            if code != 503:
+                logger.warning("Unable to open url %s : %s" % (
+                    url, httplib.responses[code]))
+                return None
+            # Server is too busy. Wait and try again.
+            # See https://bugzilla.mozilla.org/show_bug.cgi?id=1146983#c10
+            logger.warning("HTTP 503 Server Too Busy: url %s" % url)
+            conn.close()
+            time.sleep(60 + random.randrange(0,30,1))
     except urllib2.HTTPError, e:
         logger.warning('%s Unable to open %s' % (e, url))
         return None
