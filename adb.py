@@ -387,7 +387,7 @@ class ADBHost(ADBCommand):
         :raises: * ADBTimeoutError
                  * ADBError
 
-        Attempting to user start_server with any adb_host value other than None
+        Attempting to use start_server with any adb_host value other than None
         will fail with an ADBError exception.
 
         You will need to start the server on the remote host via the command:
