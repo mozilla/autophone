@@ -348,8 +348,9 @@ class WebappStartupTest(PerfTest):
         chrome_prefix = '..GeckoBrowser.*: zerdatime .* - browser chrome startup finished.'
         webapp_prefix = '..GeckoConsole.*WEBAPP STARTUP COMPLETE'
         re_base_time = re.compile('%s' % logcat_prefix)
-        re_start_time = re.compile('%s .*(Gecko|fennec)' %
-                                   logcat_prefix)
+        re_start_time = re.compile(
+            '%s .*(Gecko|Start proc %s for activity %s)' % (
+                logcat_prefix, self.webappstartup_name, self.webappstartup_name))
         re_chrome_time = re.compile('%s %s' %
                                     (logcat_prefix, chrome_prefix))
         re_startup_time = re.compile('%s %s' %

@@ -399,8 +399,9 @@ class S1S2Test(PerfTest):
         logcat_prefix = '(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})'
         throbber_prefix = '..GeckoToolbarDisplayLayout.*zerdatime (\d+) - Throbber'
         re_base_time = re.compile('%s' % logcat_prefix)
-        re_start_time = re.compile('%s .*(Gecko|fennec)' %
-                                   logcat_prefix)
+        re_start_time = re.compile(
+            '%s .*(Gecko|Start proc %s for activity %s/.App)' % (
+                logcat_prefix, self.build.app_name, self.build.app_name))
         re_throbber_start_time = re.compile('%s %s start' %
                                             (logcat_prefix, throbber_prefix))
         re_throbber_stop_time = re.compile('%s %s stop' %
