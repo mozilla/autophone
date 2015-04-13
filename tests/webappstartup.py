@@ -2,11 +2,15 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import ConfigParser
 import datetime
 import os
 import re
 import sys
+import tempfile
 from time import sleep
+
+from mozprofile import FirefoxProfile
 
 from adb import ADBError
 from perftest import PerfTest
@@ -47,14 +51,145 @@ class WebappStartupTest(PerfTest):
             raise Exception('Unable to install %s' % self._paths['webappstartup_apk'])
 
     def teardown_job(self):
+        # We must tear down the PerfTest before uninstalling
+        # webappstartup, because we need the profile and minidumps
+        # directory for crash processing.
+        PerfTest.teardown_job(self)
         if self.webappstartup_name:
             try:
                 # Make certain to catch any exceptions in order
                 # to ensure that the test teardown completes.
                 self.dm.uninstall_app(self.webappstartup_name)
             except:
-                self.loggerdeco.exception('Exception uninstalling %s' % self.webappstartup_name)
-        PerfTest.teardown_job(self)
+                self.loggerdeco.exception('Exception uninstalling %s' %
+                                          self.webappstartup_name)
+
+    def create_profile(self, custom_prefs=None, root=True):
+        # Create, install and initialize the profile to be
+        # used in the test.
+
+        self.loggerdeco.debug('create_profile: custom_prefs: %s' % custom_prefs)
+
+        # Start without Fennec or the webapp running.
+        self.kill_webappstartup()
+
+        # Pull the profiles.ini file when it first exists so we can
+        # determine the profile path.
+        app_dir = '/data/data/%s' % self.build.app_name
+        self.dm.chmod(app_dir, recursive=True, root=root)
+        remote_profiles_ini_path = '%s/files/mozilla/profiles.ini' % app_dir
+
+        # Run webappstartup once to create the initial profile.
+        # Pull the ini file and parse it to get the profile path.
+        self.run_webappstartup()
+        max_attempts = 60
+        for attempt in range(1, max_attempts):
+            self.loggerdeco.debug('create_profile: '
+                                  'Attempt %d checking for %s' %
+                                  (attempt, remote_profiles_ini_path))
+            if self.dm.is_file(remote_profiles_ini_path, root=root):
+                break
+            sleep(1)
+
+        local_profiles_ini_file = tempfile.NamedTemporaryFile(
+            suffix='.ini',
+            prefix='profile',
+            delete=False)
+        local_profiles_ini_file.close()
+
+        self.profile_path = None
+        attempt = 0
+        while attempt < max_attempts and not self.profile_path:
+            attempt += 1
+            sleep(1)
+            self.loggerdeco.debug('create_profile: '
+                                  'Attempt %d parsing %s' %
+                                  (attempt, remote_profiles_ini_path))
+            self.dm.pull(remote_profiles_ini_path, local_profiles_ini_file.name)
+
+            cfg = ConfigParser.RawConfigParser()
+            if not cfg.read(local_profiles_ini_file.name):
+                continue
+            for section in cfg.sections():
+                if not section.startswith('Profile'):
+                    continue
+                if cfg.get(section, 'Name') != 'webapp0':
+                    continue
+                try:
+                    remote_profile_path = cfg.get(section, 'Path')
+                    if cfg.get(section, 'IsRelative') == '1':
+                        self.profile_path = '%s/files/mozilla/%s' % (
+                            app_dir, remote_profile_path)
+                    else:
+                        self.profile_path = remote_profile_path
+                    break
+                except ConfigParser.NoOptionError:
+                    pass
+
+        os.unlink(local_profiles_ini_file.name)
+
+        self.loggerdeco.info('create_profile: profile_path: %s' %
+                             self.profile_path)
+        if not self.profile_path:
+            self.kill_webappstartup()
+            return False
+
+        # Sleep for 10 seconds to allow initialization to complete.
+        # Other approaches such as checking for changing directory
+        # contents do not work. 5 seconds is too short.
+        sleep(10)
+        self.kill_webappstartup()
+
+        # Need to update the crash processor's profile path since it
+        # changes each time.
+        self.crash_processor.remote_profile_dir = self.profile_path
+
+        telemetry_prompt = 999
+        if self.build.id < '20130103':
+            telemetry_prompt = 2
+        prefs = {
+            'app.update.auto': False,
+            'app.update.enabled': False,
+            'app.update.url': '',
+            'app.update.url.android':  '',
+            'app.update.url.override': '',
+            'beacon.enabled': False,
+            'browser.EULA.override': True,
+            'browser.safebrowsing.enabled': False,
+            'browser.safebrowsing.malware.enabled': False,
+            'browser.search.countryCode': 'US',
+            'browser.search.isUS': True,
+            'browser.selfsupport.url': '',
+            'browser.sessionstore.resume_from_crash': False,
+            'browser.snippets.enabled': False,
+            'browser.snippets.firstrunHomepage.enabled': False,
+            'browser.snippets.syncPromo.enabled': False,
+            'browser.warnOnQuit': False,
+            'browser.webapps.checkForUpdates': 0,
+            'datareporting.healthreport.service.enabled': False,
+            'datareporting.policy.dataSubmissionPolicyBypassAcceptance': True,
+            'dom.ipc.plugins.flash.subprocess.crashreporter.enabled': False,
+            'extensions.blocklist.enabled': False,
+            'extensions.getAddons.cache.enabled': False,
+            'extensions.update.enabled': False,
+            'general.useragent.updates.enabled': False,
+            'media.autoplay.enabled': True,
+            'shell.checkDefaultClient': False,
+            'toolkit.telemetry.enabled': False,
+            'toolkit.telemetry.notifiedOptOut': telemetry_prompt,
+            'toolkit.telemetry.prompted': telemetry_prompt,
+            'urlclassifier.updateinterval': 172800,
+            'webapprt.app_update_interval': 86400,
+            'xpinstall.signatures.required': False,
+            }
+        if isinstance(custom_prefs, dict):
+            prefs = dict(prefs.items() + custom_prefs.items())
+        profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
+                                 os.getcwd())
+        if not self.install_profile(profile):
+            return False
+
+        return True
 
     def run_job(self):
 
@@ -106,6 +241,13 @@ class WebappStartupTest(PerfTest):
                         'TEST_UNEXPECTED_FAIL',
                         'Failed to get uncached measurement.',
                         PhoneTestResult.TESTFAILED)
+                    continue
+
+                if not self.create_profile():
+                    self.test_failure(self.name,
+                                      'TEST_UNEXPECTED_FAIL',
+                                      'Failed to create profile',
+                                      PhoneTestResult.TESTFAILED)
                     continue
 
                 measurement = self.runtest()
@@ -261,6 +403,11 @@ class WebappStartupTest(PerfTest):
         starttime, chrome_time, startup_time = self.analyze_logcat()
         self.wait_for_fennec(max_wait_time=0)
 
+        # Need to check for and clear crashes here since
+        # the profile directory will change for webappstartup tests
+        # for each iteration.
+        self.handle_crashes()
+        self.crash_processor.delete_crash_dumps()
         # Ensure we succeeded - no 0's reported
         datapoint = {}
         if chrome_time and startup_time:

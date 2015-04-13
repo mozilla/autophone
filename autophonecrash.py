@@ -48,15 +48,12 @@ class AutophoneCrashProcessor(object):
         self.logger = logger
         self.remote_profile_dir = remote_profile_dir
         self.upload_dir = upload_dir
-        self._remote_dump_dir = None
         self._dump_files = None
 
     @property
     def remote_dump_dir(self):
         """Minidump directory in Firefox profile."""
-        if not self._remote_dump_dir:
-            self._remote_dump_dir = os.path.join(self.remote_profile_dir, 'minidumps')
-        return self._remote_dump_dir
+        return os.path.join(self.remote_profile_dir, 'minidumps')
 
     def delete_anr_traces(self, root=True):
         """Empty ANR traces.txt file."""
