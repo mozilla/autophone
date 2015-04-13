@@ -18,7 +18,6 @@ import signal
 import socket
 import sys
 import threading
-import urlparse
 from multiprocessinghandlers import (MultiprocessingStreamHandler,
                                      MultiprocessingTimedRotatingFileHandler)
 
@@ -37,7 +36,7 @@ from mailer import Mailer
 from options import AutophoneOptions
 from phonestatus import PhoneStatus
 from phonetest import PhoneTest
-from worker import PhoneWorker, lookup_test
+from worker import PhoneWorker
 
 class PhoneData(object):
     def __init__(self, phoneid, serial, machinetype, osver, abi, sdk, ipaddr):
@@ -226,11 +225,9 @@ class AutoPhone(object):
 
     # Start the phones for testing
     def new_job(self, job_data):
+        self.logger.debug('new_job: %s' % job_data)
         build_url = job_data['build']
-        devices = job_data['devices']
         tests = job_data['tests']
-        build_url_scheme = urlparse.urlparse(build_url).scheme
-        self.logger.debug('NEW JOB: %s' % job_data)
 
         build_data = utils.get_build_data(build_url,
                                           logger=self.logger)
@@ -251,86 +248,40 @@ class AutoPhone(object):
 
         self.worker_lock.acquire()
         try:
-            for p in self.phone_workers.values():
-                phoneid = p.phone.id
+            phoneids = set([test.phone.id for test in tests])
+            for phoneid in phoneids:
+                p = self.phone_workers[phoneid]
                 self.logger.debug('new_job: worker phoneid %s' % phoneid)
-                if devices and phoneid not in devices:
-                    continue
-                abi = p.phone.abi
-                sdk = p.phone.sdk
-                incompatible_job = False
-                if abi == 'x86':
-                    if 'x86' not in build_url:
-                        incompatible_job = True
-                else:
-                    if 'x86' in build_url:
-                        incompatible_job = True
-                if ('api-9' not in build_url and 'api-10' not in build_url and
-                    'api-11' not in build_url):
-                    pass
-                elif sdk not in build_url:
-                    incompatible_job  = True
-
-                if incompatible_job:
-                    self.logger.debug('new_job: Ignoring incompatible job %s '
-                                      'for phone %s abi %s' %
-                                      (build_url, phoneid, abi))
-                    continue
                 # Determine if we will test this build, which tests to run and if we
                 # need to enable unittests.
-                runnable_tests = []
-                enable_unittests = False
-                for t in p.tests:
-                    self.logger.debug('new_job: checking test %s' % t.name)
-                    test = None
-                    test_devices_repos = t.test_devices_repos
-                    if not test_devices_repos:
-                        # We know we will test this build, but not yet
-                        # if any of the other tests enable_unittests.
-                        self.logger.debug('new_job: test %s defined for all repos' % t.name)
-                        test = t
-                    elif not phoneid in test_devices_repos:
-                        # This device will not run this test.
-                        self.logger.debug('new_job: phoneid %s not defined for test %s repos %s' % (
-                            phoneid, t.name, test_devices_repos))
-                        pass
-                    else:
-                        for repo in test_devices_repos[phoneid]:
-                            if repo == build_data['repo']:
-                                self.logger.debug(
-                                    'new_job: checking repo %s against build '
-                                    '%s for test %s' % (
-                                        repo, build_url, t.name))
-                                test = t
-                                break
-                    if test and (not tests or test.name in tests):
-                        # This test is defined for this build/repo and either
-                        # the user selected this test or did not select specific
-                        # individual tests.
-                        enable_unittests = (enable_unittests or test.enable_unittests)
-                        self.logger.debug('new_job: adding test %s for phone %s build %s' % (test.name, phoneid, build_url))
-                        runnable_tests.append(test)
+                runnable_tests = PhoneTest.match(tests=tests, phoneid=phoneid)
                 if not runnable_tests:
                     self.logger.debug('new_job: Ignoring build %s for phone %s' % (build_url, phoneid))
                     continue
-                self.jobs.new_job(build_url,
-                                  build_id=build_data['id'],
-                                  changeset=build_data['changeset'],
-                                  tree=build_data['repo'],
-                                  revision=build_data['revision'],
-                                  revision_hash=revision_hash,
-                                  tests=runnable_tests,
-                                  enable_unittests=enable_unittests,
-                                  device=phoneid)
-                self.treeherder.submit_pending(p.phone.id,
-                                               build_url,
-                                               build_data['repo'],
-                                               revision_hash,
-                                               tests=runnable_tests)
-                self.logger.info('new_job: Notifying device %s of new job %s '
-                                 'for tests %s, enable_unittests=%s.' %
-                                 (phoneid, build_url, runnable_tests, enable_unittests))
-                p.new_job()
+                enable_unittests = False
+                for t in runnable_tests:
+                    enable_unittests = enable_unittests or t.enable_unittests
+
+                new_tests = self.jobs.new_job(build_url,
+                                              build_id=build_data['id'],
+                                              changeset=build_data['changeset'],
+                                              tree=build_data['repo'],
+                                              revision=build_data['revision'],
+                                              revision_hash=revision_hash,
+                                              tests=runnable_tests,
+                                              enable_unittests=enable_unittests,
+                                              device=phoneid)
+                if new_tests:
+                    self.treeherder.submit_pending(phoneid,
+                                                   build_url,
+                                                   build_data['repo'],
+                                                   revision_hash,
+                                                   tests=new_tests)
+                    self.logger.info('new_job: Notifying device %s of new job '
+                                     '%s for tests %s, enable_unittests=%s.' %
+                                     (phoneid, build_url, runnable_tests,
+                                      enable_unittests))
+                    p.new_job()
         finally:
             self.worker_lock.release()
 
@@ -418,20 +369,19 @@ class AutoPhone(object):
                 # specific devices.
                 skip_test = False
             elif phone.id in test_devices_repos:
-                # This test is to be run by this device on test_repos
+                # This test is to be run by this device on
+                # the repos test_devices_repos[phone.id]
                 skip_test = False
             if not skip_test:
                 test = test_class(phone=phone,
                                   options=self.options,
-                                  config_file=config_file,
-                                  test_devices_repos=test_devices_repos)
+                                  config_file=config_file)
                 tests.append(test)
                 for chunk in range(2, test.chunks+1):
                     self.logger.debug('Creating chunk %d/%d' % (chunk, test.chunks))
                     tests.append(test_class(phone=phone,
                                             options=self.options,
                                             config_file=config_file,
-                                            test_devices_repos=test_devices_repos,
                                             chunk=chunk))
         if not tests:
             self.logger.warning('Not creating worker: No tests defined for '
@@ -520,6 +470,8 @@ class AutoPhone(object):
         manifest.read(self.options.test_path)
         tests_info = manifest.get()
         for t in tests_info:
+            # Remove test section suffix.
+            t['name'] = t['name'].split()[0]
             if not t['here'] in sys.path:
                 sys.path.append(t['here'])
             if t['name'].endswith('.py'):
@@ -564,19 +516,42 @@ class AutoPhone(object):
                         test_devices_repos[device] = t[device].split()
                     configs = config.split()
                     for config_file in configs:
-                        config_file = os.path.join(t['here'], config_file)
-                        tests.append((member_value, config_file,
-                                      test_devices_repos))
+                        config_file = os.path.normpath(
+                            os.path.join(t['here'], config_file))
+                        tests.append((member_value,
+                                      config_file, test_devices_repos))
 
             self._tests.extend(tests)
 
 
     def trigger_jobs(self, data):
         self.logger.info('Received user-specified job: %s' % data)
-        job_data = json.loads(data)
-        if 'build' not in job_data:
+        trigger_data = json.loads(data)
+        if 'build' not in trigger_data:
             return 'invalid args'
-        self.new_job(job_data)
+        build_url = trigger_data['build']
+        tests = []
+        test_names = trigger_data['test_names']
+        if not test_names:
+            # No test names specified, force PhoneTest.match
+            # to return tests with any name.
+            test_names = [None]
+        devices = trigger_data['devices']
+        if not devices:
+            # No devices specified, force PhoneTest.match
+            # to return tests for any device.
+            devices = [None]
+        for test_name in test_names:
+            for device in devices:
+                tests.extend(PhoneTest.match(test_name=test_name,
+                                             phoneid=device,
+                                             build_url=build_url))
+        if tests:
+            job_data = {
+                'build': build_url,
+                'tests': tests,
+            }
+            self.new_job(job_data)
         return 'ok'
 
     def reset_phones(self):
@@ -587,20 +562,26 @@ class AutoPhone(object):
     def on_build(self, msg):
         if self._stop:
             return
-        # Use the msg to get the build and install it then kick off our tests
         self.logger.debug('PULSE BUILD FOUND %s' % msg)
-        tests = []
-        if msg['branch'] == 'try':
+        build_url = msg['packageUrl']
+        if msg['branch'] != 'try':
+            tests = PhoneTest.match(build_url=build_url)
+        else:
             # Autophone try builds will have a comment of the form:
             # try: -b o -p android-api-9,android-api-11 -u autophone-smoke,autophone-s1s2 -t none
+            tests = []
             reTests = re.compile('try:.* -u (.*) -t.*')
             match = reTests.match(msg['comments'])
             if match:
-                tests = [t for t in match.group(1).split(',')
-                         if t.startswith('autophone-')]
-                if 'autophone-tests' in tests:
-                    tests = []
-        job_data = {'build': msg['packageUrl'], 'tests': tests, 'devices': []}
+                test_names = [t for t in match.group(1).split(',')
+                              if t.startswith('autophone-')]
+                if 'autophone-tests' in test_names:
+                    # Match all test names
+                    test_names = [None]
+                for test_name in test_names:
+                    tests.extend(PhoneTest.match(test_name=test_name,
+                                                 build_url=build_url))
+        job_data = {'build': build_url, 'tests': tests}
         self.new_job(job_data)
 
     def on_jobaction(self, job_action):
@@ -615,23 +596,27 @@ class AutoPhone(object):
         try:
             p = self.phone_workers[job_action['machine_name']]
             if job_action['action'] == 'cancel':
-                request = (job_action['job_guid'],
-                           job_action['job_group_name'],
-                           job_action['job_type_name'])
+                request = (job_action['job_guid'],)
                 self.worker_lock.release()
                 worker_locked = False
-                p.cancel_job(request)
+                p.cancel_test(request)
             elif job_action['action'] == 'retrigger':
-                job_data = {
-                    'build': job_action['build_url'],
-                    'tests': [lookup_test(p.tests,
-                                          job_action['job_group_name'],
-                                          job_action['job_type_name']).name],
-                    'devices': [job_action['machine_name']]
-                }
+                test = PhoneTest.lookup(
+                    job_action['machine_name'],
+                    job_action['config_file'],
+                    job_action['chunk'])
                 self.worker_lock.release()
                 worker_locked = False
-                self.new_job(job_data)
+                if not test:
+                    self.logger.warning(
+                        'No test found for job action %s' %
+                        json.dumps(job_action, sort_keys=True, indent=4))
+                else:
+                    job_data = {
+                        'build': job_action['build_url'],
+                        'tests': [test],
+                    }
+                    self.new_job(job_data)
             else:
                 self.logger.warning('on_jobaction: unknown action %s' %
                                     job_action['action'])

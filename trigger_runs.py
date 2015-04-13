@@ -10,8 +10,6 @@ import socket
 import sys
 from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
 
-import pytz
-
 import builds
 
 def from_iso_date_or_datetime(s):
@@ -24,9 +22,9 @@ def from_iso_date_or_datetime(s):
     return d
 
 
-def command_str(build, tests, devices):
+def command_str(build, test_names, devices):
     job_data = {'build': build,
-                'tests': tests or [],
+                'test_names': test_names or [],
                 'devices': devices or []}
     s = 'triggerjobs %s' % json.dumps(job_data)
     return s
@@ -104,7 +102,7 @@ def main(args, options):
 
     if not build_urls:
         return 1
-    commands = [command_str(b, options.tests, options.devices)
+    commands = [command_str(b, options.test_names, options.devices)
                 for b in build_urls]
     commands.append('exit')
     logger.info('- %s' % s.recv(1024).strip())
@@ -193,7 +191,7 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       ' --repo must be specified if the build was not built from'
                       ' the mozilla-central repository.')
     parser.add_option('--test',
-                      dest='tests',
+                      dest='test_names',
                       action='append',
                       help='Test to be executed by the job.  Defaults to all '
                       'if not specified. Can be specified multiple times. '

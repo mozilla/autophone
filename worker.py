@@ -25,15 +25,8 @@ from autophonetreeherder import AutophoneTreeherder
 from builds import BuildMetadata
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
-from phonetest import PhoneTestResult
+from phonetest import PhoneTest, PhoneTestResult
 from s3 import S3Bucket
-
-def lookup_test(tests, job_group_name, job_type_name):
-    for test in tests:
-        if (test.group_name == job_group_name and
-            test.job_name == job_type_name):
-            return test
-    return None
 
 class Crashes(object):
 
@@ -147,9 +140,9 @@ class PhoneWorker(object):
         self.loggerdeco.debug('PhoneWorker:enable')
         self.cmd_queue.put_nowait(('enable', None))
 
-    def cancel_job(self, request):
-        self.loggerdeco.debug('PhoneWorker:cancel_job')
-        self.cmd_queue.put_nowait(('cancel_job', request))
+    def cancel_test(self, request):
+        self.loggerdeco.debug('PhoneWorker:cancel_test')
+        self.cmd_queue.put_nowait(('cancel_test', request))
 
     def debug(self, level):
         self.loggerdeco.debug('PhoneWorker:debug')
@@ -432,19 +425,22 @@ class PhoneWorkerSubProcess(object):
                                    build=self.build)
                 time.sleep(900)
 
-    def cancel_job(self, test_guid, job_group_name, job_type_name):
+    def cancel_test(self, test_guid):
         """Cancel a job.
 
-        Delete the test from the entry in the jobs database and then
-        we are done. There is no need to notify treeherder as it will
-        handle marking the job as cancelled.
+        If the test is currently queued up in run_tests(), mark it as
+        canceled, then delete the test from the entry in the jobs
+        database and we are done. There is no need to notify
+        treeherder as it will handle marking the job as cancelled.
 
         """
-        test = lookup_test(self.tests, job_group_name, job_type_name)
-        self.loggerdeco.debug('cancel_job: %s %s %s %s' % (
-            test_guid, job_group_name, job_type_name, test.name))
-
-        self.jobs.cancel_job(test.name, test_guid, device=self.phone.id)
+        self.loggerdeco.debug('cancel_test: test.job_guid %s' % test_guid)
+        tests = PhoneTest.match(job_guid=test_guid)
+        if tests:
+            assert len(tests) == 1, "test.job_guid %s is not unique" % test_guid
+            for test in tests:
+                test.test_result.status = PhoneTestResult.USERCANCEL
+        self.jobs.cancel_test(test_guid, device=self.phone.id)
 
     def install_build(self, job):
         ### Why are we retrying here? is it helpful at all?
@@ -518,6 +514,8 @@ class PhoneWorkerSubProcess(object):
         install_status = self.install_build(job)
         self.loggerdeco.info('Running tests for job %s' % job)
         for t in job['tests']:
+            if t.test_result.status == PhoneTestResult.USERCANCEL:
+                continue
             is_test_completed = False
             try:
                 self.check_battery()
@@ -656,8 +654,8 @@ class PhoneWorkerSubProcess(object):
 
         :param current_test: currently running test. Defaults to
             None. A running test will pass this parameter which will
-            be used to determine if a cancel_job request pertains to
-            the currently running job and thus should be terminated.
+            be used to determine if a cancel_test request pertains to
+            the currently running test and thus should be terminated.
 
         :returns: {'interrupt': boolean, True if current activity should be aborted
                    'reason': message to be used to indicate reason for interruption}
@@ -690,10 +688,10 @@ class PhoneWorkerSubProcess(object):
                 self.update_status(phone_status=PhoneStatus.IDLE)
                 self.last_ping = None
             return {'interrupt': False, 'reason': ''}
-        if request[0] == 'cancel_job':
-            self.loggerdeco.info('Received cancel_job request %s' % list(request))
-            (test_guid, job_group_name, job_type_name) = request[1]
-            self.cancel_job(test_guid, job_group_name, job_type_name)
+        if request[0] == 'cancel_test':
+            self.loggerdeco.info('Received cancel_test request %s' % list(request))
+            (test_guid,) = request[1]
+            self.cancel_test(test_guid)
             if current_test and current_test.job_guid == test_guid:
                 return {'interrupt': True, 'reason': 'Running Job Canceled'}
             return {'interrupt': False, 'reason': ''}

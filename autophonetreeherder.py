@@ -176,7 +176,10 @@ class AutophoneTreeherder(object):
                 'buildername': t.get_buildername(project)})
             # Create a 'privatebuild' artifact for storing information
             # regarding the build.
-            tj.add_artifact('privatebuild', 'json', {'build_url': build_url})
+            tj.add_artifact('privatebuild', 'json', {
+                'build_url': build_url,
+                'config_file': t.config_file,
+                'chunk': t.chunk})
             tjc.add(tj)
 
         self.logger.debug('AutophoneTreeherder.submit_pending: tjc: %s' % (
@@ -229,7 +232,10 @@ class AutophoneTreeherder(object):
 
             tj.add_artifact('buildapi', 'json', {
                 'buildername': t.get_buildername(project)})
-            tj.add_artifact('privatebuild', 'json', {'build_url': build_url})
+            tj.add_artifact('privatebuild', 'json', {
+                'build_url': build_url,
+                'config_file': t.config_file,
+                'chunk': t.chunk})
             tjc.add(tj)
 
         self.logger.debug('AutophoneTreeherder.submit_running: tjc: %s' %
@@ -258,6 +264,16 @@ class AutophoneTreeherder(object):
         for t in tests:
             self.logger.debug('AutophoneTreeherder.submit_complete '
                                          'for %s %s' % (t.name, project))
+
+            t.job_details.append({
+                'value': os.path.basename(t.config_file),
+                'content_type': 'text',
+                'title': 'Config:'})
+            t.job_details.append({
+                'url': build_url,
+                'value': os.path.basename(build_url),
+                'content_type': 'link',
+                'title': 'Build:'})
 
             t.end_timestamp = timestamp_now()
             # A usercancelled job may not have a start_timestamp
@@ -425,7 +441,10 @@ class AutophoneTreeherder(object):
 
             tj.add_artifact('buildapi', 'json', {
                 'buildername': t.get_buildername(project)})
-            tj.add_artifact('privatebuild', 'json', {'build_url': build_url})
+            tj.add_artifact('privatebuild', 'json', {
+                'build_url': build_url,
+                'config_file': t.config_file,
+                'chunk': t.chunk})
             tjc.add(tj)
 
             message = 'TestResult: %s %s %s' % (t.test_result.status, t.name, build_url)

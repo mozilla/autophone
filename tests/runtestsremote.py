@@ -19,13 +19,9 @@ from phonetest import PhoneTest, PhoneTestResult
 
 
 class UnitTest(PhoneTest):
-    def __init__(self, phone, options, config_file=None,
-                 test_devices_repos={},
-                 chunk=1):
+    def __init__(self, phone, options, config_file=None, chunk=1):
         PhoneTest.__init__(self, phone, options,
-                           config_file=config_file,
-                           test_devices_repos=test_devices_repos,
-                           chunk=chunk)
+                           config_file=config_file, chunk=chunk)
         self.enable_unittests = True
         self.unittest_cfg = ConfigParser.RawConfigParser()
 

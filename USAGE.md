@@ -180,6 +180,25 @@ device will test.
     config = ../configs/exampletest_settings.ini
     devicename = mozilla-central mozilla-inbound
 
+If you wish to use different config options for different devices on
+the same test, you can include multiple sections for the test by
+specifing a suffix in the test's section name separated from the
+script name by a space. For example to specify different test
+configurations for Android 2.3 and Android 4.x you might specify
+
+    [exampletest.py android2.3]
+    config = ../configs/exampletest_android23_settings.ini
+    devicename1 = mozilla-central mozilla-inbound
+
+    [exampletest.py android4.0]
+    config = ../configs/exampletest_android40_settings.ini
+    devicename2 = mozilla-central mozilla-inbound
+
+Note that you must ensure that a test script is not invoked multiple
+times for a device using the same config file. If a test script for a
+device is created multiple times using the same config file, an
+AssertionError: Duplicate PhoneTest will stop Autophone.
+
 You can find other examples in
 [Configuring Smoketest](#configuring-smoketest),
 [Autophone production configuration](PRODUCTION.md) and

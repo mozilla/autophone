@@ -360,6 +360,8 @@ class AutophonePulseMonitor(object):
             'job_type_name': job['job_type_name'],
             'job_type_symbol': job['job_type_symbol'],
             'result': job['result'],
+            'config_file': build_artifact['blob']['config_file'],
+            'chunk': build_artifact['blob']['chunk'],
         }
         self.jobaction_callback(jobaction_data)
 

@@ -61,14 +61,70 @@ class Logcat(object):
 
 
 class PhoneTest(object):
-    def __init__(self, phone, options, config_file=None,
-                 test_devices_repos={},
-                 chunk=1):
+    # Use instances keyed on phoneid+':'config_file+':'+str(chunk)
+    # to lookup tests.
+
+    instances = {}
+
+    @classmethod
+    def lookup(cls, phoneid, config_file, chunk):
+        key = '%s:%s:%s' % (phoneid, config_file, chunk)
+        if key in PhoneTest.instances:
+            return PhoneTest.instances[key]
+        return None
+
+    @classmethod
+    def match(cls, tests=None, test_name=None, phoneid=None,
+              config_file=None, chunk=None, job_guid=None,
+              build_url=None):
+        matches = []
+        if not tests:
+            tests = [PhoneTest.instances[key] for key in PhoneTest.instances.keys()]
+
+        for test in tests:
+            if test_name and test_name != test.name:
+                continue
+
+            if phoneid and phoneid != test.phone.id:
+                continue
+
+            if config_file and config_file != test.config_file:
+                continue
+
+            if chunk and chunk != test.chunk:
+                continue
+
+            if job_guid and job_guid != test.job_guid:
+                continue
+
+            if build_url:
+                abi = test.phone.abi
+                sdk = test.phone.sdk
+                incompatible_job = False
+                if abi == 'x86':
+                    if 'x86' not in build_url:
+                        incompatible_job = True
+                else:
+                    if 'x86' in build_url:
+                        incompatible_job = True
+                if ('api-9' not in build_url and 'api-10' not in build_url and
+                    'api-11' not in build_url):
+                    pass
+                elif sdk not in build_url:
+                    incompatible_job  = True
+
+                if incompatible_job:
+                    continue
+
+            matches.append(test)
+        return matches
+
+    def __init__(self, phone, options, config_file=None, chunk=1):
+        self._add_instance(phone.id, config_file, chunk)
         self.config_file = config_file
         self.cfg = ConfigParser.RawConfigParser()
         self.cfg.read(self.config_file)
         self.enable_unittests = False
-        self.test_devices_repos = test_devices_repos
         self.chunk = chunk
         self.chunks = 1
         self.update_status_cb = None
@@ -117,6 +173,11 @@ class PhoneTest(object):
         # is used by non-unittests to process device errors and crashes.
         self.crash_processor = None
 
+    def _add_instance(self, phoneid, config_file, chunk):
+        key = '%s:%s:%s' % (phoneid, config_file, chunk)
+        assert key not in PhoneTest.instances, 'Duplicate PhoneTest %s' % key
+        PhoneTest.instances[key] = self
+
     def _check_device(self):
         for attempt in range(1, self.options.phone_retry_limit+1):
             output = self._dm.get_state()
@@ -131,7 +192,7 @@ class PhoneTest(object):
 
     @property
     def name_suffix(self):
-        return  '-%s' % self.chunk if self.chunk > 1 else ''
+        return  '-%s' % self.chunk if self.chunks > 1 else ''
 
     @property
     def name(self):
@@ -222,8 +283,8 @@ class PhoneTest(object):
         self.job_guid = utils.generate_guid()
 
     def get_buildername(self, tree):
-        return "%s %s opt test %s-%s" % (
-            self.phone.platform, tree, self.job_name, self.job_symbol)
+        return "%s %s opt %s" % (
+            self.phone.platform, tree, self.name)
 
     def handle_test_interrupt(self, reason):
         self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL', reason,
@@ -339,7 +400,8 @@ class PhoneTest(object):
                 shutil.rmtree(self.upload_dir)
             self.upload_dir = None
 
-        if self.logger.getEffectiveLevel() == logging.DEBUG and self._log:
+        if (self.logger.getEffectiveLevel() == logging.DEBUG and self._log and
+            os.path.exists(self._log)):
             self.loggerdeco.debug(40 * '=')
             try:
                 logfilehandle = open(self._log)

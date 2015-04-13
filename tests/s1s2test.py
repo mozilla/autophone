@@ -19,13 +19,9 @@ from perftest import PerfTest
 from phonetest import PhoneTestResult
 
 class S1S2Test(PerfTest):
-    def __init__(self, phone, options, config_file=None,
-                 test_devices_repos={},
-                 chunk=1):
+    def __init__(self, phone, options, config_file=None, chunk=1):
         PerfTest.__init__(self, phone, options,
-                          config_file=config_file,
-                          test_devices_repos=test_devices_repos,
-                          chunk=chunk)
+                          config_file=config_file, chunk=chunk)
 
         # [paths]
         autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
