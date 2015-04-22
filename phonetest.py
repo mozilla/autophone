@@ -368,7 +368,7 @@ class PhoneTest(object):
                                   phone_status=phone_status,
                                   message=message)
 
-    def install_profile(self, profile=None):
+    def install_profile(self, profile=None, root=True):
         if not profile:
             profile = FirefoxProfile()
 
@@ -377,13 +377,13 @@ class PhoneTest(object):
         for attempt in range(1, self.options.phone_retry_limit+1):
             try:
                 self.loggerdeco.debug('Attempt %d installing profile' % attempt)
-                if self.dm.is_dir(self.profile_path, root=True):
-                    self.dm.rm(self.profile_path, recursive=True, root=True)
-                self.dm.chmod(profile_path_parent, root=True)
-                self.dm.mkdir(self.profile_path, root=True)
-                self.dm.chmod(self.profile_path, root=True)
+                self.dm.rm(self.profile_path, recursive=True,
+                           force=True, root=root)
+                self.dm.chmod(profile_path_parent, root=root)
+                self.dm.mkdir(self.profile_path, root=root)
+                self.dm.chmod(self.profile_path, root=root)
                 self.dm.push(profile.profile, self.profile_path)
-                self.dm.chmod(self.profile_path, recursive=True, root=True)
+                self.dm.chmod(self.profile_path, recursive=True, root=root)
                 success = True
                 break
             except ADBError:
@@ -413,18 +413,23 @@ class PhoneTest(object):
             self.loggerdeco.exception('run_fennec_with_profile: Exception:')
             raise
 
-    def remove_sessionstore_files(self):
-        self.dm.rm(self.profile_path + '/sessionstore.js', force=True)
-        self.dm.rm(self.profile_path + '/sessionstore.bak', force=True)
+    def remove_sessionstore_files(self, root=True):
+        self.dm.rm(self.profile_path + '/sessionstore.js',
+                   force=True,
+                   root=root)
+        self.dm.rm(self.profile_path + '/sessionstore.bak',
+                   force=True,
+                   root=root)
 
     @property
-    def fennec_crashed(self):
+    def fennec_crashed(self, root=True):
         """
         Perform a quick check for crashes by checking
         self.profile_path/minidumps for dump files.
 
         """
-        if self.dm.exists(os.path.join(self.profile_path, 'minidumps', '*.dmp')):
+        if self.dm.exists(os.path.join(self.profile_path, 'minidumps', '*.dmp'),
+                          root=root):
             self.loggerdeco.info('fennec crashed')
             return True
         return False

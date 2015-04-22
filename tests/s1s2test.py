@@ -286,7 +286,7 @@ class S1S2Test(PerfTest):
         return datapoint
 
     def wait_for_fennec(self, max_wait_time=60, wait_time=5,
-                        kill_wait_time=20):
+                        kill_wait_time=20, root=True):
         # Wait for up to a max_wait_time seconds for fennec to close
         # itself in response to the quitter request. Check that fennec
         # is still running every wait_time seconds. If fennec doesn't
@@ -303,7 +303,7 @@ class S1S2Test(PerfTest):
         max_killattempts = 3
         for kill_attempt in range(1, max_killattempts+1):
             try:
-                self.dm.pkill(self.build.app_name, root=True)
+                self.dm.pkill(self.build.app_name, root=root)
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d to kill fennec failed' %
@@ -313,14 +313,14 @@ class S1S2Test(PerfTest):
                 sleep(kill_wait_time)
         return False
 
-    def create_profile(self, custom_prefs=None):
+    def create_profile(self, custom_prefs=None, root=True):
         # Create, install and initialize the profile to be
         # used in the test.
 
         # make sure firefox isn't running when we try to
         # install the profile.
 
-        self.dm.pkill(self.build.app_name, root=True)
+        self.dm.pkill(self.build.app_name, root=root)
 
         telemetry_prompt = 999
         if self.build.id < '20130103':

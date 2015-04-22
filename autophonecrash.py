@@ -58,12 +58,12 @@ class AutophoneCrashProcessor(object):
             self._remote_dump_dir = os.path.join(self.remote_profile_dir, 'minidumps')
         return self._remote_dump_dir
 
-    def delete_anr_traces(self):
+    def delete_anr_traces(self, root=True):
         """Empty ANR traces.txt file."""
         try:
-            self.adb.rm(traces, root=True)
-            self.adb.shell_output('echo > %s' % traces, root=True)
-            self.adb.chmod(traces, mask='666', root=True)
+            self.adb.rm(traces, root=root)
+            self.adb.shell_output('echo > %s' % traces, root=root)
+            self.adb.chmod(traces, mask='666', root=root)
         except ADBError, e:
             self.logger.warning("Could not initialize ANR traces %s, %s" % (traces, e))
 
@@ -92,14 +92,14 @@ class AutophoneCrashProcessor(object):
         else:
             self.logger.info("%s not found" % traces)
 
-    def delete_tombstones(self):
+    def delete_tombstones(self, root=True):
         """Deletes any existing tombstone files from device."""
-        self.adb.rm(tombstones, force=True, recursive=True, root=True)
+        self.adb.rm(tombstones, force=True, recursive=True, root=root)
 
-    def delete_crash_dumps(self):
+    def delete_crash_dumps(self, root=True):
         """Deletes any existing crash dumps in the Firefox profile."""
         self.adb.rm(os.path.join(self.remote_profile_dir, 'minidumps', '*'),
-                    force=True, recursive=True, root=True)
+                    force=True, recursive=True, root=root)
 
     def clear(self):
         """Delete any existing ANRs, tombstones and crash dumps on the device."""
@@ -107,7 +107,7 @@ class AutophoneCrashProcessor(object):
         self.delete_tombstones()
         self.delete_crash_dumps()
 
-    def check_for_tombstones(self):
+    def check_for_tombstones(self, root=True):
         """Copies tombstones from the device to the upload_dir before deleting
         them from the device.
 
@@ -115,8 +115,8 @@ class AutophoneCrashProcessor(object):
         unique integer suffix with a .txt extension.
         """
         if self.adb.exists(tombstones):
-            self.adb.chmod(tombstones, root=True)
-            self.adb.chmod(os.path.join(tombstones, '*'), mask='666', root=True)
+            self.adb.chmod(tombstones, root=root)
+            self.adb.chmod(os.path.join(tombstones, '*'), mask='666', root=root)
             self.adb.pull(tombstones, self.upload_dir)
             self.delete_tombstones()
             for f in glob.glob(os.path.join(self.upload_dir, "tombstone_??")):
@@ -256,7 +256,7 @@ class AutophoneCrashProcessor(object):
                          errors,
                          extra)
 
-    def get_crashes(self, symbols_path, stackwalk_binary, clean=True):
+    def get_crashes(self, symbols_path, stackwalk_binary, clean=True, root=True):
         """Returns a list of crash summaries for any crash dumps found on the device.
 
         Note that the crash dumps are deleted as a side effect.
@@ -281,7 +281,7 @@ class AutophoneCrashProcessor(object):
         self.check_for_tombstones()
 
         crashes = []
-        if not self.adb.is_dir(self.remote_dump_dir):
+        if not self.adb.is_dir(self.remote_dump_dir, root=root):
             # If crash reporting is enabled (MOZ_CRASHREPORTER=1), the
             # minidumps directory is automatically created when Fennec
             # (first) starts, so its lack of presence is a hint that
@@ -292,6 +292,7 @@ class AutophoneCrashProcessor(object):
                             'signature': "No crash directory (%s) found on remote device" %
                             self.remote_dump_dir})
             return crashes
+        self.adb.chmod(self.remote_dump_dir, recursive=True, root=root)
         self.adb.pull(self.remote_dump_dir, self.upload_dir)
         dump_files = [(path, os.path.splitext(path)[0] + '.extra') for path in
                       glob.glob(os.path.join(self.upload_dir, '*.dmp'))]
