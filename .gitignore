@@ -2,5 +2,8 @@
 *.out
 *.log
 *~
-configs/unittest_defaults.ini
+developer*.ini
+configs/unittest-defaults.ini
 jobs.sqlite
+*credentials.ini
+*credentials.json
