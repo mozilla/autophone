@@ -72,8 +72,14 @@ class WebappStartupTest(PerfTest):
         # Pull the profiles.ini file when it first exists so we can
         # determine the profile path.
         app_dir = '/data/data/%s' % self.build.app_name
-        self.dm.chmod(app_dir, recursive=True, root=root)
         remote_profiles_ini_path = '%s/files/mozilla/profiles.ini' % app_dir
+        # Do not use recursive chmod in order not to have to process
+        # any unnecessary files or directories.
+        path = app_dir
+        for path_component in ('', 'files', 'mozilla'):
+            path = os.path.join(path, path_component)
+            self.dm.mkdir(path, parents=True, root=root)
+            self.dm.chmod(path, root=root)
 
         # Run webappstartup once to create the initial profile.
         # Pull the ini file and parse it to get the profile path.
