@@ -587,14 +587,18 @@ class AutoPhone(object):
     def on_jobaction(self, job_action):
         if self._stop or job_action['job_group_name'] != 'Autophone':
             return
-        self.logger.debug('JOB ACTION FOUND %s' % json.dumps(
+        machine_name = job_action['machine_name']
+        if machine_name not in self.phone_workers:
+            self.logger.warning('on_jobaction: unknown device %s' % machine_name)
+            return
+        self.logger.debug('on_jobaction: found %s' % json.dumps(
             job_action, sort_keys=True, indent=4))
 
         worker_locked = False
         self.worker_lock.acquire()
         worker_locked = True
         try:
-            p = self.phone_workers[job_action['machine_name']]
+            p = self.phone_workers[machine_name]
             if job_action['action'] == 'cancel':
                 request = (job_action['job_guid'],)
                 self.worker_lock.release()
@@ -602,14 +606,14 @@ class AutoPhone(object):
                 p.cancel_test(request)
             elif job_action['action'] == 'retrigger':
                 test = PhoneTest.lookup(
-                    job_action['machine_name'],
+                    machine_name,
                     job_action['config_file'],
                     job_action['chunk'])
                 self.worker_lock.release()
                 worker_locked = False
                 if not test:
                     self.logger.warning(
-                        'No test found for job action %s' %
+                        'on_jobaction: No test found for %s' %
                         json.dumps(job_action, sort_keys=True, indent=4))
                 else:
                     job_data = {
