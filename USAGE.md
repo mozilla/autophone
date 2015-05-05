@@ -14,11 +14,11 @@ devices can be found in the files autophone-*devicename*.log
 
 * [Run Smoketest with default options](#configuring-smoketest)
 
-        python autophone.py --devices devices.ini --test-path tests/smoketest_manifest.ini
+        python autophone.py --devices devices.ini --test-path tests/smoketest-manifest.ini
 
 * [Run WebappStartupTest with default options](#configuring-webappstartuptest)
 
-        python autophone.py --devices devices.ini --test-path tests/webappstartup_manifest.ini
+        python autophone.py --devices devices.ini --test-path tests/webappstartup-manifest.ini
 
 * [Run S1S2Test with default options](#configuring-s1s2test)
 
@@ -112,6 +112,59 @@ Autophone: the *Devices configuration file* and the *Test manifest
 file*. Individual tests may also use configuration files which are
 located in [configs/](configs/).
 
+### Credentials configuration file
+
+  Autophone can contact several systems in order to report its
+  results. The credentials configuration file is a means of specifying
+  the credentials in a central location.
+
+  The credentials file has one section named `settings` and may
+  contain the following options:
+
+<pre>
+[settings]
+phonedash_user = XXXX
+phonedash_password = XXXX
+pulse_user = XXXX
+pulse_password = XXXX
+treeherder_credentials_path = XXXX
+s3_upload_bucket=XXXX
+aws_access_key_id=XXXX
+aws_access_key=XXXX
+</pre>
+
+  * phonedash_user
+
+      The jot id to be used to post results to the phonedash server.
+
+  * phonedash_password
+
+      The jot key to be used to post results to the phonedash server.
+
+  * pulse_user
+
+      The user id used to connect to PulseGuardian.
+
+  * pulse_password
+
+      The password used to connect to PulseGuardian.
+
+  * treeherder_credentials_path
+
+      The path to json file containing Treeherder credentials.
+
+  * s3_upload_bucket
+
+      The AWS S3 bucket name used to store logs.
+
+  * aws_access_key_id
+
+      The AWS Access Key ID used to access AWS S3.
+
+  * aws_access_key
+
+      The AWS Access Key used to access AWS S3.
+
 ### Devices configuration file
 
 The devices configuration file, typically named `devices.ini`, is used
@@ -177,7 +230,7 @@ their values are space delimited list of repository names which the
 device will test.
 
     [exampletest.py]
-    config = ../configs/exampletest_settings.ini
+    config = ../configs/exampletest-settings.ini
     devicename = mozilla-central mozilla-inbound
 
 If you wish to use different config options for different devices on
@@ -187,11 +240,11 @@ script name by a space. For example to specify different test
 configurations for Android 2.3 and Android 4.x you might specify
 
     [exampletest.py android2.3]
-    config = ../configs/exampletest_android23_settings.ini
+    config = ../configs/exampletest-android23-settings.ini
     devicename1 = mozilla-central mozilla-inbound
 
     [exampletest.py android4.0]
-    config = ../configs/exampletest_android40_settings.ini
+    config = ../configs/exampletest-android40-settings.ini
     devicename2 = mozilla-central mozilla-inbound
 
 Note that you must ensure that a test script is not invoked multiple
@@ -241,18 +294,18 @@ logcat output. It is implemented by
 [tests/smoketest.py](tests/smoketest.py).
 
 The smoketest manifest file
-[tests/smoketest_manifest.ini](tests/smoketest_manifest.ini) is the
+[tests/smoketest-manifest.ini](tests/smoketest-manifest.ini) is the
 simplest example which we can use to illustrate the different
 components of a test manifest file. The Smoketest manifest file is
-`tests/smoketest_settings.ini` which consists of a single section for
+`tests/smoketest-settings.ini` which consists of a single section for
 the smoketest:
 
     [smoketest.py]
 
 If we wished the smoketest to send its results to Treeherder, we could
 copy
-[`configs/smoketest_settings.ini.example`](configs/smoketest_settings.ini.example)
-to `configs/smoketest_settings.ini`. It already contains the settings
+[`configs/smoketest-settings.ini.example`](configs/smoketest-settings.ini.example)
+to `configs/smoketest-settings.ini`. It already contains the settings
 for Treeherder:
 
     [treeherder]
@@ -262,18 +315,18 @@ for Treeherder:
     group_symbol = A
 
 Then add a config option to the test manifest file
-`tests/smoketest_settings.ini` pointing to the test configuration
+`tests/smoketest-settings.ini` pointing to the test configuration
 settings file.
 
     [smoketest.py]
-    config = ../configs/smoketest_settings.ini
+    config = ../configs/smoketest-settings.ini
 
 If we wished to only test mozilla central builds on the nexus-one-1
 device and mozilla-inbound builds on the nexus-one-2 device, we would
 add a device option for each device as in:
 
     [smoketest.py]
-    config = ../configs/smoketest_settings.ini
+    config = ../configs/smoketest-settings.ini
     nexus-one-1 = mozilla-central
     nexus-one-2 = mozilla-inbound
 
@@ -345,21 +398,6 @@ sections.
       stderrp_attempts if they are rejected.
       If not set, stderrp_attempts defaults to 1.
 
-* signature
-
-  The `[signature]` section is used to specify the jot credentials used to
-  post results to the phonedash server specified in the resulturl option.
-
-  It may contain the following options:
-
-  * id
-
-      The jot id to be used to post results to the phonedash server.
-
-  * key
-
-      The jot key to be used to post results to the phonedash server.
-
 #### Configuring WebappStartupTest
 
 WebappStartupTest installs webapp-startup-test.apk, launches the app,
@@ -369,10 +407,10 @@ COMPLETE` messages in logcat. It is implemented by
 
 WebappStartupTest is a Performance test and shares the
 [Performance test configuration](#configuring-performance-tests)
-options. To create your `configs/webappstartup_settings.ini` file,
+options. To create your `configs/webappstartup-settings.ini` file,
 start by copying
-[`configs/webappstartup_settings.ini.example`](webappstartup_settings.ini.example)
-to `configs/webappstartup_settings.ini` then customize the settings to
+[`configs/webappstartup-settings.ini.example`](webappstartup-settings.ini.example)
+to `configs/webappstartup-settings.ini` then customize the settings to
 fit your needs.
 
 Note that it is possible to also add per device options to the
@@ -387,10 +425,10 @@ implemented by [tests/s1s2test.py](tests/s1s2test.py).
 
 S1S2Test is a Performance test and shares the
 [Performance test configuration](#configuring-performance-tests)
-options. To create your `configs/s1s2_settings.ini` file, start by
+options. To create your `configs/s1s2-settings.ini` file, start by
 copying
-[`configs/s1s2_settings.ini.example`](configs/s1s2_settings.ini.example)
-to `configs/s1s2_settings.ini` then customize the settings to fit your
+[`configs/s1s2-settings.ini.example`](configs/s1s2-settings.ini.example)
+to `configs/s1s2-settings.ini` then customize the settings to fit your
 needs.
 
 Note that it is possible to also add per device options to the s1s2test.py section in the
@@ -403,19 +441,19 @@ crashtests, jsreftests or mochitests for each build or it can run combinations o
 them.
 
 Before running the unit tests, you will need to copy
-configs/unittest_defaults.ini.example to configs/unittest_defaults.ini
-and edit configs/unittest_defaults.ini to change the xre_path and
+configs/unittest-defaults.ini.example to configs/unittest-defaults.ini
+and edit configs/unittest-defaults.ini to change the xre_path and
 utility_path values.
 
 For example,
 
 to run only the robocop tests:
 
-   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/robocoptests_manifest.ini
+   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/robocoptests-manifest.ini
 
-to run all of the unit tests specified in the tests/unittests_manifest.ini file:
+to run all of the unit tests specified in the tests/unittests-manifest.ini file:
 
-   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/unittests_manifest.ini
+   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/unittests-manifest.ini
 
 #### Configuring Multiple tests simultaneously
 
@@ -425,10 +463,10 @@ instance. Configuration is identical to configuring the individual
 test manifests as described above with a separate section for each
 test. For example:
 
-##### haxxor_virginia_manifest.ini
+##### haxxor-virginia-manifest.ini
 
         [smoketest.py]
-        config = ../configs/smoketest_settings.ini
+        config = ../configs/smoketest-settings.ini
         nexus-one-1=mozilla-inbound
         nexus-one-2=mozilla-central
         nexus-one-3=fx-team
@@ -437,7 +475,7 @@ test. For example:
         samsung-gs3-2=mozilla-inbound
 
         [s1s2test.py]
-        config = ../configs/s1s2_settings.ini
+        config = ../configs/s1s2-settings.ini
         nexus-one-1=mozilla-inbound
         nexus-one-2=mozilla-central
         nexus-one-3=fx-team
@@ -446,7 +484,7 @@ test. For example:
         samsung-gs3-2=mozilla-inbound
 
         [webappstartup.py]
-        config = ../configs/webappstartup_settings.ini
+        config = ../configs/webappstartup-settings.ini
         nexus-one-1=mozilla-inbound
         nexus-one-2=mozilla-central
         nexus-one-3=fx-team
@@ -455,7 +493,7 @@ test. For example:
         samsung-gs3-2=mozilla-inbound
 
         [runtestsremote.py]
-        config = ../configs/crashtests_settings.ini ../configs/jsreftests_settings.ini ../configs/mochitests_settings.ini ../configs/mochitests_skia_settings.ini ../configs/reftests_settings.ini ../configs/robocoptests_settings.ini
+        config = ../configs/crashtests-settings.ini ../configs/jsreftests-settings.ini ../configs/mochitests-settings.ini ../configs/mochitests-skia-settings.ini ../configs/reftests-settings.ini ../configs/robocoptests-settings.ini
         unittests = 1
 
 ### Autophone Command Line Options
@@ -489,6 +527,16 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
                                 Path to minidump_stackwalk executable; defaults to
                                 /usr/local/bin/minidump_stackwalk.
           --emailcfg=EMAILCFG   config file for email settings; defaults to none
+          --phonedash-url=PHONEDASH_URL
+                                Url to Phonedash server. If not set, results for
+                                each device will be written to comma delimited files in
+                                the form: autophone-results-<deviceid>.csv.
+          --phonedash-user=PHONEDASH_USER
+                                user id for connecting to Phonedash server
+          --phonedash-password=PHONEDASH_PASSWORD
+                                password for connecting to Phonedash server
+          --webserver-url=WEBSERVER_URL
+                                Url to web server for remote tests.
           --enable-pulse        Enable connecting to Pulse to look for new builds. If
                                 specified, --pulse-user and --pulse-password must also
                                 be specified.
@@ -528,6 +576,16 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
                                 ini file.
           --config=AUTOPHONECFG
                                 Optional autophone.py configuration ini file.
+                                The values of the settings in the ini file override
+                                any settings set on the command line.
+                                autophone.ini.example contains all of the currently
+                                available settings.
+          --credentials-file=CREDENTIALS_FILE
+                                Optional autophone.py configuration ini file
+                                which is to be loaded in addition to that specified
+                                by the --config option. It is intended to contain
+                                sensitive options such as credentials which should not
+                                be checked into the source repository.
                                 The values of the settings in the ini file override
                                 any settings set on the command line.
                                 autophone.ini.example contains all of the currently

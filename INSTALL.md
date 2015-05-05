@@ -46,8 +46,8 @@ You will need a way to serve them (FIXME: autophone should do
 this). If you're using phonedash, it can serve the files by just
 dropping them into phonedash/html/.
 
-The s1s2 test is configured in the file configs/s1s2_settings.ini -- copy
-configs/s1s2_settings.ini.example and customize as needed.
+The s1s2 test is configured in the file configs/s1s2-settings.ini -- copy
+configs/s1s2-settings.ini.example and customize as needed.
 
 ## Unittests
 
@@ -72,7 +72,7 @@ minidump_stack via:
     sudo make install
 
 Once you have the XRE, utility programs and minidump_stack installed, change
-configs/unittest_default.ini to point to your local environment.
+configs/unittest-default.ini to point to your local environment.
 
 ### Setting up devices ###
 
