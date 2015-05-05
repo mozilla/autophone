@@ -452,6 +452,8 @@ class PhoneWorkerSubProcess(object):
                            build=self.build,
                            message='%s %s' % (job['tree'], job['build_id']))
         self.loggerdeco.info('Installing build %s.' % self.build.id)
+        # Record start time for the install so can track how long this takes.
+        start_time = datetime.datetime.now()
         message = ''
         for attempt in range(1, self.options.phone_retry_limit+1):
             uninstalled = False
@@ -487,6 +489,7 @@ class PhoneWorkerSubProcess(object):
             time.sleep(self.options.phone_retry_wait)
 
         if not uninstalled:
+            self.loggerdeco.warning('Failed to uninstall fennec.')
             return {'success': False, 'message': message}
 
         message = ''
@@ -494,6 +497,9 @@ class PhoneWorkerSubProcess(object):
             try:
                 self.dm.install_app(os.path.join(self.build.dir,
                                                 'build.apk'))
+                stop_time = datetime.datetime.now()
+                self.loggerdeco.info('Install build %s elapsed time: %s' % (
+                    (job['build_url'], stop_time - start_time)))
                 return {'success': True, 'message': ''}
             except ADBError, e:
                 message = 'Exception installing fennec attempt %d!\n\n%s' % (
@@ -507,6 +513,7 @@ class PhoneWorkerSubProcess(object):
                                           'attempt %d' % attempt)
             time.sleep(self.options.phone_retry_wait)
 
+        self.loggerdeco.warning('Failed to uninstall fennec.')
         return {'success': False, 'message': message}
 
     def run_tests(self, job):
@@ -521,6 +528,8 @@ class PhoneWorkerSubProcess(object):
                 self.check_battery()
                 t.setup_job()
                 if not install_status['success']:
+                    self.loggerdeco.info('Not running test %s due to %s' % (
+                        t.name, install_status['message']))
                     t.test_failure(t.name, 'TEST-UNEXPECTED-FAIL',
                                    install_status['message'],
                                    PhoneTestResult.EXCEPTION)

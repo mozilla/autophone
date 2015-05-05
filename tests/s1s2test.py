@@ -9,6 +9,7 @@ import os
 import posixpath
 import re
 import sys
+import urlparse
 from time import sleep
 
 from mozprofile import FirefoxProfile
@@ -69,18 +70,30 @@ class S1S2Test(PerfTest):
             self._tests['blank'] = 'blank.html'
         # Map URLS - {urlname: url} - urlname serves as testname
         self._urls = {}
+        config_vars = {'webserver_url': options.webserver_url}
         try:
-            location_items = self.cfg.items('locations')
+            location_items = self.cfg.items('locations', False, config_vars)
         except ConfigParser.NoSectionError:
             location_items = [('local', None)]
         for test_location, test_path in location_items:
+            if test_location in config_vars:
+                # Ignore the pseudo-options which result from passing
+                # the config_vars for interpolation.
+                continue
             for test_name in self._tests:
                 if test_path:
-                    test_url = test_path + self._tests[test_name]
+                    test_url = urlparse.urljoin(test_path, self._tests[test_name])
                 else:
-                    test_url = 'file://' + self._paths['dest'] + self._tests[test_name]
+                    test_url = os.path.join('file://', self._paths['dest'],
+                                            self._tests[test_name])
+                self.loggerdeco.debug(
+                    'test_location: %s, test_name: %s, test_path: %s, '
+                    'test: %s, test_url: %s' %
+                    (test_location, test_name, test_path,
+                     self._tests[test_name], test_url))
                 self._urls["%s-%s" % (test_location, test_name)] = test_url
-        self._initialize_url = 'file://' + self._paths['dest'] + 'initialize_profile.html'
+        self._initialize_url = os.path.join('file://', self._paths['dest'],
+                                            'initialize_profile.html')
 
     @property
     def name(self):

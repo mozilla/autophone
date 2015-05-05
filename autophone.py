@@ -653,10 +653,15 @@ def load_autophone_options(cmd_options):
         except AttributeError:
             pass
 
+    cfg = ConfigParser.RawConfigParser()
     if cmd_options.autophonecfg:
-        cfg = ConfigParser.RawConfigParser()
         cfg.read(cmd_options.autophonecfg)
+        if cfg.has_option('settings', 'credentials_file'):
+            cfg.read(cfg.get('settings', 'credentials_file'))
+    if cmd_options.credentials_file:
+        cfg.read(cmd_options.credentials_file)
 
+    if cmd_options.autophonecfg or cmd_options.credentials_file:
         for option_name, option_type in option_tuples:
             try:
                 getter = getattr(ConfigParser.RawConfigParser,
@@ -824,6 +829,20 @@ if __name__ == '__main__':
     parser.add_option('--emailcfg', action='store', type='string',
                       dest='emailcfg', default='',
                       help='config file for email settings; defaults to none')
+    parser.add_option('--phonedash-url', action='store', type='string',
+                      dest='phonedash_url', default='',
+                      help='Url to Phonedash server. If not set, results for '
+                      'each device will be written to comma delimited files in '
+                      'the form: autophone-results-<deviceid>.csv.')
+    parser.add_option('--phonedash-user', action='store', type='string',
+                      dest='phonedash_user', default='',
+                      help='user id for connecting to Phonedash server')
+    parser.add_option('--phonedash-password', action='store', type='string',
+                      dest='phonedash_password', default='',
+                      help='password for connecting to Phonedash server')
+    parser.add_option('--webserver-url', action='store', type='string',
+                      dest='webserver_url', default='',
+                      help='Url to web server for remote tests.')
     parser.add_option('--enable-pulse', action='store_true',
                       dest="enable_pulse", default=False,
                       help='Enable connecting to Pulse to look for new builds. '
@@ -898,6 +917,20 @@ if __name__ == '__main__':
                       type='string',
                       default=None,
                       help="""Optional autophone.py configuration ini file.
+                      The values of the settings in the ini file override
+                      any settings set on the command line.
+                      autophone.ini.example contains all of the currently
+                      available settings.""")
+    parser.add_option('--credentials-file',
+                      dest='credentials_file',
+                      action='store',
+                      type='string',
+                      default=None,
+                      help="""Optional autophone.py configuration ini file
+                      which is to be loaded in addition to that specified
+                      by the --config option. It is intended to contain
+                      sensitive options such as credentials which should not
+                      be checked into the source repository.
                       The values of the settings in the ini file override
                       any settings set on the command line.
                       autophone.ini.example contains all of the currently

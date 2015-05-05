@@ -16,12 +16,15 @@ class AutophoneOptions(object):
         # command line options
         self.ipaddr = ''
         self.port = -1
+        self.credentials_file = ''
         self.devicescfg = ''
         self.logfile = ''
         self.loglevel = ''
         self.test_path = ''
         self.minidump_stackwalk = ''
         self.emailcfg = ''
+        self.phonedash_url = ''
+        self.webserver_url = ''
         self.enable_pulse = False
         self.pulse_durable_queue = True
         self.pulse_jobactions_exchange = ''
@@ -39,6 +42,8 @@ class AutophoneOptions(object):
         self._treeherder_protocol = ''
         self._treeherder_server = ''
         # Sensitive options should not be output to the logs
+        self.phonedash_user = ''
+        self.phonedash_password = ''
         self.pulse_user = ''
         self.pulse_password = ''
         self.s3_upload_bucket = ''
@@ -90,6 +95,8 @@ class AutophoneOptions(object):
                      'test_path',
                      'minidump_stackwalk',
                      'emailcfg',
+                     'phonedash_url',
+                     'webserver_url',
                      'enable_pulse',
                      'pulse_durable_queue',
                      'pulse_jobactions_exchange',

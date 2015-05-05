@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
+import datetime
 import logging
 import os
 import shutil
@@ -122,7 +123,7 @@ class PhoneTest(object):
     def __init__(self, phone, options, config_file=None, chunk=1):
         self._add_instance(phone.id, config_file, chunk)
         self.config_file = config_file
-        self.cfg = ConfigParser.RawConfigParser()
+        self.cfg = ConfigParser.ConfigParser()
         self.cfg.read(self.config_file)
         self.enable_unittests = False
         self.chunk = chunk
@@ -172,6 +173,9 @@ class PhoneTest(object):
         # crash_processor is an instance of AutophoneCrashProcessor that
         # is used by non-unittests to process device errors and crashes.
         self.crash_processor = None
+        # Instrument running time
+        self.start_time = None
+        self.stop_time = None
 
     def _add_instance(self, phoneid, config_file, chunk):
         key = '%s:%s:%s' % (phoneid, config_file, chunk)
@@ -334,6 +338,8 @@ class PhoneTest(object):
         self.logger_original = self.logger
         self.loggerdeco_original = self.loggerdeco
         self.dm_logger_original = self.dm._logger
+        self.start_time = datetime.datetime.now()
+        self.stop_time = None
         # Clear the Treeherder job details.
         self.job_details = []
         # Clear the log file if we are submitting logs to Treeherder.
@@ -372,6 +378,9 @@ class PhoneTest(object):
 
     def teardown_job(self):
         self.loggerdeco.debug('PhoneTest.teardown_job')
+        self.stop_time = datetime.datetime.now()
+        self.loggerdeco.info('Test %s elapsed time: %s' % (
+            self.name, self.stop_time - self.start_time))
         try:
             self.handle_crashes()
         except Exception, e:

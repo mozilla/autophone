@@ -22,16 +22,13 @@ class PerfTest(PhoneTest):
                            config_file=config_file, chunk=chunk)
         self._result_server = None
         self._resulturl = None
+        if options.phonedash_url:
+            self._resulturl = urlparse.urljoin(options.phonedash_url, '/api/s1s2/')
+            self.loggerdeco.debug('PerfTest._resulturl: %s' % self._resulturl)
 
         # [signature]
         self._signer = None
-        self._jwt = {'id': '', 'key': None}
-        for opt in self._jwt.keys():
-            try:
-                self._jwt[opt] = self.cfg.get('signature', opt)
-            except (ConfigParser.NoSectionError,
-                    ConfigParser.NoOptionError):
-                break
+        self._jwt = {'id': options.phonedash_user, 'key': options.phonedash_password}
         # phonedash requires both an id and a key.
         if self._jwt['id'] and self._jwt['key']:
             self._signer = jws.HmacSha(key=self._jwt['key'],
@@ -54,10 +51,6 @@ class PerfTest(PhoneTest):
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.stderrp_attempts = 1
         self._resultfile = None
-        try:
-            self._resulturl = self.cfg.get('settings', 'resulturl')
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self._resulturl = 'none'
 
     def setup_job(self):
         PhoneTest.setup_job(self)
@@ -67,8 +60,7 @@ class PerfTest(PhoneTest):
                                                        self.upload_dir)
         self.crash_processor.clear()
 
-        if self._resulturl.lower() == 'none':
-            self._resulturl = None
+        if not self._resulturl:
             self._resultfile = open('autophone-results-%s.csv' %
                                     self.phone.id, 'ab')
             self._resultfile.seek(0, 2)
@@ -91,8 +83,6 @@ class PerfTest(PhoneTest):
                     'osver',
                     'bldtype',
                     'machineid'])
-        elif not self._resulturl.endswith('/'):
-            self._resulturl += '/'
 
     def _phonedash_url(self, testname):
         if not self.result_server or not self.build:
