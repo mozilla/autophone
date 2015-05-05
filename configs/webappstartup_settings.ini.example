@@ -1,12 +1,4 @@
 [settings]
-# Autophone submits results to the server specified in the resulturl
-# option. If you do not specify a resulturl, it will default to
-# http://phonedash.mozilla.org/api/s1s2/. You may send results to a
-# different server by customizing the resulturl option.  If you set
-# resulturl to None, then each device's results will be written to
-# comma delimited files in the form: autophone-results-<deviceid>.csv.
-resulturl = None
-
 # Autophone will load each test page the number of times
 # specified by the iterations option.
 #iterations = 8
@@ -25,10 +17,6 @@ resulturl = None
 # stderrp_attempts if they are rejected.
 # If not set, stderrp_attempts defaults to 1.
 #stderrp_attempts = 1
-
-#[signature]
-#id = foo
-#key = bar
 
 #[treeherder]
 #job_name = Autophone Webappstartup
