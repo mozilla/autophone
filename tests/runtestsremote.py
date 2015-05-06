@@ -158,11 +158,9 @@ class UnitTest(PhoneTest):
 
             test_args = [
                 'mochitest/runtestsremote.py',
-                '--robocop=%s' % self.parms['test_manifest'],
+                '--robocop-ini=%s' % self.parms['test_manifest'],
                 '--robocop-ids=%s/fennec_ids.txt' % self.parms['build_dir'],
                 '--certificate-path=certs',
-                '--close-when-done',
-                '--autorun',
                 '--console-level=%s' % self.parms['console_level'],
                 '--log-raw=%s' % 'raw-log-' + os.path.basename(self._log),
             ]
@@ -176,8 +174,6 @@ class UnitTest(PhoneTest):
                                                                  self.chunk,
                                                                  self.parms['phoneid']),
                 '--certificate-path=certs',
-                '--close-when-done',
-                '--autorun',
                 '--console-level=%s' % self.parms['console_level'],
                 '--log-raw=%s' % 'raw-log-' + os.path.basename(self._log),
             ]
