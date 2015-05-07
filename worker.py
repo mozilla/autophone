@@ -435,7 +435,7 @@ class PhoneWorkerSubProcess(object):
 
         """
         self.loggerdeco.debug('cancel_test: test.job_guid %s' % test_guid)
-        tests = PhoneTest.match(job_guid=test_guid)
+        tests = PhoneTest.match(job_guid=test_guid, logger=self.loggerdeco)
         if tests:
             assert len(tests) == 1, "test.job_guid %s is not unique" % test_guid
             for test in tests:

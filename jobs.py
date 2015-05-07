@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
+import json
 import logging
 import os
 import sqlite3
@@ -43,6 +44,7 @@ class Jobs(object):
                          'config_file text, '
                          'chunk int, '
                          'guid text, '
+                         'repos text, '
                          'jobid integer)')
             conn.commit()
             conn.close()
@@ -160,27 +162,28 @@ class Jobs(object):
 
         new_tests = []
         for test in tests:
+            repos = json.dumps(test.repos)
             test_cursor = self._execute_sql(
                 conn,
                 'select * from tests where '
-                'name=? and config_file=? and chunk=? and jobid=?',
-                values=(test.name, test.config_file, test.chunk, job_id))
+                'name=? and config_file=? and chunk=? and repos=? and jobid=?',
+                values=(test.name, test.config_file, test.chunk, repos, job_id))
             test_row = test_cursor.fetchone()
             test_cursor.close()
             if test_row:
                 logger.warning(
                     'jobs.new_job: duplicate test: %s, device: %s, '
-                    'name: %s, config_file: %s, chunk: %s' % (
+                    'name: %s, config_file: %s, chunk: %s, repos: %s' % (
                         build_url, device, test.name, test.config_file,
-                        test.chunk))
+                        test.chunk, repos))
                 continue
             new_tests.append(test)
             test.generate_guid()
             self._execute_sql(
                 conn,
-                'insert into tests values (?, ?, ?, ?, ?, ?)',
+                'insert into tests values (?, ?, ?, ?, ?, ?, ?)',
                 values=(None, test.name, test.config_file, test.chunk,
-                        test.job_guid, job_id))
+                        test.job_guid, repos, job_id))
         self._commit_connection(conn)
         self._close_connection(conn)
 
@@ -263,7 +266,7 @@ class Jobs(object):
         job['tests'] = []
         test_cursor = self._execute_sql(
             conn,
-            'select name, config_file, chunk, guid '
+            'select name, config_file, chunk, repos, guid '
             'from tests where jobid=?', values=(job['id'],))
 
         test_rows = [
@@ -271,7 +274,8 @@ class Jobs(object):
                 'name': test_row[0],
                 'config_file': test_row[1],
                 'chunk': test_row[2],
-                'guid': test_row[3]
+                'repos' : json.loads(test_row[3]),
+                'guid': test_row[4]
             }
             for test_row in test_cursor
         ]
@@ -279,11 +283,12 @@ class Jobs(object):
 
         for test_row in test_rows:
             # Generate the list of tests to be executed for this job
-            # while updating the test's job_guid.
+            test_row['repos'].sort()
             for test in worker.tests:
                 if (test.name == test_row['name'] and
                     test.config_file == test_row['config_file'] and
-                    test.chunk == test_row['chunk']):
+                    test.chunk == test_row['chunk'] and
+                    test.repos == test_row['repos']):
                     test.job_guid = test_row['guid']
                     job['tests'].append(test)
         logger.debug('jobs.get_next_job: %s' % job)

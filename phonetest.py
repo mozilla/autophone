@@ -77,7 +77,15 @@ class PhoneTest(object):
     @classmethod
     def match(cls, tests=None, test_name=None, phoneid=None,
               config_file=None, chunk=None, job_guid=None,
-              build_url=None):
+              build_url=None, logger=None):
+        if not logger:
+            logger = logging.getLogger()
+
+        logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
+                     'config_file: %s, chunk: %s, job_guid: %s, '
+                     'build_url: %s' % (tests, test_name, phoneid,
+                                        config_file, chunk, job_guid,
+                                        build_url))
         matches = []
         if not tests:
             tests = [PhoneTest.instances[key] for key in PhoneTest.instances.keys()]
@@ -101,13 +109,20 @@ class PhoneTest(object):
             if build_url:
                 abi = test.phone.abi
                 sdk = test.phone.sdk
+                # First assume the test and build are compatible.
                 incompatible_job = False
+                # x86 devices can only test x86 builds and non-x86
+                # devices can not test x86 builds.
                 if abi == 'x86':
                     if 'x86' not in build_url:
                         incompatible_job = True
                 else:
                     if 'x86' in build_url:
                         incompatible_job = True
+                # If the build_url does not contain an sdk level, then
+                # assume this is an build from before the split sdk
+                # builds were first created. Otherwise the build_url
+                # must match this device's supported sdk levels.
                 if ('api-9' not in build_url and 'api-10' not in build_url and
                     'api-11' not in build_url):
                     pass
@@ -117,10 +132,31 @@ class PhoneTest(object):
                 if incompatible_job:
                     continue
 
+                # The test may be defined for multiple repositories.
+                # We are interested if this particular build is
+                # supported by this test. First assume it is
+                # incompatible, and only accept it if the build_url is
+                # from one of the supported repositories.
+                incompatible_job = True
+                for repo in test.repos:
+                    if repo in build_url:
+                        incompatible_job = False
+                        break
+                if incompatible_job:
+                    continue
+
             matches.append(test)
+
+        logger.debug('PhoneTest.match = %s' % matches)
+
         return matches
 
-    def __init__(self, phone, options, config_file=None, chunk=1):
+    def __init__(self, phone, options, config_file=None, chunk=1, repos=[]):
+        # Ensure that repos is a list and that it is sorted in order
+        # for comparisons with the tests loaded from the jobs database
+        # to work.
+        assert type(repos) == list, 'PhoneTest repos argument must be a list'
+        repos.sort()
         self._add_instance(phone.id, config_file, chunk)
         self.config_file = config_file
         self.cfg = ConfigParser.ConfigParser()
@@ -144,7 +180,7 @@ class PhoneTest(object):
         self._base_device_path = ''
         self.profile_path = '/data/local/tmp/profile'
         self._dm = None
-        self._repos = None
+        self.repos = repos
         self._log = None
         # Treeherder related items.
         self._job_name = None
@@ -176,6 +212,15 @@ class PhoneTest(object):
         # Instrument running time
         self.start_time = None
         self.stop_time = None
+
+    def __str__(self):
+        return '%s(%s, config_file=%s, chunk=%s)' % (type(self).__name__,
+                                                     self.phone,
+                                                     self.config_file,
+                                                     self.chunk)
+
+    def __repr__(self):
+        return self.__str__()
 
     def _add_instance(self, phoneid, config_file, chunk):
         key = '%s:%s:%s' % (phoneid, config_file, chunk)

@@ -130,3 +130,6 @@ class AutophoneOptions(object):
         for attr in whitelist:
             d[attr] = getattr(self, attr)
         return '%s' % d
+
+    def __repr__(self):
+        return self.__str__()

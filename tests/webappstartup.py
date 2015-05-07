@@ -17,9 +17,9 @@ from perftest import PerfTest
 from phonetest import PhoneTestResult
 
 class WebappStartupTest(PerfTest):
-    def __init__(self, phone, options, config_file=None, chunk=1):
+    def __init__(self, phone, options, config_file=None, chunk=1, repos=[]):
         PerfTest.__init__(self, phone, options,
-                          config_file=config_file, chunk=chunk)
+                          config_file=config_file, chunk=chunk, repos=repos)
         self.webappstartup_name = None
 
     @property

@@ -254,7 +254,8 @@ class AutoPhone(object):
                 self.logger.debug('new_job: worker phoneid %s' % phoneid)
                 # Determine if we will test this build, which tests to run and if we
                 # need to enable unittests.
-                runnable_tests = PhoneTest.match(tests=tests, phoneid=phoneid)
+                runnable_tests = PhoneTest.match(tests=tests, phoneid=phoneid,
+                                                 logger=self.logger)
                 if not runnable_tests:
                     self.logger.debug('new_job: Ignoring build %s for phone %s' % (build_url, phoneid))
                     continue
@@ -363,26 +364,32 @@ class AutoPhone(object):
         self.logger.info('Creating worker for %s: %s.' % (phone, self.options))
         tests = []
         for test_class, config_file, test_devices_repos in self._tests:
+            self.logger.debug('create_worker: %s %s %s' % (
+                test_class, config_file, test_devices_repos))
             skip_test = True
             if not test_devices_repos:
                 # There is no restriction on this test being run by
                 # specific devices.
+                repos = []
                 skip_test = False
             elif phone.id in test_devices_repos:
                 # This test is to be run by this device on
                 # the repos test_devices_repos[phone.id]
+                repos = test_devices_repos[phone.id]
                 skip_test = False
             if not skip_test:
                 test = test_class(phone=phone,
                                   options=self.options,
-                                  config_file=config_file)
+                                  config_file=config_file,
+                                  repos=repos)
                 tests.append(test)
                 for chunk in range(2, test.chunks+1):
                     self.logger.debug('Creating chunk %d/%d' % (chunk, test.chunks))
                     tests.append(test_class(phone=phone,
                                             options=self.options,
                                             config_file=config_file,
-                                            chunk=chunk))
+                                            chunk=chunk,
+                                            repos=repos))
         if not tests:
             self.logger.warning('Not creating worker: No tests defined for '
                                 'worker for %s: %s.' %
@@ -545,7 +552,8 @@ class AutoPhone(object):
             for device in devices:
                 tests.extend(PhoneTest.match(test_name=test_name,
                                              phoneid=device,
-                                             build_url=build_url))
+                                             build_url=build_url,
+                                             logger=self.logger))
         if tests:
             job_data = {
                 'build': build_url,
@@ -565,7 +573,7 @@ class AutoPhone(object):
         self.logger.debug('PULSE BUILD FOUND %s' % msg)
         build_url = msg['packageUrl']
         if msg['branch'] != 'try':
-            tests = PhoneTest.match(build_url=build_url)
+            tests = PhoneTest.match(build_url=build_url, logger=self.logger)
         else:
             # Autophone try builds will have a comment of the form:
             # try: -b o -p android-api-9,android-api-11 -u autophone-smoke,autophone-s1s2 -t none
@@ -580,7 +588,8 @@ class AutoPhone(object):
                     test_names = [None]
                 for test_name in test_names:
                     tests.extend(PhoneTest.match(test_name=test_name,
-                                                 build_url=build_url))
+                                                 build_url=build_url,
+                                                 logger=self.logger))
         job_data = {'build': build_url, 'tests': tests}
         self.new_job(job_data)
 
