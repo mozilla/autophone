@@ -105,8 +105,9 @@ class UnitTest(PhoneTest):
         self.parms['buildid'] = self.build.id
         self.parms['tree'] = self.build.tree
 
-        self._log = '%s/tests/%s-%s-%s.log' % (build_dir,
+        self._log = '%s/tests/%s-%s-%s-%s.log' % (build_dir,
                                                self.parms['test_name'],
+                                               os.path.basename(self.config_file),
                                                self.chunk,
                                                self.parms['phoneid'])
         os.putenv('MINIDUMP_STACKWALK', self.options.minidump_stackwalk)

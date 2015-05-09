@@ -316,7 +316,9 @@ class AutophoneTreeherder(object):
                 if t._log:
                     log_identifier = os.path.splitext(os.path.basename(t._log))[0]
                 else:
-                    log_identifier = "%s-%s-%s" % (t.name, t.chunk, machine)
+                    log_identifier = "%s-%s-%s-%s" % (
+                        t.name, os.path.basename(t.config_file), t.chunk,
+                        machine)
 
                 key_prefix = os.path.dirname(
                     urlparse.urlparse(build_url).path)
