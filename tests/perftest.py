@@ -5,6 +5,7 @@
 import ConfigParser
 import csv
 import json
+import time
 import urllib
 import urllib2
 import urlparse
@@ -170,31 +171,46 @@ class PerfTest(PhoneTest):
             content_type = 'application/json; charset=utf-8'
         req = urllib2.Request(self._resulturl + 'add/', encoded_result,
                               {'Content-Type': content_type})
-        try:
-            f = urllib2.urlopen(req)
-        except Exception, e:
-            self.loggerdeco.exception('Error sending results to server')
-            self.worker_subprocess.mailer.send(
-                'Error sending %s results for phone %s, build %s' %
-                (self.name, self.phone.id, self.build.id),
-                'There was an error attempting to send test results'
-                'to the result server %s.\n'
-                '\n'
-                'Test %s\n'
-                'Phone %s\n'
-                'Build %s\n'
-                'Revision %s\n'
-                'Exception: %s\n' %
-                (self.result_server,
-                 self.name, self.phone.id, self.build.id,
-                 self.build.revision, e))
-            message = 'Error sending results to server'
-            self.test_result.status = PhoneTestResult.EXCEPTION
-            self.message = message
-            self.update_status(message=message)
-        else:
-            f.read()
-            f.close()
+        max_attempts = 10
+        wait_time = 30
+        for attempt in range(1, max_attempts+1):
+            try:
+                f = urllib2.urlopen(req)
+            except Exception, e:
+                # Retry submission if the exception is due to a
+                # timeout and if we haven't exceeded the maximum
+                # number of attempts.
+                if (attempt < max_attempts and
+                    isinstance(e, urllib2.URLError) and e.errno == 60):
+                    self.loggerdeco.warning('PerfTest.publish_results: '
+                                            'Attempt %d/%d timed out sending '
+                                            'results to server' % (
+                                                attempt, max_attempts))
+                    time.sleep(wait_time)
+                    continue
+                self.loggerdeco.exception('Error sending results to server')
+                self.worker_subprocess.mailer.send(
+                    'Error sending %s results for phone %s, build %s' %
+                    (self.name, self.phone.id, self.build.id),
+                    'There was an error attempting to send test results'
+                    'to the result server %s.\n'
+                    '\n'
+                    'Test %s\n'
+                    'Phone %s\n'
+                    'Build %s\n'
+                    'Revision %s\n'
+                    'Exception: %s\n' %
+                    (self.result_server,
+                     self.name, self.phone.id, self.build.id,
+                     self.build.revision, e))
+                message = 'Error sending results to server'
+                self.test_result.status = PhoneTestResult.EXCEPTION
+                self.message = message
+                self.update_status(message=message)
+            else:
+                f.read()
+                f.close()
+            break
 
     def dump_results(self, starttime=0, tstrt=0, tstop=0,
                      testname='', cache_enabled=True,
