@@ -137,13 +137,14 @@ class PhoneTest(object):
                 # supported by this test. First assume it is
                 # incompatible, and only accept it if the build_url is
                 # from one of the supported repositories.
-                incompatible_job = True
-                for repo in test.repos:
-                    if repo in build_url:
-                        incompatible_job = False
-                        break
-                if incompatible_job:
-                    continue
+                if test.repos:
+                    incompatible_job = True
+                    for repo in test.repos:
+                        if repo in build_url:
+                            incompatible_job = False
+                            break
+                    if incompatible_job:
+                        continue
 
             matches.append(test)
 
