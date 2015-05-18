@@ -5,6 +5,7 @@
 from __future__ import with_statement
 
 import Queue
+import copy
 import datetime
 import logging
 import multiprocessing
@@ -26,6 +27,7 @@ from builds import BuildMetadata
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
 from phonetest import PhoneTest, PhoneTestResult
+from process_states import ProcessStates
 from s3 import S3Bucket
 
 class Crashes(object):
@@ -89,6 +91,7 @@ class PhoneWorker(object):
 
     def __init__(self, worker_num, tests, phone, options,
                  autophone_queue, logfile_prefix, loglevel, mailer):
+        self.state = ProcessStates.STARTING
         self.tests = tests
         self.phone = phone
         self.options = options
@@ -98,13 +101,18 @@ class PhoneWorker(object):
         self.last_status_of_previous_type = None
         self.crashes = Crashes(crash_window=options.phone_crash_window,
                                crash_limit=options.phone_crash_limit)
-        self.cmd_queue = multiprocessing.Queue()
+        # Messages are passed to the PhoneWorkerSubProcess worker from
+        # the main process by PhoneWorker which puts messages into
+        # PhoneWorker.queue. PhoneWorkerSubProcess is given a
+        # reference to this queue and gets messages from the main
+        # process via this queue.
+        self.queue = multiprocessing.Queue()
         self.lock = multiprocessing.Lock()
         self.subprocess = PhoneWorkerSubProcess(self.worker_num,
                                                 tests,
                                                 phone, options,
                                                 autophone_queue,
-                                                self.cmd_queue, logfile_prefix,
+                                                self.queue, logfile_prefix,
                                                 loglevel, mailer)
         self.logger = logging.getLogger('autophone.worker')
         self.loggerdeco = LogDecorator(self.logger,
@@ -118,31 +126,38 @@ class PhoneWorker(object):
 
     def start(self, phone_status=PhoneStatus.IDLE):
         self.loggerdeco.debug('PhoneWorker:start')
+        self.state = ProcessStates.RUNNING
         self.subprocess.start(phone_status)
 
     def stop(self):
         self.loggerdeco.debug('PhoneWorker:stop')
+        self.state = ProcessStates.STOPPING
         self.subprocess.stop()
+
+    def shutdown(self):
+        self.loggerdeco.debug('PhoneWorker:shutdown')
+        self.state = ProcessStates.SHUTTINGDOWN
+        self.queue.put_nowait(('shutdown', None))
 
     def new_job(self):
         self.loggerdeco.debug('PhoneWorker:new_job')
-        self.cmd_queue.put_nowait(('job', None))
+        self.queue.put_nowait(('job', None))
 
     def reboot(self):
         self.loggerdeco.debug('PhoneWorker:reboot')
-        self.cmd_queue.put_nowait(('reboot', None))
+        self.queue.put_nowait(('reboot', None))
 
     def disable(self):
         self.loggerdeco.debug('PhoneWorker:disable')
-        self.cmd_queue.put_nowait(('disable', None))
+        self.queue.put_nowait(('disable', None))
 
     def enable(self):
         self.loggerdeco.debug('PhoneWorker:enable')
-        self.cmd_queue.put_nowait(('enable', None))
+        self.queue.put_nowait(('enable', None))
 
     def cancel_test(self, request):
         self.loggerdeco.debug('PhoneWorker:cancel_test')
-        self.cmd_queue.put_nowait(('cancel_test', request))
+        self.queue.put_nowait(('cancel_test', request))
 
     def debug(self, level):
         self.loggerdeco.debug('PhoneWorker:debug')
@@ -151,12 +166,16 @@ class PhoneWorker(object):
         except ValueError:
             self.loggerdeco.error('Invalid argument for debug: %s' % level)
         else:
+            # Must copy the options object otherwise the setting will
+            # appear on all workers though it will only be
+            # communicated to this worker's sub process.
+            self.options = copy.copy(self.options)
             self.options.debug = level
-            self.cmd_queue.put_nowait(('debug', level))
+            self.queue.put_nowait(('debug', level))
 
     def ping(self):
         self.loggerdeco.debug('PhoneWorker:ping')
-        self.cmd_queue.put_nowait(('ping', None))
+        self.queue.put_nowait(('ping', None))
 
     def process_msg(self, msg):
         self.loggerdeco.debug('PhoneWorker:process_msg: %s' % msg)
@@ -169,6 +188,35 @@ class PhoneWorker(object):
             self.first_status_of_type = msg
         self.last_status_msg = msg
 
+    def status(self):
+        response = ''
+        now = datetime.datetime.now().replace(microsecond=0)
+        response += 'phone %s (%s):\n' % (self.phone.id, self.phone.serial)
+        response += '  state %s\n' % self.state
+        response += '  debug level %d\n' % self.options.debug
+        if not self.last_status_msg:
+            response += '  no updates\n'
+        else:
+            if self.last_status_msg.build and self.last_status_msg.build.id:
+                d = self.last_status_msg.build.id
+                d = '%s-%s-%s %s:%s:%s' % (d[0:4], d[4:6], d[6:8],
+                                           d[8:10], d[10:12], d[12:14])
+                response += '  current build: %s %s\n' % (
+                    d,
+                    self.last_status_msg.build.tree)
+            else:
+                response += '  no build loaded\n'
+            response += '  last update %s ago:\n    %s\n' % (
+                now - self.last_status_msg.timestamp,
+                self.last_status_msg.short_desc())
+            response += '  %s for %s\n' % (
+                self.last_status_msg.phone_status,
+                now - self.first_status_of_type.timestamp)
+            if self.last_status_of_previous_type:
+                response += '  previous state %s ago:\n    %s\n' % (
+                    now - self.last_status_of_previous_type.timestamp,
+                    self.last_status_of_previous_type.short_desc())
+        return response
 
 class PhoneWorkerSubProcess(object):
 
@@ -181,18 +229,22 @@ class PhoneWorkerSubProcess(object):
     """
 
     def __init__(self, worker_num, tests, phone, options,
-                 autophone_queue, cmd_queue, logfile_prefix, loglevel, mailer):
+                 autophone_queue, queue, logfile_prefix, loglevel, mailer):
+        self.state = ProcessStates.RUNNING
         self.worker_num = worker_num
         self.tests = tests
         self.phone = phone
         self.options = options
+        # PhoneWorkerSubProcess.autophone_queue is used to pass
+        # messages back to the main Autophone process while
+        # PhoneWorkerSubProcess.queue is used to get messages from the
+        # main process.
         self.autophone_queue = autophone_queue
-        self.cmd_queue = cmd_queue
+        self.queue = queue
         self.logfile = logfile_prefix + '.log'
         self.outfile = logfile_prefix + '.out'
         self.loglevel = loglevel
         self.mailer = mailer
-        self._stop = False
         self.p = None
         self.jobs = jobs.Jobs(self.mailer, self.phone.id)
         self.build = None
@@ -261,8 +313,11 @@ class PhoneWorkerSubProcess(object):
 
     def is_alive(self):
         """Call from main process."""
-        alive = self.p and self.p.is_alive()
-        return alive
+        try:
+            return self.p and self.p.is_alive()
+        except Exception:
+            self.loggerdeco.exception('is_alive: PhoneWorkerSubProcess.p %s, pid %s' % (self.p, self.p.pid if self.p else None))
+        return False
 
     def start(self, phone_status=None):
         """Call from main process."""
@@ -517,12 +572,22 @@ class PhoneWorkerSubProcess(object):
         return {'success': False, 'message': message}
 
     def run_tests(self, job):
+        self.process_autophone_cmd(None)
+        if self.state == ProcessStates.SHUTTINGDOWN or self.is_disabled():
+            return False
         is_job_completed = True
         install_status = self.install_build(job)
         self.loggerdeco.info('Running tests for job %s' % job)
         for t in job['tests']:
-            if t.test_result.status == PhoneTestResult.USERCANCEL:
+            self.process_autophone_cmd(None)
+            if self.state == ProcessStates.SHUTTINGDOWN or self.is_disabled():
+                self.loggerdeco.info('Skipping test %s' % t.name)
+                is_job_completed = False
                 continue
+            if t.test_result.status == PhoneTestResult.USERCANCEL:
+                self.loggerdeco.info('Skipping Cancelled test %s' % t.name)
+                continue
+            self.loggerdeco.info('Running test %s' % t.name)
             is_test_completed = False
             # Save the test's job_quid since it will be reset during
             # the test's tear_down and we will need it to complete the
@@ -642,11 +707,22 @@ class PhoneWorkerSubProcess(object):
         self.build = BuildMetadata().from_json(cache_response['metadata'])
         self.loggerdeco.info('Starting job %s.' % job['build_url'])
         starttime = datetime.datetime.now()
-        if not self.run_tests(job) and job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
-            self.loggerdeco.info('Job will be retried.')
-        else:
+        if self.run_tests(job):
             self.loggerdeco.info('Job completed.')
             self.jobs.job_completed(job['id'])
+        elif self.state == ProcessStates.SHUTTINGDOWN:
+            # Decrement the job attempts so that the remaining
+            # tests aren't dropped simply due to a number of
+            # shutdowns.
+            job['attempts'] -= 1
+            self.loggerdeco.debug('Shutting down... Reset job id %d attempts to %d.' % (job['id'], job['attempts']))
+            self.jobs.set_job_attempts(job['id'], job['attempts'])
+        elif self.is_disabled():
+            pass
+        elif job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
+            self.loggerdeco.info('Job will be retried.')
+        else:
+            self.loggerdeco.info('Job attempts exceeded, will be deleted.')
         for t in self.tests:
             if t.test_result.status == PhoneTestResult.USERCANCEL:
                 self.loggerdeco.warning(
@@ -683,10 +759,10 @@ class PhoneWorkerSubProcess(object):
         if not request:
             self.loggerdeco.debug('handle_cmd: No request')
             return {'interrupt': False, 'reason': ''}
-        if request[0] == 'stop':
-            self.loggerdeco.info('Stopping at user\'s request...')
-            self._stop = True
-            return {'interrupt': True, 'reason': 'Worker stopped by administrator'}
+        if request[0] == 'shutdown':
+            self.loggerdeco.info('Shutting down at user\'s request...')
+            self.state = ProcessStates.SHUTTINGDOWN
+            return {'interrupt': False, 'reason': ''}
         if request[0] == 'job':
             # This is just a notification that breaks us from waiting on the
             # command queue; it's not essential, since jobs are stored in
@@ -731,7 +807,7 @@ class PhoneWorkerSubProcess(object):
     def process_autophone_cmd(self, test):
         while True:
             try:
-                request = self.cmd_queue.get(True, 1)
+                request = self.queue.get(True, 1)
                 command = self.handle_cmd(request, current_test=test)
                 if command['interrupt']:
                     return command
@@ -747,12 +823,13 @@ class PhoneWorkerSubProcess(object):
         request = None
         while True:
             try:
+                if self.state == ProcessStates.SHUTTINGDOWN:
+                    self.update_status(phone_status=PhoneStatus.SHUTDOWN)
+                    return
                 if not request:
-                    request = self.cmd_queue.get_nowait()
+                    request = self.queue.get_nowait()
                 self.handle_cmd(request)
                 request = None
-                if self._stop:
-                    return
             except Queue.Empty:
                 request = None
                 if self.is_disconnected():
@@ -780,7 +857,7 @@ class PhoneWorkerSubProcess(object):
                             self.jobs.job_completed(job['id'])
                     else:
                         try:
-                            request = self.cmd_queue.get(
+                            request = self.queue.get(
                                 timeout=self.options.phone_command_queue_timeout)
                         except Queue.Empty:
                             request = None
@@ -788,9 +865,8 @@ class PhoneWorkerSubProcess(object):
 
     def run(self):
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone.id,
-                                        'pid': os.getpid()},
-                                       '%(phoneid)s|%(pid)s|%(message)s')
+                                       {'phoneid': self.phone.id},
+                                       '%(phoneid)s|%(message)s')
 
         self.loggerdeco.info('PhoneWorker starting up.')
 

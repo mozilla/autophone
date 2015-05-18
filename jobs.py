@@ -202,6 +202,15 @@ class Jobs(object):
         self._close_connection(conn)
         return count
 
+    def set_job_attempts(self, jobid, attempts):
+        conn = self._conn()
+
+        self._execute_sql(
+            conn,
+            'update jobs set attempts=? where id=?',
+            values=(attempts, jobid))
+        self._commit_connection(conn)
+
     def get_next_job(self, lifo=False, device=None, worker=None):
         if not device:
             device = self.default_device

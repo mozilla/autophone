@@ -4,6 +4,7 @@
 
 import json
 import logging
+import socket
 import threading
 
 from kombu import Connection, Exchange, Queue
@@ -151,7 +152,8 @@ class AutophonePulseMonitor(object):
                  treeherder_url=None,
                  trees=[],
                  platforms=[],
-                 buildtypes=[]):
+                 buildtypes=[],
+                 timeout=5):
 
         assert userid, "userid is required."
         assert password, "password is required."
@@ -169,8 +171,10 @@ class AutophonePulseMonitor(object):
         # not make a match on a substring of the platform prematurely.
         self.platforms.sort(cmp=lambda x,y: (len(y) - len(x)))
         self.buildtypes = list(buildtypes)
+        self.timeout = timeout
 
         self.logger = logging.getLogger()
+        self._stopping = threading.Event()
         self.listen_thread = None
         # connection does not connect to the server until either the
         # connection.connect() method is called explicitly or until
@@ -205,6 +209,13 @@ class AutophonePulseMonitor(object):
         self.listen_thread.daemon = True
         self.listen_thread.start()
 
+    def stop(self):
+        """Stops the pulse monitor listen thread."""
+        self.logger.debug('AutophonePulseMonitor stopping')
+        self._stopping.set()
+        self.listen_thread.join()
+        self.logger.debug('AutophonePulseMonitor stopped')
+
     def is_alive(self):
         return self.listen_thread.is_alive()
 
@@ -217,13 +228,19 @@ class AutophonePulseMonitor(object):
             queue(self.connection).queue_declare(passive=False)
             queue(self.connection).queue_bind()
         with consumer:
-            while True:
+            while not self._stopping.is_set():
                 try:
-                    self.connection.drain_events()
+                    self.connection.drain_events(timeout=self.timeout)
+                except socket.timeout:
+                    pass
                 except KeyboardInterrupt:
                     raise
+        self.logger.debug('AutophonePulseMonitor.listen: stopping')
+        self.connection.release()
 
     def handle_message(self, data, message):
+        if self._stopping.is_set():
+            return
         message.ack()
         if '_meta' in data and 'payload' in data:
             self.handle_build(data, message)

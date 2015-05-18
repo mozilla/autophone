@@ -129,10 +129,9 @@ class S1S2Test(PerfTest):
                 break
             self.loggerdeco = LogDecorator(self.logger,
                                            {'phoneid': self.phone.id,
-                                            'pid': os.getpid(),
                                             'buildid': self.build.id,
                                             'testname': testname},
-                                           '%(phoneid)s|%(pid)s|%(buildid)s|'
+                                           '%(phoneid)s|%(buildid)s|'
                                            '%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %

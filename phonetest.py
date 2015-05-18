@@ -171,9 +171,8 @@ class PhoneTest(object):
         self.options = options
         self.logger = logging.getLogger('autophone.phonetest')
         self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone.id,
-                                        'pid': os.getpid()},
-                                       '%(phoneid)s|%(pid)s|%(message)s')
+                                       {'phoneid': self.phone.id},
+                                       '%(phoneid)s|%(message)s')
         self.logger_original = None
         self.loggerdeco_original = None
         self.dm_logger_original = None
@@ -393,10 +392,9 @@ class PhoneTest(object):
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone.id,
-                                        'pid': os.getpid(),
                                         'buildid': self.build.id,
                                         'test': self.name},
-                                       '%(phoneid)s|%(pid)s|%(buildid)s|%(test)s|'
+                                       '%(phoneid)s|%(buildid)s|%(test)s|'
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
         self.loggerdeco.debug('PhoneTest.setup_job')

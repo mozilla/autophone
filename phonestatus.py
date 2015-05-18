@@ -12,5 +12,6 @@ class PhoneStatus(object):
     REBOOTING = 'REBOOTING'
     DISCONNECTED = 'DISCONNECTED'  # temporary error
     DISABLED = 'DISABLED'  # permanent error
+    SHUTDOWN = 'SHUTDOWN' # worker shutdown, process exited
 
 

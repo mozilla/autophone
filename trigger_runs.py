@@ -26,7 +26,7 @@ def command_str(build, test_names, devices):
     job_data = {'build': build,
                 'test_names': test_names or [],
                 'devices': devices or []}
-    s = 'triggerjobs %s' % json.dumps(job_data)
+    s = 'autophone-triggerjobs %s' % json.dumps(job_data)
     return s
 
 
