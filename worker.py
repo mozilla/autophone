@@ -524,6 +524,10 @@ class PhoneWorkerSubProcess(object):
             if t.test_result.status == PhoneTestResult.USERCANCEL:
                 continue
             is_test_completed = False
+            # Save the test's job_quid since it will be reset during
+            # the test's tear_down and we will need it to complete the
+            # test.
+            test_job_guid = t.job_guid
             try:
                 self.check_battery()
                 t.setup_job()
@@ -573,7 +577,7 @@ class PhoneWorkerSubProcess(object):
             is_job_completed = is_job_completed and is_test_completed
             # Remove this test from the jobs database whether or not it
             # ran successfully.
-            self.jobs.test_completed(t.job_guid)
+            self.jobs.test_completed(test_job_guid)
             if not is_test_completed and job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
                 # This test did not run successfully and we have not
                 # exceeded the maximum number of attempts, therefore
@@ -643,6 +647,12 @@ class PhoneWorkerSubProcess(object):
         else:
             self.loggerdeco.info('Job completed.')
             self.jobs.job_completed(job['id'])
+        for t in self.tests:
+            if t.test_result.status == PhoneTestResult.USERCANCEL:
+                self.loggerdeco.warning(
+                    'Job %s, Cancelled Test: %s was not reset after '
+                    'the Job completed' % (job, t))
+                t.test_result.status = PhoneTestResult.SUCCESS
         if not self.is_disconnected() and not self.is_disabled():
             self.update_status(phone_status=PhoneStatus.IDLE,
                                build=self.build)

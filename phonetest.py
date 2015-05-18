@@ -465,6 +465,18 @@ class PhoneTest(object):
             except Exception:
                 self.logger.exception('Exception %s loading log')
             self.loggerdeco.debug(40 * '-')
+        # Reset the tests' volatile members in order to prevent them
+        # from being reused after a test has completed.
+        self.test_result = PhoneTestResult()
+        self.message = None
+        self.job_guid = None
+        self.job_details = []
+        self.submit_timestamp = None
+        self.start_timestamp = None
+        self.end_timestamp = None
+        self.upload_dir = None
+        self.start_time = None
+        self.stop_time = None
         self._log = None
         self.logcat = Logcat(self)
         if self.logger_original:
