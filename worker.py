@@ -529,8 +529,8 @@ class PhoneWorkerSubProcess(object):
             # test.
             test_job_guid = t.job_guid
             try:
-                self.check_battery()
                 t.setup_job()
+                self.check_battery()
                 if not install_status['success']:
                     self.loggerdeco.info('Not running test %s due to %s' % (
                         t.name, install_status['message']))
