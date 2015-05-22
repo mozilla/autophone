@@ -17,6 +17,10 @@ from logparser import LogParser
 from logdecorator import LogDecorator
 from phonetest import PhoneTest, PhoneTestResult
 
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
+
 
 class UnitTest(PhoneTest):
     def __init__(self, phone, options, config_file=None, chunk=1, repos=[]):
@@ -126,7 +130,7 @@ class UnitTest(PhoneTest):
 
         self.worker_subprocess.check_sdcard()
 
-        if self.logger.getEffectiveLevel() == logging.DEBUG:
+        if logger.getEffectiveLevel() == logging.DEBUG:
             self.loggerdeco.debug('phone = %s' % self.phone)
 
         if not self.cfg.has_option('runtests', 'test_name'):
@@ -261,7 +265,7 @@ class UnitTest(PhoneTest):
         lp = LogParser([logfilehandle.name],
                        includePass=True,
                        output_dir=None,
-                       logger=self.logger,
+                       logger=self.loggerdeco,
                        harnessType=self.parms['harness_type'])
         parsed_log = lp.parseFiles()
         self.loggerdeco.debug('process_test_log: LogParser parsed log : %s' %
@@ -282,14 +286,14 @@ class UnitTest(PhoneTest):
 
     def runtest(self):
 
-        self.loggerdeco = LogDecorator(self.logger,
+        self.loggerdeco = LogDecorator(logger,
                                        {'phoneid': self.phone.id,
                                         'buildid': self.parms['buildid'],
                                         'testname': self.parms['test_name']},
                                        '%(phoneid)s|%(buildid)s|'
                                        '%(testname)s|%(message)s')
 
-        if self.logger.getEffectiveLevel() == logging.DEBUG:
+        if logger.getEffectiveLevel() == logging.DEBUG:
             self.loggerdeco.debug('runtestsremote.py runtest start')
             for key in self.parms.keys():
                 self.loggerdeco.debug('test parameters: %s = %s' %

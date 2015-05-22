@@ -15,19 +15,17 @@ import urllib2
 import urlparse
 import uuid
 
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
 
-def get_remote_text(url, logger=None):
+def get_remote_text(url):
     """Return the string containing the contents of a remote url if the
     HTTP response code is 200, otherwise return None.
 
     :param url: url of content to be retrieved.
-
-    :param logger: logger instance. If not specified, the root logger
-        will be used instead.
     """
     conn = None
-    if not logger:
-        logger = logging.getLogger()
 
     try:
         scheme = urlparse.urlparse(url).scheme
@@ -66,22 +64,19 @@ def get_remote_text(url, logger=None):
     return content
 
 
-def get_remote_json(url, logger=None):
+def get_remote_json(url):
     """Return the json representation of the contents of a remote url if
     the HTTP response code is 200, otherwise return None.
 
     :param url: url of content to be retrieved.
-
-    :param logger: logger instance. If not specified, the root logger
-        will be used instead.
     """
-    content = get_remote_text(url, logger=logger)
+    content = get_remote_text(url)
     if content:
         content = json.loads(content)
     return content
 
 
-def get_build_data(build_url, logger=None):
+def get_build_data(build_url):
     """Return a dict containing information parsed from a build's .txt
     file.
 
@@ -94,13 +89,10 @@ def get_build_data(build_url, logger=None):
        'revision' : revision
 
     :param build_url: string containing url to the firefox build.
-
-    :param logger: logger instance. If not specified, the root logger
-        will be used instead.
     """
     build_prefix, build_ext = os.path.splitext(build_url)
     build_txt = build_prefix + '.txt'
-    content = get_remote_text(build_txt, logger=logger)
+    content = get_remote_text(build_txt)
     if not content:
         return None
 
@@ -125,20 +117,19 @@ def get_build_data(build_url, logger=None):
     return build_data
 
 
-def get_treeherder_revision_hash(treeherder_url, repo, revision, logger=None):
+def get_treeherder_revision_hash(treeherder_url, repo, revision):
     """Return the Treeherder revision_hash.
 
     :param treeherder_url: url to the treeherder server.
     :param repo: repository name for the revision.
     :param revision: revision id for the changeset.
-    :param logger: logger.
     """
     if not treeherder_url or not repo or not revision:
         return None
 
     revurl = '%s/api/project/%s/revision-lookup/?revision=%s' % (
         treeherder_url, repo, revision)
-    revision_lookup = get_remote_json(revurl, logger=logger)
+    revision_lookup = get_remote_json(revurl)
     if not revision_lookup:
         return None
 

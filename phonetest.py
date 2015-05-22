@@ -18,6 +18,10 @@ from adb_android import ADBAndroid as ADBDevice
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
 
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
+
 
 class Logcat(object):
     def __init__(self, phonetest):
@@ -77,9 +81,7 @@ class PhoneTest(object):
     @classmethod
     def match(cls, tests=None, test_name=None, phoneid=None,
               config_file=None, chunk=None, job_guid=None,
-              build_url=None, logger=None):
-        if not logger:
-            logger = logging.getLogger()
+              build_url=None):
 
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
                      'config_file: %s, chunk: %s, job_guid: %s, '
@@ -169,11 +171,9 @@ class PhoneTest(object):
         self.phone = phone
         self.worker_subprocess = None
         self.options = options
-        self.logger = logging.getLogger('autophone.phonetest')
-        self.loggerdeco = LogDecorator(self.logger,
+        self.loggerdeco = LogDecorator(logger,
                                        {'phoneid': self.phone.id},
                                        '%(phoneid)s|%(message)s')
-        self.logger_original = None
         self.loggerdeco_original = None
         self.dm_logger_original = None
         self.loggerdeco.info('init autophone.phonetest')
@@ -211,6 +211,16 @@ class PhoneTest(object):
         # Instrument running time
         self.start_time = None
         self.stop_time = None
+        # We need the PhoneTests created in the main process to have
+        # access to the devices. This duplicates the creation of
+        # ADBDevices in AutoPhone.read_devices. The dm propery will be
+        # overwritten by the PhoneWorkerSubProcess when it begins running.
+        self.dm = ADBDevice(device=self.phone.serial,
+                             logger_name='',
+                             device_ready_retry_wait=self.options.device_ready_retry_wait,
+                             device_ready_retry_attempts=self.options.device_ready_retry_attempts,
+                             verbose=self.options.verbose)
+        self.loggerdeco.info('PhoneTest: Connected.')
 
     def __str__(self):
         return '%s(%s, config_file=%s, chunk=%s)' % (type(self).__name__,
@@ -245,10 +255,6 @@ class PhoneTest(object):
     @property
     def name(self):
         return 'autophone-%s%s' % (self.__class__.__name__, self.name_suffix)
-
-    @property
-    def dm(self):
-        return self.worker_subprocess.dm
 
     @property
     def base_device_path(self):
@@ -372,11 +378,6 @@ class PhoneTest(object):
         self.stop_time = self.start_time
         # Clear the Treeherder job details.
         self.job_details = []
-        # Clear the log file if we are submitting logs to Treeherder.
-        if (self.worker_subprocess.options.treeherder_url and
-            self.worker_subprocess.build.revision_hash and
-            self.worker_subprocess.s3_bucket):
-            self.worker_subprocess.initialize_log_filehandler()
         self.worker_subprocess.treeherder.submit_running(
             self.phone.id,
             self.build.url,
@@ -384,13 +385,11 @@ class PhoneTest(object):
             self.build.revision_hash,
             tests=[self])
 
-        self.logger_original = self.logger
         self.loggerdeco_original = self.loggerdeco
         # self.dm._logger can raise ADBTimeoutError due to the
         # property dm therefore place it after the initialization.
         self.dm_logger_original = self.dm._logger
-        self.logger = logging.getLogger('autophone.worker.subprocess.test')
-        self.loggerdeco = LogDecorator(self.logger,
+        self.loggerdeco = LogDecorator(logger,
                                        {'phoneid': self.phone.id,
                                         'buildid': self.build.id,
                                         'test': self.name},
@@ -443,7 +442,7 @@ class PhoneTest(object):
                 shutil.rmtree(self.upload_dir)
             self.upload_dir = None
 
-        if (self.logger.getEffectiveLevel() == logging.DEBUG and self._log and
+        if (logger.getEffectiveLevel() == logging.DEBUG and self._log and
             os.path.exists(self._log)):
             self.loggerdeco.debug(40 * '=')
             try:
@@ -451,7 +450,7 @@ class PhoneTest(object):
                 self.loggerdeco.debug(logfilehandle.read())
                 logfilehandle.close()
             except Exception:
-                self.logger.exception('Exception %s loading log')
+                self.loggerdeco.exception('Exception %s loading log')
             self.loggerdeco.debug(40 * '-')
         # Reset the tests' volatile members in order to prevent them
         # from being reused after a test has completed.
@@ -467,8 +466,6 @@ class PhoneTest(object):
         self.stop_time = None
         self._log = None
         self.logcat = Logcat(self)
-        if self.logger_original:
-            self.logger = self.logger_original
         if self.loggerdeco_original:
             self.loggerdeco = self.loggerdeco_original
         if self.dm_logger_original:

@@ -13,6 +13,9 @@ import utils
 
 DEFAULT_SSL_PORT = 5671
 
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
 
 class AutophonePulseMonitor(object):
     """AutophonePulseMonitor provides the means to be notified when
@@ -173,7 +176,6 @@ class AutophonePulseMonitor(object):
         self.buildtypes = list(buildtypes)
         self.timeout = timeout
 
-        self.logger = logging.getLogger()
         self._stopping = threading.Event()
         self.listen_thread = None
         # connection does not connect to the server until either the
@@ -202,19 +204,20 @@ class AutophonePulseMonitor(object):
     def start(self):
         """Runs the `listen` method on a new thread."""
         if self.listen_thread and self.listen_thread.is_alive():
-            self.logger.warning('AutophonePulseMonitor.start: listen thread already started')
+            logger.warning('AutophonePulseMonitor.start: listen thread already started')
             return
-        self.logger.debug('AutophonePulseMonitor.start: listen thread starting')
-        self.listen_thread = threading.Thread(target=self.listen)
+        logger.debug('AutophonePulseMonitor.start: listen thread starting')
+        self.listen_thread = threading.Thread(target=self.listen,
+                                              name='PulseMonitorThread')
         self.listen_thread.daemon = True
         self.listen_thread.start()
 
     def stop(self):
         """Stops the pulse monitor listen thread."""
-        self.logger.debug('AutophonePulseMonitor stopping')
+        logger.debug('AutophonePulseMonitor stopping')
         self._stopping.set()
         self.listen_thread.join()
-        self.logger.debug('AutophonePulseMonitor stopped')
+        logger.debug('AutophonePulseMonitor stopped')
 
     def is_alive(self):
         return self.listen_thread.is_alive()
@@ -235,7 +238,7 @@ class AutophonePulseMonitor(object):
                     pass
                 except KeyboardInterrupt:
                     raise
-        self.logger.debug('AutophonePulseMonitor.listen: stopping')
+        logger.debug('AutophonePulseMonitor.listen: stopping')
         self.connection.release()
 
     def handle_message(self, data, message):
@@ -249,7 +252,7 @@ class AutophonePulseMonitor(object):
             self.handle_jobaction(data, message)
 
     def handle_build(self, data, message):
-        self.logger.debug(
+        logger.debug(
             'handle_build:\n'
             '\tdata   : %s\n'
             '\tmessage: %s' % (
@@ -258,7 +261,7 @@ class AutophonePulseMonitor(object):
         try:
             build = data['payload']['build']
         except (KeyError, TypeError), e:
-            self.logger.debug('AutophonePulseMonitor.handle_build_event: %s pulse build data' % e)
+            logger.debug('AutophonePulseMonitor.handle_build_event: %s pulse build data' % e)
             return
 
         fields = (
@@ -312,7 +315,7 @@ class AutophonePulseMonitor(object):
         self.build_callback(build_data)
 
     def handle_jobaction(self, data, message):
-        self.logger.debug(
+        logger.debug(
             'handle_jobaction:\n'
             '\tdata   : %s\n'
             '\tmessage: %s' % (
@@ -323,28 +326,28 @@ class AutophonePulseMonitor(object):
         job_id = data['job_id']
 
         if self.trees and project not in self.trees:
-            self.logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
+            logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                               'ignoring job action %s on tree %s' % (action, project))
             return
 
         job = self.get_treeherder_job(project, job_id)
         if not job:
-            self.logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
+            logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                               'ignoring unknown job id %s on tree %s' % (job_id, project))
             return
 
-        self.logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
+        logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                           'job %s' % json.dumps(job, sort_keys=True, indent=4))
 
         build_type = job['platform_option']
         if self.buildtypes and build_type not in self.buildtypes:
-            self.logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
+            logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                               'ignoring build type %s on tree %s' % (build_type, project))
             return
 
         build_artifact = self.get_treeherder_privatebuild_artifact(job)
         if not build_artifact:
-            self.logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
+            logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                               'ignoring missing privatebuild artifact on tree %s' % project)
             return
         build_url = build_artifact['blob']['build_url']
@@ -359,7 +362,7 @@ class AutophonePulseMonitor(object):
                     detected_platform = platform
                     break
             if not detected_platform:
-                self.logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
+                logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                                   'ignoring platform for build %s' % build_url)
                 return
 
@@ -385,7 +388,7 @@ class AutophonePulseMonitor(object):
     def get_treeherder_job(self, project, job_id):
         url = '%s/api/project/%s/jobs/%s' % (
             self.treeherder_url, project, job_id)
-        return utils.get_remote_json(url, logger=self.logger)
+        return utils.get_remote_json(url)
 
     def get_treeherder_privatebuild_artifact(self, job):
         if job:
@@ -393,7 +396,7 @@ class AutophonePulseMonitor(object):
                 if artifact['name'] == 'privatebuild':
                     url = '%s%s' % (
                         self.treeherder_url, artifact['resource_uri'])
-                    return utils.get_remote_json(url, logger=self.logger)
+                    return utils.get_remote_json(url)
         return None
 
 

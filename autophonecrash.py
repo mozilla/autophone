@@ -8,6 +8,7 @@
 # http://developer.android.com/training/articles/perf-anr.html
 
 import glob
+import logging
 import os
 import subprocess
 import re
@@ -15,6 +16,10 @@ import sys
 from collections import namedtuple
 
 from adb import ADBError
+
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
 
 traces = "/data/anr/traces.txt"
 tombstones = "/data/tombstones"
@@ -30,7 +35,7 @@ StackInfo = namedtuple("StackInfo",
 
 
 class AutophoneCrashProcessor(object):
-    def __init__(self, adbdevice, logger, remote_profile_dir, upload_dir):
+    def __init__(self, adbdevice, remote_profile_dir, upload_dir):
         """Initialize an AutophoneCrashProcessor object.
 
         AutophoneCrashProcessor re-implements several features from
@@ -45,7 +50,6 @@ class AutophoneCrashProcessor(object):
             ANR traces, tombstones uploaded from the device.
         """
         self.adb = adbdevice
-        self.logger = logger
         self.remote_profile_dir = remote_profile_dir
         self.upload_dir = upload_dir
         self._dump_files = None
@@ -62,7 +66,7 @@ class AutophoneCrashProcessor(object):
             self.adb.shell_output('echo > %s' % traces, root=root)
             self.adb.chmod(traces, mask='666', root=root)
         except ADBError, e:
-            self.logger.warning("Could not initialize ANR traces %s, %s" % (traces, e))
+            logger.warning("Could not initialize ANR traces %s, %s" % (traces, e))
 
     def check_for_anr_traces(self):
         """Reports the ANR traces file from the device.
@@ -75,19 +79,19 @@ class AutophoneCrashProcessor(object):
         if self.adb.exists(traces):
             try:
                 t = self.adb.shell_output("cat %s" % traces)
-                self.logger.info("Contents of %s:" % traces)
-                self.logger.info(t)
+                logger.info("Contents of %s:" % traces)
+                logger.info(t)
                 f = open(os.path.join(self.upload_dir, 'traces.txt', 'wb'))
                 f.write(t)
                 f.close()
                 # Once reported, delete traces
                 self.delete_anr_traces()
             except ADBError, e:
-                self.logger.warning("Error %s pulling %s" % (e, traces))
+                logger.warning("Error %s pulling %s" % (e, traces))
             except IOError, e:
-                self.logger.warning("Error %s pulling %s" % (e, traces))
+                logger.warning("Error %s pulling %s" % (e, traces))
         else:
-            self.logger.info("%s not found" % traces)
+            logger.info("%s not found" % traces)
 
     def delete_tombstones(self, root=True):
         """Deletes any existing tombstone files from device."""
@@ -121,11 +125,11 @@ class AutophoneCrashProcessor(object):
                     newname = "%s.%d.txt" % (f, i)
                     if not os.path.exists(newname):
                         os.rename(f, newname)
-                        self.logger.debug('AutophoneCrashProcessor.'
+                        logger.debug('AutophoneCrashProcessor.'
                                           'check_for_tombstones: %s' % newname)
                         break
         else:
-            self.logger.warning("%s does not exist; tombstone check skipped" % tombstones)
+            logger.warning("%s does not exist; tombstone check skipped" % tombstones)
 
     def get_java_exception(self):
         """Returns a summary of the first fatal Java exception found in
@@ -166,7 +170,7 @@ class AutophoneCrashProcessor(object):
                                      'signature': "%s %s" % (
                                          exception_type, exception_location)}
                 else:
-                    self.logger.warning("Automation Error: check_for_java_exceptions: Logcat is truncated!")
+                    logger.warning("Automation Error: check_for_java_exceptions: Logcat is truncated!")
                 break
         return exception
 
@@ -191,7 +195,7 @@ class AutophoneCrashProcessor(object):
                                      stackwalk being launched.
                    extra: Path of the extra file.
         """
-        self.logger.debug('AutophoneCrashProcessor.'
+        logger.debug('AutophoneCrashProcessor.'
                           '_process_dump_file: %s %s %s %s' % (
                               path, extra, symbols_path, stackwalk_binary))
         errors = []
@@ -240,7 +244,7 @@ class AutophoneCrashProcessor(object):
             if os.path.exists(extra):
                 os.unlink(extra)
 
-        self.logger.debug('AutophoneCrashProcessor.'
+        logger.debug('AutophoneCrashProcessor.'
                           '_process_dump_file: %s %s signature: %s '
                           'stdout: %s stderr: %s return code: %s errors: %s' %(
                               path, extra, signature, out, err, retcode, errors))
@@ -283,7 +287,7 @@ class AutophoneCrashProcessor(object):
             # minidumps directory is automatically created when Fennec
             # (first) starts, so its lack of presence is a hint that
             # something went wrong.
-            self.logger.warning("Automation Error: No crash directory (%s) "
+            logger.warning("Automation Error: No crash directory (%s) "
                                 "found on remote device" % self.remote_dump_dir)
             crashes.append({'reason': 'PROFILE-ERROR',
                             'signature': "No crash directory (%s) found on remote device" %
@@ -295,9 +299,9 @@ class AutophoneCrashProcessor(object):
                       glob.glob(os.path.join(self.upload_dir, '*.dmp'))]
         max_dumps = 10
         if len(dump_files) > max_dumps:
-            self.logger.warning("Found %d dump files -- limited to %d!" % (len(dump_files), max_dumps))
+            logger.warning("Found %d dump files -- limited to %d!" % (len(dump_files), max_dumps))
             del dump_files[max_dumps:]
-        self.logger.debug('AutophoneCrashProcessor.dump_files: %s' % dump_files)
+        logger.debug('AutophoneCrashProcessor.dump_files: %s' % dump_files)
         for path, extra in dump_files:
             info = self._process_dump_file(path, extra, symbols_path, stackwalk_binary, clean=clean)
             stackwalk_output = ["Crash dump filename: %s" % info.minidump_path]
@@ -310,7 +314,7 @@ class AutophoneCrashProcessor(object):
                 stackwalk_output.append("minidump_stackwalk exited with return code %d" %
                                         info.stackwalk_retcode)
             signature = info.signature if info.signature else "unknown top frame"
-            self.logger.info("application crashed [%s]" % signature)
+            logger.info("application crashed [%s]" % signature)
             crashes.append(
                 {'reason': 'PROCESS-CRASH',
                  'signature': signature,

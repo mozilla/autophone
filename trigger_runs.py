@@ -5,10 +5,10 @@
 import datetime
 import json
 import logging
+import logging.handlers
 import re
 import socket
 import sys
-from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
 
 import builds
 
@@ -51,13 +51,13 @@ def main(args, options):
             print 'Invalid log level %s' % options.loglevel_name
             return errno.EINVAL
 
-    logger = logging.getLogger('autophone.builds')
+    logger = logging.getLogger()
     logger.setLevel(loglevel)
-    filehandler = MultiprocessingTimedRotatingFileHandler(options.logfile,
-                                                          when='midnight',
-                                                          backupCount=7)
-    fileformatstring = ('%(asctime)s|%(levelname)s'
-                        '|builds|%(message)s')
+    filehandler = logging.handlers.TimedRotatingFileHandler(options.logfile,
+                                                            when='midnight',
+                                                            backupCount=7)
+    fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
+                        'trigger_runs|%(levelname)s|%(message)s')
     fileformatter = logging.Formatter(fileformatstring)
     filehandler.setFormatter(fileformatter)
     logger.addHandler(filehandler)

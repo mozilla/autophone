@@ -37,6 +37,9 @@ class LogDecorator(object):
     def logger(self):
         return self._logger
 
+    def getEffectiveLevel(self):
+        return self._logger.getEffectiveLevel()
+
     def debug(self, message, *args, **kwargs):
         self._logger.debug(self._expanded_message(message), *args, **kwargs)
 

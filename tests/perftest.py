@@ -56,7 +56,6 @@ class PerfTest(PhoneTest):
     def setup_job(self):
         PhoneTest.setup_job(self)
         self.crash_processor = AutophoneCrashProcessor(self.dm,
-                                                       self.loggerdeco,
                                                        self.profile_path,
                                                        self.upload_dir)
         self.crash_processor.clear()
@@ -252,7 +251,7 @@ class PerfTest(PhoneTest):
         self.loggerdeco.debug('check_results for: %s' % query)
 
         url = self._resulturl + 'check/?' + urllib.urlencode(query)
-        response = utils.get_remote_json(url, logger=self.loggerdeco)
+        response = utils.get_remote_json(url)
         self.loggerdeco.debug('check_results: content: %s' % response)
         if response:
             return response['result']

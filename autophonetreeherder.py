@@ -4,6 +4,7 @@
 
 import datetime
 import glob
+import logging
 import os
 import re
 import tempfile
@@ -19,6 +20,10 @@ from s3 import S3Error
 LEAK_RE = re.compile('\d+ bytes leaked \((.+)\)$')
 CRASH_RE = re.compile('.+ application crashed \[@ (.+)\]$')
 
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
+
 def timestamp_now():
     return int(time.mktime(datetime.datetime.now().timetuple()))
 
@@ -31,17 +36,16 @@ class TestState(object):
 
 class AutophoneTreeherder(object):
 
-    def __init__(self, worker_subprocess, logger, options, s3_bucket=None, mailer=None):
-        self.logger = logger
+    def __init__(self, worker_subprocess, options, s3_bucket=None, mailer=None):
         self.options = options
         self.s3_bucket = s3_bucket
         self.mailer = mailer
         self.worker = worker_subprocess
-        self.logger.debug('AutophoneTreeherder')
+        logger.debug('AutophoneTreeherder')
 
         self.url = self.options.treeherder_url
         if not self.url:
-            self.logger.debug('AutophoneTreeherder: no treeherder url')
+            logger.debug('AutophoneTreeherder: no treeherder url')
             return
 
         self.server = self.options.treeherder_server
@@ -52,7 +56,7 @@ class AutophoneTreeherder(object):
         self.retry_wait = self.options.treeherder_retry_wait
         self.bugscache_uri = '%s/api/bugscache/' % self.url
 
-        self.logger.debug('AutophoneTreeherder: %s' % self)
+        logger.debug('AutophoneTreeherder: %s' % self)
 
     def __str__(self):
         # Do not publish sensitive information
@@ -69,7 +73,7 @@ class AutophoneTreeherder(object):
         return '%s' % d
 
     def post_request(self, machine, project, job_collection):
-        self.logger.debug('AutophoneTreeherder.post_request: %s' % job_collection.__dict__)
+        logger.debug('AutophoneTreeherder.post_request: %s' % job_collection.__dict__)
 
         req = TreeherderRequest(
             protocol=self.protocol,
@@ -82,15 +86,15 @@ class AutophoneTreeherder(object):
         try:
             for attempt in range(1, self.retries+1):
                 response = req.post(job_collection)
-                self.logger.debug('AutophoneTreeherder.post_request attempt %d: '
-                                             'body: %s headers: %s msg: %s status: %s '
-                                             'reason: %s' % (
-                                                 attempt,
-                                                 response.read(),
-                                                 response.getheaders(),
-                                                 response.msg,
-                                                 response.status,
-                                                 response.reason))
+                logger.debug('AutophoneTreeherder.post_request attempt %d: '
+                             'body: %s headers: %s msg: %s status: %s '
+                             'reason: %s' % (
+                                 attempt,
+                                 response.read(),
+                                 response.getheaders(),
+                                 response.msg,
+                                 response.status,
+                                 response.reason))
                 if response.reason == 'OK':
                     break
                 msg = ('Attempt %d to post result to Treeherder failed.\n\n'
@@ -104,13 +108,13 @@ class AutophoneTreeherder(object):
                            response.read(), response.getheaders(),
                            response.msg, response.status,
                            response.reason))
-                self.logger.error(msg)
+                logger.error(msg)
                 if self.mailer:
                     self.mailer.send('Attempt %d for Phone %s failed to post to Treeherder' %
                                      (attempt, machine), msg)
                 time.sleep(self.retry_wait)
         except Exception, e:
-            self.logger.exception('Error submitting request to Treeherder')
+            logger.exception('Error submitting request to Treeherder')
             if self.mailer:
                 self.mailer.send('Error submitting request to Treeherder',
                                  'Phone: %s\n'
@@ -129,9 +133,9 @@ class AutophoneTreeherder(object):
         :param revision_hash: Treeherder revision hash of build.
         :param tests: Lists of tests to be reported.
         """
-        self.logger.debug('AutophoneTreeherder.submit_pending: %s' % tests)
+        logger.debug('AutophoneTreeherder.submit_pending: %s' % tests)
         if not self.url or not revision_hash:
-            self.logger.debug('AutophoneTreeherder.submit_pending: no url/revision hash')
+            logger.debug('AutophoneTreeherder.submit_pending: no url/revision hash')
             return
 
         tjc = TreeherderJobCollection(job_type='update')
@@ -141,14 +145,14 @@ class AutophoneTreeherder(object):
             t.submit_timestamp = timestamp_now()
             t.job_details = []
 
-            self.logger.info('creating Treeherder job %s for %s %s, '
-                                        'revision_hash: %s' % (
-                                            t.job_guid, t.name, project,
-                                            revision_hash))
+            logger.info('creating Treeherder job %s for %s %s, '
+                        'revision_hash: %s' % (
+                            t.job_guid, t.name, project,
+                            revision_hash))
 
-            self.logger.debug('AutophoneTreeherder.submit_pending: '
-                                         'test config_file=%s, config sections=%s' % (
-                                             t.config_file, t.cfg.sections()))
+            logger.debug('AutophoneTreeherder.submit_pending: '
+                         'test config_file=%s, config sections=%s' % (
+                             t.config_file, t.cfg.sections()))
 
             tj = tjc.get_job()
             tj.add_revision_hash(revision_hash)
@@ -182,7 +186,7 @@ class AutophoneTreeherder(object):
                 'chunk': t.chunk})
             tjc.add(tj)
 
-        self.logger.debug('AutophoneTreeherder.submit_pending: tjc: %s' % (
+        logger.debug('AutophoneTreeherder.submit_pending: tjc: %s' % (
             tjc.to_json()))
 
         self.post_request(machine, project, tjc)
@@ -196,16 +200,16 @@ class AutophoneTreeherder(object):
         :param revision_hash: Treeherder revision hash of build.
         :param tests: Lists of tests to be reported.
         """
-        self.logger.debug('AutophoneTreeherder.submit_running: %s' % tests)
+        logger.debug('AutophoneTreeherder.submit_running: %s' % tests)
         if not self.url or not revision_hash:
-            self.logger.debug('AutophoneTreeherder.submit_running: no url/revision hash')
+            logger.debug('AutophoneTreeherder.submit_running: no url/revision hash')
             return
 
         tjc = TreeherderJobCollection(job_type='update')
 
         for t in tests:
-            self.logger.debug('AutophoneTreeherder.submit_running: '
-                                         'for %s %s' % (t.name, project))
+            logger.debug('AutophoneTreeherder.submit_running: '
+                         'for %s %s' % (t.name, project))
 
             t.start_timestamp = timestamp_now()
 
@@ -238,8 +242,8 @@ class AutophoneTreeherder(object):
                 'chunk': t.chunk})
             tjc.add(tj)
 
-        self.logger.debug('AutophoneTreeherder.submit_running: tjc: %s' %
-                                     tjc.to_json())
+        logger.debug('AutophoneTreeherder.submit_running: tjc: %s' %
+                     tjc.to_json())
 
         self.post_request(machine, project, tjc)
 
@@ -253,17 +257,17 @@ class AutophoneTreeherder(object):
         :param revision_hash: Treeherder revision hash of build.
         :param tests: Lists of tests to be reported.
         """
-        self.logger.debug('AutophoneTreeherder.submit_complete: %s' % tests)
+        logger.debug('AutophoneTreeherder.submit_complete: %s' % tests)
 
         if not self.url or not revision_hash:
-            self.logger.debug('AutophoneTreeherder.submit_complete: no url/revision hash')
+            logger.debug('AutophoneTreeherder.submit_complete: no url/revision hash')
             return
 
         tjc = TreeherderJobCollection()
 
         for t in tests:
-            self.logger.debug('AutophoneTreeherder.submit_complete '
-                                         'for %s %s' % (t.name, project))
+            logger.debug('AutophoneTreeherder.submit_complete '
+                         'for %s %s' % (t.name, project))
 
             t.job_details.append({
                 'value': os.path.basename(t.config_file),
@@ -332,7 +336,7 @@ class AutophoneTreeherder(object):
                         for line in t.logcat.get(full=True):
                             f.write('%s\n' % line)
                     except:
-                        self.logger.exception('Error reading logcat %s' % fname)
+                        logger.exception('Error reading logcat %s' % fname)
                         t.job_details.append({
                             'value': 'Failed to read %s' % fname,
                             'content_type': 'text',
@@ -346,7 +350,7 @@ class AutophoneTreeherder(object):
                             'content_type': 'link',
                             'title': 'artifact uploaded:'})
                     except S3Error:
-                        self.logger.exception('Error uploading logcat %s' % fname)
+                        logger.exception('Error uploading logcat %s' % fname)
                         t.job_details.append({
                             'value': 'Failed to upload %s' % fname,
                             'content_type': 'text',
@@ -366,7 +370,7 @@ class AutophoneTreeherder(object):
                         # use treeherder's log parsing.
                         #tj.add_log_reference(logfile, url)
                     except Exception, e:
-                        self.logger.exception('Error %s uploading log %s' % (
+                        logger.exception('Error %s uploading log %s' % (
                             e, logfile))
                         t.job_details.append({
                             'value': 'Failed to upload log %s' % logfile,
@@ -387,7 +391,7 @@ class AutophoneTreeherder(object):
                                 'content_type': 'link',
                                 'title': 'artifact uploaded:'})
                         except S3Error:
-                            self.logger.exception('Error uploading artifact %s' % fname)
+                            logger.exception('Error uploading artifact %s' % fname)
                             t.job_details.append({
                                 'value': 'Failed to upload artifact %s' % fname,
                                 'content_type': 'text',
@@ -412,7 +416,7 @@ class AutophoneTreeherder(object):
                         'content_type': 'link',
                         'title': 'artifact uploaded:'})
                 except Exception, e:
-                    self.logger.exception('Error %s uploading %s' % (
+                    logger.exception('Error %s uploading %s' % (
                         e, fname))
                     t.job_details.append({
                         'value': 'Failed to upload Autophone log',
@@ -452,10 +456,10 @@ class AutophoneTreeherder(object):
             message = 'TestResult: %s %s %s' % (t.test_result.status, t.name, build_url)
             if t.message:
                 message += ', %s' % t.message
-            self.logger.info(message)
+            logger.info(message)
 
-        self.logger.debug('AutophoneTreeherder.submit_completed: tjc: %s' %
-                                     tjc.to_json())
+        logger.debug('AutophoneTreeherder.submit_completed: tjc: %s' %
+                     tjc.to_json())
 
         self.post_request(machine, project, tjc)
 
@@ -558,12 +562,12 @@ class AutophoneTreeherder(object):
             self.bugscache_uri,
             query_string
         )
-        return utils.get_remote_json(url, logger=self.logger)
+        return utils.get_remote_json(url, logger)
 
     # copied from https://github.com/mozilla/treeherder-service/blob/master/treeherder/log_parser/tasks.py
 
     def get_bug_suggestions(self, failures):
-        self.logger.debug('get_bug_suggestions: failures: %s' % failures)
+        logger.debug('get_bug_suggestions: failures: %s' % failures)
         try:
             bug_suggestions = []
             terms_requested = {}
@@ -613,7 +617,7 @@ class AutophoneTreeherder(object):
         except Exception:
             raise
 
-        self.logger.debug('get_bug_suggestions: %s' % bug_suggestions)
+        logger.debug('get_bug_suggestions: %s' % bug_suggestions)
         return bug_suggestions
 
 if __name__ == "__main__":

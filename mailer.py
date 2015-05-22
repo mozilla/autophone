@@ -7,9 +7,11 @@ import logging
 import socket
 from sendemail import sendemail
 
-class Mailer(object):
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
 
-    logger = logging.getLogger('autophone.mailer')
+class Mailer(object):
 
     def __init__(self, cfgfile, subject_prefix=''):
         self.cfgfile = cfgfile
@@ -24,20 +26,20 @@ class Mailer(object):
 
         cfg = ConfigParser.ConfigParser()
         if not cfg.read(self.cfgfile):
-            self.logger.info('No email configuration file found. No emails will be sent.')
+            logger.info('No email configuration file found. No emails will be sent.')
             return
 
         try:
             self.from_address = cfg.get('report', 'from')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self.logger.error('No "from" option defined in "report" section '
+            logger.error('No "from" option defined in "report" section '
                               'of file "%s".\n' % self.cfgfile)
             return
 
         try:
             self.mail_dest = [x.strip() for x in cfg.get('email', 'dest').split(',')]
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self.logger.error('No "dest" option defined in "email" section '
+            logger.error('No "dest" option defined in "email" section '
                               'of file "%s".\n' % self.cfgfile)
             return
 
@@ -86,5 +88,5 @@ class Mailer(object):
                       port=self.mail_port,
                       use_ssl=self.mail_ssl)
         except socket.error:
-            self.logger.exception('Failed to send email notification: '
+            logger.exception('Failed to send email notification: '
                                   'subject: %s, body: %s' % (subject, body))

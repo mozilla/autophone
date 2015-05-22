@@ -5,6 +5,7 @@
 import ConfigParser
 import datetime
 import glob
+import logging
 import os
 import posixpath
 import re
@@ -18,6 +19,11 @@ from adb import ADBError
 from logdecorator import LogDecorator
 from perftest import PerfTest
 from phonetest import PhoneTestResult
+
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
+
 
 class S1S2Test(PerfTest):
     def __init__(self, phone, options, config_file=None, chunk=1, repos=[]):
@@ -127,7 +133,7 @@ class S1S2Test(PerfTest):
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
             if self.fennec_crashed:
                 break
-            self.loggerdeco = LogDecorator(self.logger,
+            self.loggerdeco = LogDecorator(logger,
                                            {'phoneid': self.phone.id,
                                             'buildid': self.build.id,
                                             'testname': testname},

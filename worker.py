@@ -8,6 +8,7 @@ import Queue
 import copy
 import datetime
 import logging
+import logging.handlers
 import multiprocessing
 import os
 import posixpath
@@ -16,10 +17,17 @@ import sys
 import tempfile
 import time
 import traceback
-from multiprocessinghandlers import MultiprocessingTimedRotatingFileHandler
 
 import buildserver
 import jobs
+# The following direct imports are necessary in order to reference the
+# modules when we reset their global loggers:
+import autophonetreeherder
+import builds
+import mailer
+import phonetest
+import s3
+import utils
 from adb import ADBError, ADBTimeoutError
 from adb_android import ADBAndroid as ADBDevice
 from autophonetreeherder import AutophoneTreeherder
@@ -29,6 +37,11 @@ from phonestatus import PhoneStatus
 from phonetest import PhoneTest, PhoneTestResult
 from process_states import ProcessStates
 from s3 import S3Bucket
+from sensitivedatafilter import SensitiveDataFilter
+
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
 
 class Crashes(object):
 
@@ -91,6 +104,7 @@ class PhoneWorker(object):
 
     def __init__(self, worker_num, tests, phone, options,
                  autophone_queue, logfile_prefix, loglevel, mailer):
+
         self.state = ProcessStates.STARTING
         self.tests = tests
         self.phone = phone
@@ -114,11 +128,9 @@ class PhoneWorker(object):
                                                 autophone_queue,
                                                 self.queue, logfile_prefix,
                                                 loglevel, mailer)
-        self.logger = logging.getLogger('autophone.worker')
-        self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone.id,
-                                        'pid': os.getpid()},
-                                       '%(phoneid)s|%(pid)s|%(message)s')
+        self.loggerdeco = LogDecorator(logger,
+                                       {'phoneid': self.phone.id},
+                                       '%(phoneid)s|%(message)s')
         self.loggerdeco.debug('PhoneWorker:__init__')
 
     def is_alive(self):
@@ -230,6 +242,8 @@ class PhoneWorkerSubProcess(object):
 
     def __init__(self, worker_num, tests, phone, options,
                  autophone_queue, queue, logfile_prefix, loglevel, mailer):
+        global logger
+
         self.state = ProcessStates.RUNNING
         self.worker_num = worker_num
         self.tests = tests
@@ -246,58 +260,15 @@ class PhoneWorkerSubProcess(object):
         self.loglevel = loglevel
         self.mailer = mailer
         self.p = None
-        self.jobs = jobs.Jobs(self.mailer, self.phone.id)
+        self.jobs = None
         self.build = None
         self.last_ping = None
         self.dm = None
         self.phone_status = None
-        self.logger = logging.getLogger('autophone.worker.subprocess')
-        self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone.id,
-                                        'pid': os.getpid()},
-                                       '%(phoneid)s|%(pid)s|%(message)s')
-
-        # Moved this from a @property since having the ADBDevice initialized on the fly
-        # can cause problems.
-        self.loggerdeco.info('Worker: Connecting to %s...' % self.phone.id)
-        self.dm = ADBDevice(device=self.phone.serial,
-                            logger_name='autophone.worker.adb',
-                            device_ready_retry_wait=self.options.device_ready_retry_wait,
-                            device_ready_retry_attempts=self.options.device_ready_retry_attempts,
-                            verbose=self.options.verbose)
-
-        # Override mozlog.logger
-        self.dm._logger = self.loggerdeco
-        self.loggerdeco.info('Worker: Connected.')
-        self.loggerdeco.debug('PhoneWorkerSubProcess:__init__')
-        for t in tests:
-            t.worker_subprocess = self
-        if not options.s3_upload_bucket:
-            self.s3_bucket = None
-        else:
-            self.s3_bucket = S3Bucket(options.s3_upload_bucket,
-                                      options.aws_access_key_id,
-                                      options.aws_access_key,
-                                      self.loggerdeco)
-        self.treeherder = AutophoneTreeherder(self,
-                                              self.loggerdeco,
-                                              self.options,
-                                              s3_bucket=self.s3_bucket,
-                                              mailer=self.mailer)
         self.filehandler = None
-
-    def initialize_log_filehandler(self):
-        if self.filehandler:
-            self.filehandler.flush()
-            self.filehandler.close()
-            self.logger.removeHandler(self.filehandler)
-        self.filehandler = MultiprocessingTimedRotatingFileHandler(self.logfile,
-                                                                   mode='wb',
-                                                                   when='midnight',
-                                                                   backupCount=7)
-        self.fileformatter = logging.Formatter('%(asctime)s|%(levelname)s|%(message)s')
-        self.filehandler.setFormatter(self.fileformatter)
-        self.logger.addHandler(self.filehandler)
+        self.dm = None
+        self.s3_bucket = None
+        self.treeherder = None
 
     def _check_device(self):
         for attempt in range(1, self.options.phone_retry_limit+1):
@@ -314,17 +285,23 @@ class PhoneWorkerSubProcess(object):
     def is_alive(self):
         """Call from main process."""
         try:
+            if self.options.verbose:
+                logger.debug('is_alive: PhoneWorkerSubProcess.p %s, pid %s' % (
+                    self.p, self.p.pid if self.p else None))
             return self.p and self.p.is_alive()
         except Exception:
-            self.loggerdeco.exception('is_alive: PhoneWorkerSubProcess.p %s, pid %s' % (self.p, self.p.pid if self.p else None))
+            logger.exception('is_alive: PhoneWorkerSubProcess.p %s, pid %s' % (
+                self.p, self.p.pid if self.p else None))
         return False
 
     def start(self, phone_status=None):
         """Call from main process."""
-        self.loggerdeco.debug('PhoneWorkerSubProcess:start: %s' % phone_status)
+        logger.debug('PhoneWorkerSubProcess:start: %s %s' % (self.phone.id,
+                                                             phone_status))
         if self.p:
             if self.is_alive():
-                self.loggerdeco.debug('PhoneWorkerSubProcess:start - already alive')
+                logger.debug('PhoneWorkerSubProcess:start - %s already alive' %
+                             self.phone.id)
                 return
             del self.p
         self.phone_status = phone_status
@@ -334,13 +311,14 @@ class PhoneWorkerSubProcess(object):
 
     def stop(self):
         """Call from main process."""
-        self.loggerdeco.debug('PhoneWorkerSubProcess:stop')
+        logger.debug('PhoneWorkerSubProcess:stop %s' % self.phone.id)
         if self.is_alive():
-            self.loggerdeco.debug('PhoneWorkerSubProcess:stop p.terminate()')
+            logger.debug('PhoneWorkerSubProcess:stop p.terminate() %s' %
+                         self.phone.id)
             self.p.terminate()
-            self.loggerdeco.debug('PhoneWorkerSubProcess:stop p.join()')
+            logger.debug('PhoneWorkerSubProcess:stop p.join() %s' %
+                         self.phone.id)
             self.p.join(self.options.phone_command_queue_timeout*2)
-        self.loggerdeco.debug('PhoneWorkerSubProcess:stopped')
 
     def is_disconnected(self):
         return self.phone_status == PhoneStatus.DISCONNECTED
@@ -490,7 +468,7 @@ class PhoneWorkerSubProcess(object):
 
         """
         self.loggerdeco.debug('cancel_test: test.job_guid %s' % test_guid)
-        tests = PhoneTest.match(job_guid=test_guid, logger=self.loggerdeco)
+        tests = PhoneTest.match(job_guid=test_guid)
         if tests:
             assert len(tests) == 1, "test.job_guid %s is not unique" % test_guid
             for test in tests:
@@ -734,6 +712,10 @@ class PhoneWorkerSubProcess(object):
                                build=self.build)
         stoptime = datetime.datetime.now()
         self.loggerdeco.info('Job elapsed time: %s' % (stoptime - starttime))
+        # Close the log filehandler to truncate the log if we are
+        # submitting logs to Treeherder.
+        if self.treeherder.url:
+            self.filehandler.close()
 
     def handle_cmd(self, request, current_test=None):
         """Execute the command dispatched from the Autophone process.
@@ -864,19 +846,82 @@ class PhoneWorkerSubProcess(object):
                             self.handle_timeout()
 
     def run(self):
-        self.loggerdeco = LogDecorator(self.logger,
-                                       {'phoneid': self.phone.id},
-                                       '%(phoneid)s|%(message)s')
-
-        self.loggerdeco.info('PhoneWorker starting up.')
+        global logger
 
         sys.stdout = file(self.outfile, 'a', 0)
         sys.stderr = sys.stdout
-        self.initialize_log_filehandler()
+        # Complete initialization of PhoneWorkerSubProcess in the new
+        # process.
+        sensitive_data_filter = SensitiveDataFilter(self.options.sensitive_data)
+        logger = logging.getLogger()
+        logger.addFilter(sensitive_data_filter)
+        logger.propagate = False
+        logger.setLevel(self.loglevel)
+        # Remove any handlers inherited from the main process.  This
+        # prevents these handlers from causing the main process to log
+        # the same messages.
+        for handler in logger.handlers:
+            handler.flush()
+            handler.close()
+            logger.removeHandler(handler)
+        for other_logger_name, other_logger in logger.manager.loggerDict.iteritems():
+            if not hasattr(other_logger, 'handlers'):
+                continue
+            other_logger.addFilter(sensitive_data_filter)
+            for other_handler in other_logger.handlers:
+                other_handler.flush()
+                other_handler.close()
+                other_logger.removeHandler(other_handler)
+            other_logger.addHandler(logging.NullHandler())
+
+        # We can't use a TimedRotatingFileHandler since we want to use
+        # mode='w' and close() to clear the log. This is not an issue
+        # when submitting to Treeherder since the log is cleard after
+        # every test, but should be remembered when running stand
+        # alone.
+        self.filehandler = logging.FileHandler(self.logfile, mode='w')
+        fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
+                            '%(levelname)s|%(message)s')
+        fileformatter = logging.Formatter(fileformatstring)
+        self.filehandler.setFormatter(fileformatter)
+        logger.addHandler(self.filehandler)
+
+        self.loggerdeco = LogDecorator(logger,
+                                       {'phoneid': self.phone.id},
+                                       '%(phoneid)s|%(message)s')
+        # Set the loggers for the imported modules
+        for module in (autophonetreeherder, builds, jobs, mailer, phonetest,
+                       s3, utils):
+            module.logger = logger
+        self.loggerdeco.info('Worker: Connecting to %s...' % self.phone.id)
+        # Moved this from a @property since having the ADBDevice initialized on the fly
+        # can cause problems.
+        self.dm = ADBDevice(device=self.phone.serial,
+                            device_ready_retry_wait=self.options.device_ready_retry_wait,
+                            device_ready_retry_attempts=self.options.device_ready_retry_attempts,
+                            verbose=self.options.verbose)
+        # Override mozlog.logger
+        self.dm._logger = self.loggerdeco
+
+        self.jobs = jobs.Jobs(self.mailer, self.phone.id)
+
+        self.loggerdeco.info('Worker: Connected.')
 
         for t in self.tests:
+            t.loggerdeco_original = None
+            t.dm_logger_original = None
+            t.loggerdeco = self.loggerdeco
+            t.worker_subprocess = self
+            t.dm = self.dm
             t.update_status_cb = self.update_status
-
+        if self.options.s3_upload_bucket:
+            self.s3_bucket = S3Bucket(self.options.s3_upload_bucket,
+                                      self.options.aws_access_key_id,
+                                      self.options.aws_access_key)
+        self.treeherder = AutophoneTreeherder(self,
+                                              self.options,
+                                              s3_bucket=self.s3_bucket,
+                                              mailer=self.mailer)
         self.update_status(phone_status=PhoneStatus.IDLE)
         if not self.check_sdcard():
             self.recover_phone()

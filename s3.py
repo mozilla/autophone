@@ -5,6 +5,7 @@
 # modeled after https://github.com/mozilla-b2g/gaia/blob/master/tests/python/gaia-ui-tests/gaiatest/mixins/treeherder.py
 
 import gzip
+import logging
 import os
 import re
 import tempfile
@@ -12,18 +13,21 @@ import tempfile
 import boto
 import boto.s3.connection
 
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
+
 class S3Error(Exception):
     def __init__(self, message):
         Exception.__init__(self, 'S3Error: %s' % message)
 
 class S3Bucket(object):
 
-    def __init__(self, bucket_name, access_key_id, access_secret_key, logger):
+    def __init__(self, bucket_name, access_key_id, access_secret_key):
         self.bucket_name = bucket_name
         self._bucket = None
         self.access_key_id = access_key_id
         self.access_secret_key = access_secret_key
-        self._logger = logger
 
     @property
     def bucket(self):
@@ -38,10 +42,10 @@ class S3Bucket(object):
                 self._bucket = conn.get_bucket(self.bucket_name)
             return self._bucket
         except boto.exception.NoAuthHandlerFound:
-            self._logger.exception()
+            logger.exception()
             raise S3Error('Authentication failed')
         except boto.exception.S3ResponseError, e:
-            self._logger.exception()
+            logger.exception()
             raise S3Error('%s' % e)
 
     def ls(self, keypattern='.*'):
@@ -59,14 +63,14 @@ class S3Bucket(object):
             for key in keys:
                 key.delete()
         except boto.exception.S3ResponseError, e:
-            self._logger.exception(str(e))
+            logger.exception(str(e))
             raise S3Error('%s' % e)
 
     def upload(self, path, destination):
         try:
             key = self.bucket.get_key(destination)
             if not key:
-                self._logger.debug('Creating key: %s' % destination)
+                logger.debug('Creating key: %s' % destination)
                 key = self.bucket.new_key(destination)
 
             ext = os.path.splitext(path)[-1]
@@ -74,33 +78,31 @@ class S3Bucket(object):
                 key.set_metadata('Content-Type', 'text/plain')
 
             with tempfile.NamedTemporaryFile('w+b', suffix=ext) as tf:
-                self._logger.debug('Compressing: %s' % path)
+                logger.debug('Compressing: %s' % path)
                 with gzip.GzipFile(path, 'wb', fileobj=tf) as gz:
                     with open(path, 'rb') as f:
                         gz.writelines(f)
                 tf.flush()
                 tf.seek(0)
                 key.set_metadata('Content-Encoding', 'gzip')
-                self._logger.debug('Setting key contents from: %s' % tf.name)
+                logger.debug('Setting key contents from: %s' % tf.name)
                 key.set_contents_from_filename(tf.name)
 
             url = key.generate_url(expires_in=0,
                                    query_auth=False)
         except boto.exception.S3ResponseError, e:
-            self._logger.exception(str(e))
+            logger.exception(str(e))
             raise S3Error('%s' % e)
 
-        self._logger.debug('File %s uploaded to: %s' % (path, url))
+        logger.debug('File %s uploaded to: %s' % (path, url))
         return url
 
 if __name__ == '__main__':
     import ConfigParser
-    import logging
     import sys
     from optparse import OptionParser
 
     logging.basicConfig()
-    logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
     parser = OptionParser()
@@ -218,8 +220,7 @@ if __name__ == '__main__':
 
     s3bucket = S3Bucket(cmd_options.s3_upload_bucket,
                         cmd_options.aws_access_key_id,
-                        cmd_options.aws_access_key,
-                        logger)
+                        cmd_options.aws_access_key)
 
     if cmd_options.upload:
         print s3bucket.upload(cmd_options.upload, cmd_options.key)

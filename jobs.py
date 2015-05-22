@@ -10,7 +10,9 @@ import sqlite3
 import time
 import traceback
 
-logger = logging.getLogger('autophone.jobs')
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
 
 class Jobs(object):
 

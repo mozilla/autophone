@@ -27,7 +27,9 @@ from build_dates import (TIMESTAMP, DIRECTORY_DATE, DIRECTORY_DATETIME,
                          set_time_zone, convert_buildid_to_date,
                          convert_timestamp_to_date)
 
-logger = logging.getLogger('autophone.builds')
+# Set the logger globally in the file, but this must be reset when
+# used in a child process.
+logger = logging.getLogger()
 
 repo_urls = {
     'b2g-inbound': 'http://hg.mozilla.org/integration/b2g-inbound/',
@@ -51,7 +53,7 @@ def url_links(url):
 
     returns: list of BeautifulSoup links.
     """
-    content = utils.get_remote_text(url, logger=logger)
+    content = utils.get_remote_text(url)
     if not content:
         return []
 
@@ -104,7 +106,6 @@ class BuildLocation(object):
         self.build_regex = re.compile("(%s%s)" % (buildfile_pattern,
                                                   self.buildfile_ext))
         self.buildtxt_regex = re.compile("(%s)\.txt" % buildfile_pattern)
-
         logger.debug('BuildLocation: '
                      'repos: %s, '
                      'buildtypes: %s, '
@@ -363,7 +364,7 @@ class BuildLocation(object):
                                              search_directory_repo,
                                              search_directory, directory_repo,
                                              directory_name, build_url))
-                                build_data = utils.get_build_data(build_url, logger=logger)
+                                build_data = utils.get_build_data(build_url)
                                 if build_data:
                                     if repo != build_data['repo']:
                                         logger.info('find_builds_by_revisions: '
@@ -837,7 +838,7 @@ class BuildMetadata(object):
             # revision id.
             changeset = os.path.basename(urlparse.urlparse(revision).path)
             self.revision_hash = utils.get_treeherder_revision_hash(
-                treeherder_url, tree, changeset, logger=logger)
+                treeherder_url, tree, changeset)
             if not self.revision_hash:
                 logger.warning('Failed to get the revision_hash for %s' %
                                self.revision)
