@@ -720,8 +720,6 @@ class PhoneWorkerSubProcess(object):
             # update any existing ADB objects
             if self.dm:
                 self.dm.log_level = self.options.debug
-            for t in self.tests:
-                t.set_dm_debug(self.options.debug)
             return {'interrupt': False, 'reason': ''}
         if request[0] == 'ping':
             self.loggerdeco.info('Pinging at user\'s request...')

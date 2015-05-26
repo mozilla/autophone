@@ -180,7 +180,6 @@ class PhoneTest(object):
         self.loggerdeco.info('init autophone.phonetest')
         self._base_device_path = ''
         self.profile_path = '/data/local/tmp/profile'
-        self._dm = None
         self.repos = repos
         self._log = None
         # Treeherder related items.
@@ -230,7 +229,7 @@ class PhoneTest(object):
 
     def _check_device(self):
         for attempt in range(1, self.options.phone_retry_limit+1):
-            output = self._dm.get_state()
+            output = self.dm.get_state()
             if output == 'device':
                 break
             self.loggerdeco.warning(
@@ -250,18 +249,7 @@ class PhoneTest(object):
 
     @property
     def dm(self):
-        if not self._dm:
-            self.loggerdeco.info('PhoneTest: Connecting to %s...' % self.phone.id)
-            self._dm = ADBDevice(device=self.phone.serial,
-                                 logger_name='autophone.phonetest.adb',
-                                 device_ready_retry_wait=self.options.device_ready_retry_wait,
-                                 device_ready_retry_attempts=self.options.device_ready_retry_attempts,
-                                 verbose=self.options.verbose)
-            # Override mozlog.logger
-            self._dm._logger = self.loggerdeco
-            self.loggerdeco.info('PhoneTest: Connected.')
-        self._check_device()
-        return self._dm
+        return self.worker_subprocess.dm
 
     @property
     def base_device_path(self):
@@ -485,11 +473,6 @@ class PhoneTest(object):
             self.loggerdeco = self.loggerdeco_original
         if self.dm_logger_original:
             self.dm._logger = self.dm_logger_original
-
-    def set_dm_debug(self, level):
-        self.options.debug = level
-        if self._dm:
-            self._dm.log_level = level
 
     def update_status(self, phone_status=None, message=None):
         if self.update_status_cb:
