@@ -369,11 +369,8 @@ class PhoneTest(object):
                 self.loggerdeco.warning('Unknown error reason: %s' % error['reason'])
 
     def setup_job(self):
-        self.logger_original = self.logger
-        self.loggerdeco_original = self.loggerdeco
-        self.dm_logger_original = self.dm._logger
         self.start_time = datetime.datetime.now()
-        self.stop_time = None
+        self.stop_time = self.start_time
         # Clear the Treeherder job details.
         self.job_details = []
         # Clear the log file if we are submitting logs to Treeherder.
@@ -388,6 +385,11 @@ class PhoneTest(object):
             self.build.revision_hash,
             tests=[self])
 
+        self.logger_original = self.logger
+        self.loggerdeco_original = self.loggerdeco
+        # self.dm._logger can raise ADBTimeoutError due to the
+        # property dm therefore place it after the initialization.
+        self.dm_logger_original = self.dm._logger
         self.logger = logging.getLogger('autophone.worker.subprocess.test')
         self.loggerdeco = LogDecorator(self.logger,
                                        {'phoneid': self.phone.id,
