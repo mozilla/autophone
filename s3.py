@@ -48,17 +48,17 @@ class S3Bucket(object):
             logger.exception()
             raise S3Error('%s' % e)
 
-    def ls(self, keypattern='.*'):
+    def ls(self, keypattern='.*', prefix=''):
         if isinstance(keypattern, str):
             keypattern = re.compile(keypattern)
-        keys = [key for key in self.bucket.list() if keypattern.match(key.name)]
+        keys = [key for key in self.bucket.list(prefix=prefix) if keypattern.match(key.name)]
         return keys
 
-    def rm(self, keys):
-        assert isinstance(keys, list) or isinstance(keys, str)
+    def rm(self, keys=[], keypattern=None, prefix=''):
+        assert isinstance(keys, list) or isinstance(keypattern, str)
 
-        if isinstance(keys, str):
-            keys = self.ls(keys)
+        if isinstance(keypattern, str):
+            keys = self.ls(prefix=prefix, keypattern=keypattern)
         try:
             for key in keys:
                 key.delete()
@@ -163,6 +163,12 @@ if __name__ == '__main__':
                       type='string',
                       default=None,
                       help='Delete matching keys in bucket.')
+    parser.add_option('--prefix',
+                      dest='prefix',
+                      action='store',
+                      type='string',
+                      default='',
+                      help='Limit matching keys by prefix.')
     parser.add_option('--upload',
                       dest='upload',
                       action='store',
@@ -225,7 +231,9 @@ if __name__ == '__main__':
     if cmd_options.upload:
         print s3bucket.upload(cmd_options.upload, cmd_options.key)
     if cmd_options.ls:
-        for key in s3bucket.ls(cmd_options.ls):
+        for key in s3bucket.ls(prefix=cmd_options.prefix,
+                               keypattern=cmd_options.ls):
             print key.name
     if cmd_options.rm:
-        s3bucket.rm(cmd_options.rm)
+        s3bucket.rm(prefix=cmd_options.prefix,
+                    keypattern=cmd_options.rm)
