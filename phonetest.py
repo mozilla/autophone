@@ -236,6 +236,11 @@ class PhoneTest(object):
         assert key not in PhoneTest.instances, 'Duplicate PhoneTest %s' % key
         PhoneTest.instances[key] = self
 
+    def remove(self):
+        key = '%s:%s:%s' % (self.phone.id, self.config_file, self.chunk)
+        if key in PhoneTest.instances:
+            del PhoneTest.instances[key]
+
     def _check_device(self):
         for attempt in range(1, self.options.phone_retry_limit+1):
             output = self.dm.get_state()

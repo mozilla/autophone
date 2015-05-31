@@ -26,7 +26,7 @@ import buildserver
 import jobs
 import utils
 
-#from adb import ADBHost
+from adb import ADBHost
 from adb_android import ADBAndroid as ADBDevice
 from autophonepulsemonitor import AutophonePulseMonitor
 from autophonetreeherder import AutophoneTreeherder
@@ -215,33 +215,54 @@ class AutoPhone(object):
     def check_for_dead_workers(self):
         if self.state != ProcessStates.RUNNING:
             return
-        for phoneid, worker in self.phone_workers.iteritems():
+        workers = self.phone_workers.values()
+        for worker in workers:
             if not worker.is_alive():
-                if phoneid in self.restart_workers:
+                logger.debug('Worker %s %s is not alive' % (worker.phone.id, worker.state))
+                if worker.phone.id in self.restart_workers:
+                    initial_state = PhoneStatus.IDLE
                     logger.info('Worker %s exited; restarting with new '
-                                     'values.' % phoneid)
-                    self.create_worker(self.restart_workers[phoneid])
-                    del self.restart_workers[phoneid]
-                    continue
-
-                console_logger.error('Worker %s died!' % phoneid)
-                worker.stop()
-                worker.crashes.add_crash()
-                msg_subj = 'Worker for phone %s died' % \
-                    worker.phone.id
-                msg_body = 'Hello, this is Autophone. Just to let you know, ' \
-                    'the worker process\nfor phone %s died.\n' % \
-                    worker.phone.id
-                if worker.crashes.too_many_crashes():
-                    initial_state = PhoneStatus.DISABLED
-                    msg_subj += ' and was disabled'
-                    msg_body += 'It looks really crashy, so I disabled it. ' \
-                        'Sorry about that.\n'
+                                 'values.' % worker.phone.id)
+                elif worker.state == ProcessStates.STOPPING:
+                    initial_state = PhoneStatus.IDLE
+                    console_logger.info('Worker %s stopped' % worker.phone.id)
                 else:
-                    initial_state = PhoneStatus.DISCONNECTED
-                worker.start(initial_state)
-                logger.info('Sending notification...')
-                self.mailer.send(msg_subj, msg_body)
+                    console_logger.error('Worker %s died!' % worker.phone.id)
+                    msg_subj = 'Worker for phone %s died' % \
+                        worker.phone.id
+                    msg_body = 'Hello, this is Autophone. Just to let you know, ' \
+                        'the worker process\nfor phone %s died.\n' % \
+                        worker.phone.id
+                    if worker.crashes.too_many_crashes():
+                        initial_state = PhoneStatus.DISABLED
+                        msg_subj += ' and was disabled'
+                        msg_body += 'It looks really crashy, so I disabled it. ' \
+                            'Sorry about that.\n'
+                    else:
+                        initial_state = PhoneStatus.DISCONNECTED
+                    logger.info('Sending notification...')
+                    self.mailer.send(msg_subj, msg_body)
+
+                # Have to remove the tests for the worker prior to
+                # recreating it in order to remove it from the
+                # PhoneTest.instances.
+                while worker.tests:
+                    t = worker.tests.pop()
+                    t.remove()
+
+                # Do we need to worry about a race between the pulse
+                # monitor locking the shared lock?
+
+                # We can not re-use the original worker instance since
+                # we need to recreate the multiprocessing.Process
+                # object before we can call start on it again.
+                console_logger.info('Worker %s is restarting' % worker.phone.id)
+                # Save the record of crashes before recreating the
+                # Worker, then restore it afterwards.
+                crashes = worker.crashes
+                new_worker = self.create_worker(worker.phone)
+                new_worker.crashes = crashes
+                new_worker.start(initial_state)
 
     def worker_msg_loop(self):
         self.lock_acquire()
@@ -265,21 +286,29 @@ class AutoPhone(object):
                     # Reacquire the lock.
                     self.lock_acquire()
                 self.phone_workers[msg.phone.id].process_msg(msg)
-                if (self.state == ProcessStates.SHUTTINGDOWN and
-                    msg.phone_status == PhoneStatus.SHUTDOWN):
+                if msg.phone_status == PhoneStatus.SHUTDOWN:
+                    # Have to remove the tests for the worker prior to
+                    # removing it in order to remove it from the
+                    # PhoneTest.instances so that it will not appear
+                    # in future PhoneTest.match results.
+                    worker = self.phone_workers[msg.phone.id]
+                    while worker.tests:
+                        t = worker.tests.pop()
+                        t.remove()
                     del self.phone_workers[msg.phone.id]
+                    console_logger.info('Worker %s is shutdown' % msg.phone.id)
         except KeyboardInterrupt:
             pass
         finally:
             if self.pulse_monitor:
                 self.pulse_monitor.stop()
                 self.pulse_monitor = None
-            for p in self.phone_workers.values():
-                p.stop()
             if self.server:
                 self.server.shutdown()
             if self.server_thread:
                 self.server_thread.join()
+            for p in self.phone_workers.values():
+                p.stop()
             self.lock_release()
 
     # Start the phones for testing
@@ -364,23 +393,28 @@ class AutoPhone(object):
             # Device commands have prefix device- and are mapped into
             # PhoneWorker methods by stripping the leading 'device-'
             # from the command.  The device id is the first parameter.
-            cmd = cmd.replace('device-', '')
-            phoneid, space, params = params.partition(' ')
-            response = 'error: phone not found'
-            for worker in self.phone_workers.values():
-                if (phoneid.lower() == 'all' or
-                    worker.phone.serial == phoneid or
-                    worker.phone.id == phoneid):
-                    f = getattr(worker, cmd)
-                    if params:
-                        value = f(params)
-                    else:
-                        value = f()
-                    if value:
-                        response = '%s\n' % value
-                    else:
-                        response = ''
-                    response += 'ok'
+            valid_cmds = ('is_alive', 'stop', 'shutdown', 'reboot', 'disable',
+                          'enable', 'debug', 'ping', 'status')
+            cmd = cmd.replace('device-', '').replace('-', '_')
+            if cmd not in valid_cmds:
+                response = 'Unknown command device-%s' % cmd
+            else:
+                phoneid, space, params = params.partition(' ')
+                response = 'error: phone not found'
+                for worker in self.phone_workers.values():
+                    if (phoneid.lower() == 'all' or
+                        worker.phone.serial == phoneid or
+                        worker.phone.id == phoneid):
+                        f = getattr(worker, cmd)
+                        if params:
+                            value = f(params)
+                        else:
+                            value = f()
+                        if value is not None:
+                            response = '%s\n' % value
+                        else:
+                            response = ''
+                        response += 'ok'
         elif cmd == 'autophone-stop':
             self.stop()
         elif cmd == 'autophone-shutdown':
@@ -396,6 +430,56 @@ class AutoPhone(object):
             for i in phoneids:
                 response += self.phone_workers[i].status()
             response += 'ok'
+        elif cmd == 'autophone-help':
+            response = '''
+Autophone command help:
+
+autophone-help
+    Generate this message.
+
+autophone-status
+    Generate a status report for each device.
+
+autophone-shutdown
+    Shutdown each worker after it's current test, then
+    shutdown autophone.
+
+autophone-stop
+    Immediately stop autophone and all worker processes; may be
+    delayed by pending download.
+
+device-is-alive <device>
+   Check if the device's worker process is alive, report to log.
+
+device-stop <device>
+   Immediately stop the device's worker process. The worker will be
+   automatically restarted.
+
+device-shutdown  <device>
+   Shutdown the device's worker process after the current test. The
+   device's worker process will not be restarted and will be removed
+   from the active list of workers.
+
+device-reboot  <device>
+   Reboot the device.
+
+device-disable <device>
+   Disable the device's worker and cancel its pending jobs.
+
+device-enable <device>
+   Enable a disabled device's worker.
+
+device-debug <device> <level>
+   Set the device's debug level.
+
+device-ping <device>
+   Issue a ping command to the device's worker which checks the sdcard
+   availability.
+
+device-status <device>
+   Generate a status report for the device's worker.
+ok
+'''
         else:
             response = 'Unknown command "%s"\n' % cmd
         return response
@@ -442,6 +526,7 @@ class AutoPhone(object):
                              '%s-%s' % (logfile_prefix, phone.id),
                              self.loglevel, self.mailer, self.shared_lock)
         self.phone_workers[phone.id] = worker
+        return worker
 
     def register_cmd(self, data):
         try:
@@ -798,12 +883,12 @@ def main(options):
     console_logger.info('Starting build-cache server on port %d.' %
                         options.build_cache_port)
 
-    # Calling kill_server on the mac mini Autophone host horks
-    # subsequent calls to adb devices. Temporarily disable until
-    # this is resolved.
-    # ensure that the previous runs have not left open adb ports.
-    #adbhost = ADBHost()
-    #adbhost.kill_server()
+    # By starting adb server before the build cache, we prevent adb
+    # from listening to the build cache client port, thus preventing
+    # restart without first killing adb.
+    adbhost = ADBHost()
+    adbhost.start_server()
+
 
     product = 'fennec'
     build_platforms = ['android',

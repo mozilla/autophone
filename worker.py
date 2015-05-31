@@ -301,8 +301,8 @@ class PhoneWorkerSubProcess(object):
 
     def start(self, phone_status=None):
         """Call from main process."""
-        logger.debug('PhoneWorkerSubProcess:start: %s %s' % (self.phone.id,
-                                                             phone_status))
+        logger.debug('PhoneWorkerSubProcess:starting: %s %s' % (self.phone.id,
+                                                                phone_status))
         if self.p:
             if self.is_alive():
                 logger.debug('PhoneWorkerSubProcess:start - %s already alive' %
@@ -311,19 +311,23 @@ class PhoneWorkerSubProcess(object):
             del self.p
         self.phone_status = phone_status
         self.p = multiprocessing.Process(target=self.run, name=self.phone.id)
-        self.p.daemon = True
+        #self.p.daemon = True
         self.p.start()
+        logger.debug('PhoneWorkerSubProcess:started: %s %s' % (self.phone.id,
+                                                               self.p.pid))
 
     def stop(self):
         """Call from main process."""
-        logger.debug('PhoneWorkerSubProcess:stop %s' % self.phone.id)
+        logger.debug('PhoneWorkerSubProcess:stopping %s' % self.phone.id)
         if self.is_alive():
-            logger.debug('PhoneWorkerSubProcess:stop p.terminate() %s' %
-                         self.phone.id)
+            logger.debug('PhoneWorkerSubProcess:stop p.terminate() %s %s %s' %
+                         (self.phone.id, self.p, self.p.pid))
             self.p.terminate()
-            logger.debug('PhoneWorkerSubProcess:stop p.join() %s' %
-                         self.phone.id)
+            logger.debug('PhoneWorkerSubProcess:stop p.join() %s %s %s' %
+                         (self.phone.id, self.p, self.p.pid))
             self.p.join(self.options.phone_command_queue_timeout*2)
+            logger.debug('PhoneWorkerSubProcess:stop %s %s %s alive %s' %
+                         (self.phone.id, self.p, self.p.pid, self.p.is_alive()))
 
     def is_disconnected(self):
         return self.phone_status == PhoneStatus.DISCONNECTED
