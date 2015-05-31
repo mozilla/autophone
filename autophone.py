@@ -119,6 +119,7 @@ class AutoPhone(object):
         self.jobs = jobs.Jobs(self.mailer)
         self.phone_workers = {}  # indexed by phone id
         self.lock = threading.RLock()
+        self.shared_lock = multiprocessing.Lock()
         self._tests = []
         self._devices = {} # hash indexed by device names found in devices ini file
         self.server = None
@@ -126,7 +127,8 @@ class AutoPhone(object):
         self.pulse_monitor = None
         self.restart_workers = {}
         self.treeherder = AutophoneTreeherder(None,
-                                              self.options)
+                                              self.options,
+                                              shared_lock=self.shared_lock)
 
         console_logger.info('Starting autophone.')
 
@@ -141,6 +143,14 @@ class AutoPhone(object):
 
         self.read_devices()
 
+        self.state = ProcessStates.RUNNING
+        for worker in self.phone_workers.values():
+            worker.start()
+
+        # We must wait to start the pulse monitor until after the
+        # workers have started in order to make certain that the
+        # shared_lock is passed to the worker subprocesses in an
+        # unlocked state.
         if options.enable_pulse:
             self.pulse_monitor = AutophonePulseMonitor(
                 userid=options.pulse_user,
@@ -156,12 +166,10 @@ class AutoPhone(object):
                            'android-api-11',
                            'android-x86'],
                 buildtypes=options.buildtypes,
-                durable_queues=self.options.pulse_durable_queue)
+                durable_queues=self.options.pulse_durable_queue,
+                shared_lock=self.shared_lock,
+                verbose=options.verbose)
             self.pulse_monitor.start()
-
-        self.state = ProcessStates.RUNNING
-        for worker in self.phone_workers.values():
-            worker.start()
 
         logger.debug('autophone_options: %s' % self.options)
 
@@ -432,7 +440,7 @@ class AutoPhone(object):
                              tests, phone, self.options,
                              self.queue,
                              '%s-%s' % (logfile_prefix, phone.id),
-                             self.loglevel, self.mailer)
+                             self.loglevel, self.mailer, self.shared_lock)
         self.phone_workers[phone.id] = worker
 
     def register_cmd(self, data):

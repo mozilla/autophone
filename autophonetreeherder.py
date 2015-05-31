@@ -36,10 +36,15 @@ class TestState(object):
 
 class AutophoneTreeherder(object):
 
-    def __init__(self, worker_subprocess, options, s3_bucket=None, mailer=None):
+    def __init__(self, worker_subprocess, options, s3_bucket=None, mailer=None,
+                 shared_lock=None):
+        assert options, "options is required."
+        assert shared_lock, "shared_lock is required."
+
         self.options = options
         self.s3_bucket = s3_bucket
         self.mailer = mailer
+        self.shared_lock = shared_lock
         self.worker = worker_subprocess
         logger.debug('AutophoneTreeherder')
 
@@ -74,45 +79,50 @@ class AutophoneTreeherder(object):
 
     def post_request(self, machine, project, job_collection):
         logger.debug('AutophoneTreeherder.post_request: %s' % job_collection.__dict__)
+        logger.debug('AutophoneTreeherder shared_lock.acquire')
+        self.shared_lock.acquire()
+        try:
+            client = TreeherderClient(protocol=self.protocol, host=self.server)
 
-        client = TreeherderClient(protocol=self.protocol, host=self.server)
-
-        for attempt in range(1, self.retries+1):
-            try:
-                client.post_collection(
-                    project,
-                    self.credentials[project]['consumer_key'],
-                    self.credentials[project]['consumer_secret'],
-                    job_collection)
-                return
-            except requests.exceptions.Timeout:
-                msg = ('Attempt %d to post result to '
-                       'Treeherder timed out.\n\n\n' % attempt)
-                logger.error(msg)
-                if self.mailer:
-                    self.mailer.send('Attempt %d for Phone %s failed to post to Treeherder' %
-                                     (attempt, machine), msg)
-                time.sleep(self.retry_wait)
-            except Exception, e:
-                logger.exception('Error submitting request to Treeherder')
-                if self.mailer:
-                    self.mailer.send('Error submitting request to Treeherder',
-                                     'Phone: %s\n'
-                                     'TreeherderClientError: %s\n'
-                                     'TreeherderJobCollection %s\n' % (
-                                         machine,
-                                         e,
-                                         job_collection.to_json()))
-                return
-        logger.error('Error submitting request to Treeherder')
-        if self.mailer:
-            self.mailer.send('Error submitting request to Treeherder',
-                             'Phone: %s\n'
-                             'TreeherderClientError: %s\n'
-                             'TreeherderJobCollection %s\n' % (
-                                 machine,
-                                 e,
-                                 job_collection.to_json()))
+            for attempt in range(1, self.retries+1):
+                try:
+                    client.post_collection(
+                        project,
+                        self.credentials[project]['consumer_key'],
+                        self.credentials[project]['consumer_secret'],
+                        job_collection)
+                    return
+                except requests.exceptions.Timeout:
+                    msg = ('Attempt %d to post result to '
+                           'Treeherder timed out.\n\n\n' % attempt)
+                    logger.error(msg)
+                    if self.mailer:
+                        self.mailer.send('Attempt %d for Phone %s failed to post to Treeherder' %
+                                         (attempt, machine), msg)
+                    time.sleep(self.retry_wait)
+                except Exception, e:
+                    logger.exception('Error submitting request to Treeherder')
+                    if self.mailer:
+                        self.mailer.send('Error submitting request to Treeherder',
+                                         'Phone: %s\n'
+                                         'TreeherderClientError: %s\n'
+                                         'TreeherderJobCollection %s\n' % (
+                                             machine,
+                                             e,
+                                             job_collection.to_json()))
+                    return
+            logger.error('Error submitting request to Treeherder')
+            if self.mailer:
+                self.mailer.send('Error submitting request to Treeherder',
+                                 'Phone: %s\n'
+                                 'TreeherderClientError: %s\n'
+                                 'TreeherderJobCollection %s\n' % (
+                                     machine,
+                                     e,
+                                     job_collection.to_json()))
+        finally:
+            logger.debug('AutophoneTreeherder shared_lock.release')
+            self.shared_lock.release()
 
     def submit_pending(self, machine, build_url, project, revision_hash, tests=[]):
         """Submit tests pending notifications to Treeherder

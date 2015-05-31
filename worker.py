@@ -103,7 +103,8 @@ class PhoneWorker(object):
     PHONE_COMMAND_QUEUE_TIMEOUT = 10
 
     def __init__(self, worker_num, tests, phone, options,
-                 autophone_queue, logfile_prefix, loglevel, mailer):
+                 autophone_queue, logfile_prefix, loglevel, mailer,
+                 shared_lock):
 
         self.state = ProcessStates.STARTING
         self.tests = tests
@@ -122,12 +123,14 @@ class PhoneWorker(object):
         # process via this queue.
         self.queue = multiprocessing.Queue()
         self.lock = multiprocessing.Lock()
+        self.shared_lock = shared_lock
         self.subprocess = PhoneWorkerSubProcess(self.worker_num,
                                                 tests,
                                                 phone, options,
                                                 autophone_queue,
                                                 self.queue, logfile_prefix,
-                                                loglevel, mailer)
+                                                loglevel, mailer,
+                                                shared_lock)
         self.loggerdeco = LogDecorator(logger,
                                        {'phoneid': self.phone.id},
                                        '%(phoneid)s|%(message)s')
@@ -241,7 +244,8 @@ class PhoneWorkerSubProcess(object):
     """
 
     def __init__(self, worker_num, tests, phone, options,
-                 autophone_queue, queue, logfile_prefix, loglevel, mailer):
+                 autophone_queue, queue, logfile_prefix, loglevel, mailer,
+                 shared_lock):
         global logger
 
         self.state = ProcessStates.RUNNING
@@ -259,6 +263,7 @@ class PhoneWorkerSubProcess(object):
         self.outfile = logfile_prefix + '.out'
         self.loglevel = loglevel
         self.mailer = mailer
+        self.shared_lock = shared_lock
         self.p = None
         self.jobs = None
         self.build = None
@@ -921,7 +926,8 @@ class PhoneWorkerSubProcess(object):
         self.treeherder = AutophoneTreeherder(self,
                                               self.options,
                                               s3_bucket=self.s3_bucket,
-                                              mailer=self.mailer)
+                                              mailer=self.mailer,
+                                              shared_lock=self.shared_lock)
         self.update_status(phone_status=PhoneStatus.IDLE)
         if not self.check_sdcard():
             self.recover_phone()

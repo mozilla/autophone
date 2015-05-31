@@ -93,10 +93,17 @@ class AutophonePulseMonitor(object):
         'android-x86'.
     :param buildtypes: Required list of build types to
         process. Possible values are 'opt', 'debug'
+    :param timeout: Timeout in seconds for the kombu connection
+        drain_events. Defaults to 5 seconds.
+    :param shared_lock: Required lock used to control concurrent
+        access. Used to prevent socket based deadlocks.
+    :param verbose: If True, will log build and job action messages.
+        Defaults to False.
 
     Usage:
 
     ::
+    import threading
     import time
     from optparse import OptionParser
 
@@ -126,6 +133,7 @@ class AutophonePulseMonitor(object):
 
     (options, args) = parser.parse_args()
 
+    shared_lock = threading.Lock()
     monitor = AutophonePulseMonitor(
         userid=options.pulse_user,
         password=options.pulse_password,
@@ -134,7 +142,8 @@ class AutophonePulseMonitor(object):
         jobaction_callback=jobaction_callback,
         trees=['try', 'mozilla-inbound'],
         platforms=['android-api-9', 'android-api-11'],
-        buildtypes=['opt'])
+        buildtypes=['opt'],
+        shared_lock=shared_lock)
 
     monitor.start()
     time.sleep(3600)
@@ -156,7 +165,9 @@ class AutophonePulseMonitor(object):
                  trees=[],
                  platforms=[],
                  buildtypes=[],
-                 timeout=5):
+                 timeout=5,
+                 shared_lock=None,
+                 verbose=False):
 
         assert userid, "userid is required."
         assert password, "password is required."
@@ -164,6 +175,7 @@ class AutophonePulseMonitor(object):
         assert trees, "trees is required."
         assert platforms, "platforms is required."
         assert buildtypes, "buildtypes is required."
+        assert shared_lock, "shared_lock is required."
 
         self.treeherder_url = treeherder_url
         self.build_callback = build_callback
@@ -175,7 +187,8 @@ class AutophonePulseMonitor(object):
         self.platforms.sort(cmp=lambda x,y: (len(y) - len(x)))
         self.buildtypes = list(buildtypes)
         self.timeout = timeout
-
+        self.shared_lock = shared_lock
+        self.verbose = verbose
         self._stopping = threading.Event()
         self.listen_thread = None
         # connection does not connect to the server until either the
@@ -223,23 +236,36 @@ class AutophonePulseMonitor(object):
         return self.listen_thread.is_alive()
 
     def listen(self):
-        consumer = self.connection.Consumer(self.queues,
-                                            callbacks=[self.handle_message],
-                                            accept=['json'],
-                                            auto_declare=False)
-        for queue in self.queues:
-            queue(self.connection).queue_declare(passive=False)
-            queue(self.connection).queue_bind()
-        with consumer:
-            while not self._stopping.is_set():
-                try:
-                    self.connection.drain_events(timeout=self.timeout)
-                except socket.timeout:
-                    pass
-                except KeyboardInterrupt:
-                    raise
-        logger.debug('AutophonePulseMonitor.listen: stopping')
-        self.connection.release()
+        logger.debug('AutophonePulseMonitor: start shared_lock.acquire')
+        self.shared_lock.acquire()
+        try:
+            consumer = self.connection.Consumer(self.queues,
+                                                callbacks=[self.handle_message],
+                                                accept=['json'],
+                                                auto_declare=False)
+            for queue in self.queues:
+                queue(self.connection).queue_declare(passive=False)
+                queue(self.connection).queue_bind()
+            with consumer:
+                while not self._stopping.is_set():
+                    try:
+                        logger.debug('AutophonePulseMonitor shared_lock.release')
+                        self.shared_lock.release()
+                        self.connection.drain_events(timeout=self.timeout)
+                    except socket.timeout:
+                        pass
+                    except KeyboardInterrupt:
+                        raise
+                    finally:
+                        logger.debug('AutophonePulseMonitor shared_lock.acquire')
+                        self.shared_lock.acquire()
+            logger.debug('AutophonePulseMonitor.listen: stopping')
+        except:
+            logger.exception('AutophonePulseMonitor Exception')
+        finally:
+            logger.debug('AutophonePulseMonitor exit shared_lock.release')
+            self.shared_lock.release()
+            self.connection.release()
 
     def handle_message(self, data, message):
         if self._stopping.is_set():
@@ -252,12 +278,13 @@ class AutophonePulseMonitor(object):
             self.handle_jobaction(data, message)
 
     def handle_build(self, data, message):
-        logger.debug(
-            'handle_build:\n'
-            '\tdata   : %s\n'
-            '\tmessage: %s' % (
-                json.dumps(data, sort_keys=True, indent=4),
-                json.dumps(message.__dict__, sort_keys=True, indent=4)))
+        if self.verbose:
+            logger.debug(
+                'handle_build:\n'
+                '\tdata   : %s\n'
+                '\tmessage: %s' % (
+                    json.dumps(data, sort_keys=True, indent=4),
+                    json.dumps(message.__dict__, sort_keys=True, indent=4)))
         try:
             build = data['payload']['build']
         except (KeyError, TypeError), e:
@@ -315,12 +342,13 @@ class AutophonePulseMonitor(object):
         self.build_callback(build_data)
 
     def handle_jobaction(self, data, message):
-        logger.debug(
-            'handle_jobaction:\n'
-            '\tdata   : %s\n'
-            '\tmessage: %s' % (
-                json.dumps(data, sort_keys=True, indent=4),
-                json.dumps(message.__dict__, sort_keys=True, indent=4)))
+        if self.verbose:
+            logger.debug(
+                'handle_jobaction:\n'
+                '\tdata   : %s\n'
+                '\tmessage: %s' % (
+                    json.dumps(data, sort_keys=True, indent=4),
+                    json.dumps(message.__dict__, sort_keys=True, indent=4)))
         action = data['action']
         project = data['project']
         job_id = data['job_id']
@@ -430,6 +458,7 @@ if __name__ == "__main__":
 
     (options, args) = parser.parse_args()
 
+    shared_lock = threading.Lock()
     monitor = AutophonePulseMonitor(
         userid=options.pulse_user,
         password=options.pulse_password,
@@ -438,7 +467,8 @@ if __name__ == "__main__":
         jobaction_callback=jobaction_callback,
         trees=['try', 'mozilla-inbound'],
         platforms=['android-api-9', 'android-api-11'],
-        buildtypes=['opt'])
+        buildtypes=['opt'],
+        shared_lock=shared_lock)
 
     monitor.start()
     time.sleep(3600)
