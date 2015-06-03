@@ -1,5 +1,5 @@
 -e hg+http://hg.mozilla.org/automation/logparser#egg=logparser
--e git+https://github.com/mozilla/treeherder-client.git#egg=treeherder_client
+treeherder-client >= 1.2
 beautifulsoup4
 boto>=2.32.1
 httplib2

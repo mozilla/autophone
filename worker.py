@@ -732,10 +732,6 @@ class PhoneWorkerSubProcess(object):
                                build=self.build)
         stoptime = datetime.datetime.now()
         self.loggerdeco.info('Job elapsed time: %s' % (stoptime - starttime))
-        # Close the log filehandler to truncate the log if we are
-        # submitting logs to Treeherder.
-        if self.treeherder.url:
-            self.filehandler.close()
 
     def handle_cmd(self, request, current_test=None):
         """Execute the command dispatched from the Autophone process.
@@ -894,12 +890,7 @@ class PhoneWorkerSubProcess(object):
                 other_logger.removeHandler(other_handler)
             other_logger.addHandler(logging.NullHandler())
 
-        # We can't use a TimedRotatingFileHandler since we want to use
-        # mode='w' and close() to clear the log. This is not an issue
-        # when submitting to Treeherder since the log is cleard after
-        # every test, but should be remembered when running stand
-        # alone.
-        self.filehandler = logging.FileHandler(self.logfile, mode='w')
+        self.filehandler = logging.FileHandler(self.logfile)
         fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
                             '%(levelname)s|%(message)s')
         fileformatter = logging.Formatter(fileformatstring)

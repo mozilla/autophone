@@ -322,6 +322,9 @@ class AutophoneTreeherder(object):
                     log_identifier = "%s-%s-%s-%s" % (
                         t.name, os.path.basename(t.config_file), t.chunk,
                         machine)
+                # We must make certain the key is unique even in the
+                # event of retries.
+                log_identifier = '%s-%s' % (log_identifier, t.job_guid)
 
                 key_prefix = os.path.dirname(
                     urlparse.urlparse(build_url).path)
@@ -330,19 +333,19 @@ class AutophoneTreeherder(object):
                 # Logcat
                 fname = '%s-logcat.log' % log_identifier
                 lname = 'logcat'
+                key = "%s/%s" % (key_prefix, fname)
                 with tempfile.NamedTemporaryFile(suffix='logcat.txt') as f:
                     try:
                         for line in t.logcat.get(full=True):
                             f.write('%s\n' % line)
-                    except:
+                    except Exception, e:
                         logger.exception('Error reading logcat %s' % fname)
                         t.job_details.append({
-                            'value': 'Failed to read %s' % fname,
+                            'value': 'Failed to read %s: %s' % (fname, e),
                             'content_type': 'text',
                             'title': 'Error'})
                     try:
-                        url = self.s3_bucket.upload(f.name, "%s/%s" % (
-                            key_prefix, fname))
+                        url = self.s3_bucket.upload(f.name, key)
                         tj.add_log_reference(lname, url,
                                              parse_status='parsed')
                         t.job_details.append({
@@ -350,10 +353,10 @@ class AutophoneTreeherder(object):
                             'value': lname,
                             'content_type': 'link',
                             'title': 'artifact uploaded'})
-                    except S3Error:
+                    except S3Error, e:
                         logger.exception('Error uploading logcat %s' % fname)
                         t.job_details.append({
-                            'value': 'Failed to upload %s' % fname,
+                            'value': 'Failed to upload %s: %s' % (fname, e),
                             'content_type': 'text',
                             'title': 'Error'})
                 # Upload directory containing ANRs, tombstones and other items
@@ -370,32 +373,33 @@ class AutophoneTreeherder(object):
                                 'value': lname,
                                 'content_type': 'link',
                                 'title': 'artifact uploaded'})
-                        except S3Error:
+                        except S3Error, e:
                             logger.exception('Error uploading artifact %s' % fname)
                             t.job_details.append({
-                                'value': 'Failed to upload artifact %s' % fname,
+                                'value': 'Failed to upload artifact %s: %s' % (fname, e),
                                 'content_type': 'text',
                                 'title': 'Error'})
 
                 logurl = None
                 # UnitTest Log
                 if t._log and os.path.exists(t._log):
-                    logfile = os.path.basename(t._log)
+                    fname = '%s.log' % log_identifier
+                    lname = os.path.basename(t._log)
+                    key = "%s/%s" % (key_prefix, fname)
                     try:
-                        logurl = self.s3_bucket.upload(t._log, "%s/%s" % (
-                            key_prefix, logfile))
-                        tj.add_log_reference(logfile, logurl,
+                        logurl = self.s3_bucket.upload(t._log, key)
+                        tj.add_log_reference(fname, logurl,
                                              parse_status='parsed')
                         t.job_details.append({
                             'url': logurl,
-                            'value': logfile,
+                            'value': lname,
                             'content_type': 'link',
                             'title': 'artifact uploaded'})
                     except Exception, e:
                         logger.exception('Error %s uploading log %s' % (
-                            e, logfile))
+                            e, fname))
                         t.job_details.append({
-                            'value': 'Failed to upload log %s' % logfile,
+                            'value': 'Failed to upload log %s: %s' % (fname, e),
                             'content_type': 'text',
                             'title': 'Error'})
                 # Since we are submitting results to Treeherder, we flush
@@ -406,12 +410,13 @@ class AutophoneTreeherder(object):
                 # upload failed.
                 try:
                     self.worker.filehandler.flush()
-                    logfile = self.worker.logfile
-                    fname = 'autophone-%s.log' % log_identifier
+                    fname = '%s-autophone.log' % log_identifier
                     lname = 'Autophone Log'
-                    url = self.s3_bucket.upload(
-                        logfile, "%s/%s" % (key_prefix, fname))
-                    tj.add_log_reference(logfile, url,
+                    key = "%s/%s" % (key_prefix, fname)
+                    url = self.s3_bucket.upload(self.worker.logfile, key)
+                    self.worker.filehandler.close()
+                    os.unlink(self.worker.logfile)
+                    tj.add_log_reference(fname, url,
                                          parse_status='parsed')
                     t.job_details.append({
                         'url': url,
@@ -424,7 +429,7 @@ class AutophoneTreeherder(object):
                     logger.exception('Error %s uploading %s' % (
                         e, fname))
                     t.job_details.append({
-                        'value': 'Failed to upload Autophone log',
+                        'value': 'Failed to upload Autophone log: %s' % e,
                         'content_type': 'text',
                         'title': 'Error'})
 
@@ -461,8 +466,10 @@ class AutophoneTreeherder(object):
                     line = '%s | %s' % (test, text)
                 elif text:
                     line = text
+                # XXX Need to update the log parser to return the line
+                # numbers of the errors.
                 if line:
-                    error_lines.append(line)
+                    error_lines.append({"line": line, "linenumber": 1})
 
             text_log_summary = {
                 'header': {
@@ -489,7 +496,7 @@ class AutophoneTreeherder(object):
                 'logurl': logurl
                 }
 
-            #tj.add_artifact('text_log_summary', 'json', text_log_summary)
+            tj.add_artifact('text_log_summary', 'json', json.dumps(text_log_summary))
             logger.debug('AutophoneTreeherder.submit_complete: text_log_summary: %s' % json.dumps(text_log_summary))
 
             tj.add_artifact('Job Info', 'json', {'job_details': t.job_details})
