@@ -26,7 +26,7 @@ import buildserver
 import jobs
 import utils
 
-from adb import ADBHost
+from adb import ADBHost, ADBError, ADBTimeoutError
 from adb_android import ADBAndroid as ADBDevice
 from autophonepulsemonitor import AutophonePulseMonitor
 from autophonetreeherder import AutophoneTreeherder
@@ -224,8 +224,10 @@ class AutoPhone(object):
                     logger.info('Worker %s exited; restarting with new '
                                  'values.' % worker.phone.id)
                 elif worker.state == ProcessStates.STOPPING:
+                    # The device will be removed and not restarted.
+                    initial_state = None
+                elif worker.state == ProcessStates.RESTARTING:
                     initial_state = PhoneStatus.IDLE
-                    console_logger.info('Worker %s stopped' % worker.phone.id)
                 else:
                     console_logger.error('Worker %s died!' % worker.phone.id)
                     msg_subj = 'Worker for phone %s died' % \
@@ -244,8 +246,8 @@ class AutoPhone(object):
                     self.mailer.send(msg_subj, msg_body)
 
                 # Have to remove the tests for the worker prior to
-                # recreating it in order to remove it from the
-                # PhoneTest.instances.
+                # removing or recreating it in order to remove it from
+                # the PhoneTest.instances.
                 while worker.tests:
                     t = worker.tests.pop()
                     t.remove()
@@ -253,16 +255,37 @@ class AutoPhone(object):
                 # Do we need to worry about a race between the pulse
                 # monitor locking the shared lock?
 
-                # We can not re-use the original worker instance since
-                # we need to recreate the multiprocessing.Process
-                # object before we can call start on it again.
-                console_logger.info('Worker %s is restarting' % worker.phone.id)
-                # Save the record of crashes before recreating the
-                # Worker, then restore it afterwards.
-                crashes = worker.crashes
-                new_worker = self.create_worker(worker.phone)
-                new_worker.crashes = crashes
-                new_worker.start(initial_state)
+                if worker.state == ProcessStates.STOPPING:
+                    console_logger.info('Worker %s stopped' % worker.phone.id)
+                    del self.phone_workers[worker.phone.id]
+                else:
+                    if worker.state == ProcessStates.RESTARTING:
+                        # The device is being restarted with a
+                        # potentially changed test manifest and
+                        # changed test configurations. The changes to
+                        # the test configuration files will be
+                        # automatically picked up when the tests are
+                        # recreated for the worker, but we must
+                        # reparse the test manifest in order for the
+                        # worker to pick up test manifest changes. We
+                        # re-read the tests here, to update
+                        # self._tests which will be incorporated into
+                        # the new worker instance. If a worker dies
+                        # and is restarted, it will automatically pick
+                        # up these changes as well.
+                        self.read_tests()
+
+                    # We can not re-use the original worker instance
+                    # since we need to recreate the
+                    # multiprocessing.Process object before we can
+                    # call start on it again.
+                    console_logger.info('Worker %s restarting' % worker.phone.id)
+                    # Save the record of crashes before recreating the
+                    # Worker, then restore it afterwards.
+                    crashes = worker.crashes
+                    new_worker = self.create_worker(worker.phone)
+                    new_worker.crashes = crashes
+                    new_worker.start(initial_state)
 
     def worker_msg_loop(self):
         self.lock_acquire()
@@ -295,8 +318,13 @@ class AutoPhone(object):
                     while worker.tests:
                         t = worker.tests.pop()
                         t.remove()
-                    del self.phone_workers[msg.phone.id]
-                    console_logger.info('Worker %s is shutdown' % msg.phone.id)
+                    if worker.state == ProcessStates.SHUTTINGDOWN:
+                        # We are completely shutting down the device
+                        # so we delete it from the phone_workers
+                        # dictionary. Otherwise, the phone will be
+                        # detected as dead and will be restarted.
+                        del self.phone_workers[msg.phone.id]
+                    console_logger.info('Worker %s shutdown' % msg.phone.id)
         except KeyboardInterrupt:
             pass
         finally:
@@ -310,6 +338,26 @@ class AutoPhone(object):
             for p in self.phone_workers.values():
                 p.stop()
             self.lock_release()
+
+        if self.state == ProcessStates.RESTARTING:
+            # Lifted from Sisyphus/Bughunter...
+            newargv = sys.argv
+            newargv.insert(0, sys.executable)
+
+            # Set all open file handlers to close on exec.  Use 64K as
+            # the limit to check as that is the max on Windows XP. The
+            # performance issue of doing this is negligible since it
+            # is only run during a program reload.
+            from fcntl import fcntl, F_GETFD, F_SETFD, FD_CLOEXEC
+            for fd in xrange(0x3, 0x10000):
+                try:
+                    fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC)
+                except KeyboardInterrupt:
+                    raise
+                except:
+                    pass
+
+            os.execvp(sys.executable, newargv)
 
     # Start the phones for testing
     def new_job(self, job_data):
@@ -394,7 +442,7 @@ class AutoPhone(object):
             # PhoneWorker methods by stripping the leading 'device-'
             # from the command.  The device id is the first parameter.
             valid_cmds = ('is_alive', 'stop', 'shutdown', 'reboot', 'disable',
-                          'enable', 'debug', 'ping', 'status')
+                          'enable', 'debug', 'ping', 'status', 'restart')
             cmd = cmd.replace('device-', '').replace('-', '_')
             if cmd not in valid_cmds:
                 response = 'Unknown command device-%s' % cmd
@@ -415,16 +463,52 @@ class AutoPhone(object):
                         else:
                             response = ''
                         response += 'ok'
+        elif cmd == 'autophone-add-device':
+            phoneid, space, serialno = params.partition(' ')
+            try:
+                dm = ADBDevice(device=serialno,
+                               verbose=self.options.verbose,
+                               timeout=60)
+                dm.power_on()
+                device = {"device_name": phoneid,
+                          "serialno": serialno,
+                          "dm" : dm}
+                device['osver'] = dm.get_prop('ro.build.version.release')
+                device['hardware'] = dm.get_prop('ro.product.model')
+                device['abi'] = dm.get_prop('ro.product.cpu.abi')
+                try:
+                    sdk = int(dm.get_prop('ro.build.version.sdk'))
+                    device['sdk'] = 'api-9' if sdk <= 10 else 'api-11'
+                except ValueError:
+                    device['sdk'] = 'api-9'
+                self._devices[phoneid] = device
+                # We must reload the test manifest again to pick up the
+                # new device's test configuration.
+                console_logger.info('Adding device %s %s' % (phoneid, serialno))
+                self.read_tests()
+                self.register_cmd(device)
+                self.phone_workers[phoneid].start()
+            except (ADBError, ADBTimeoutError), e:
+                response = '%s: Unable to add device due to %s.' % (data, e.message)
+                console_logger.error(response)
+
+        elif cmd == 'autophone-restart':
+            self.state = ProcessStates.RESTARTING
+            console_logger.info('Restarting Autophone...')
+            for worker in self.phone_workers.values():
+                worker.shutdown()
         elif cmd == 'autophone-stop':
+            console_logger.info('Stopping Autophone...')
             self.stop()
         elif cmd == 'autophone-shutdown':
+            console_logger.info('Shutting down Autophone...')
             self.shutdown()
         elif cmd == 'autophone-log':
             logger.info(params)
         elif cmd == 'autophone-triggerjobs':
             response = self.trigger_jobs(params)
         elif cmd == 'autophone-status':
-            response = ''
+            response = 'state: %s\n' % self.state
             phoneids = self.phone_workers.keys()
             phoneids.sort()
             for i in phoneids:
@@ -437,31 +521,26 @@ Autophone command help:
 autophone-help
     Generate this message.
 
-autophone-status
-    Generate a status report for each device.
+autophone-add-device <name> <serialno>
+    Adds a new device to the active workers.
+
+autophone-restart
+    Shutdown each worker after its current test, then restart
+    autophone.
 
 autophone-shutdown
-    Shutdown each worker after it's current test, then
+    Shutdown each worker after its current test, then
     shutdown autophone.
+
+autophone-status
+    Generate a status report for each device.
 
 autophone-stop
     Immediately stop autophone and all worker processes; may be
     delayed by pending download.
 
-device-is-alive <device>
-   Check if the device's worker process is alive, report to log.
-
-device-stop <device>
-   Immediately stop the device's worker process. The worker will be
-   automatically restarted.
-
-device-shutdown  <device>
-   Shutdown the device's worker process after the current test. The
-   device's worker process will not be restarted and will be removed
-   from the active list of workers.
-
-device-reboot  <device>
-   Reboot the device.
+device-debug <device> <level>
+   Set the device's debug level.
 
 device-disable <device>
    Disable the device's worker and cancel its pending jobs.
@@ -469,15 +548,34 @@ device-disable <device>
 device-enable <device>
    Enable a disabled device's worker.
 
-device-debug <device> <level>
-   Set the device's debug level.
+device-is-alive <device>
+   Check if the device's worker process is alive, report to log.
 
 device-ping <device>
    Issue a ping command to the device's worker which checks the sdcard
    availability.
 
+device-reboot  <device>
+   Reboot the device.
+
+device-restart <device>
+   Shutdown the device's worker process after the current test, then
+   restart the worker picking up test manifest and test configuration
+   changes.
+
 device-status <device>
    Generate a status report for the device's worker.
+
+device-shutdown  <device>
+   Shutdown the device's worker process after the current test. The
+   device's worker process will not be restarted and will be removed
+   from the active list of workers.
+
+device-stop <device>
+
+   Immediately stop the device's worker process and remove it from the
+   list of active workers.
+
 ok
 '''
         else:
@@ -574,25 +672,26 @@ ok
             # failure for a device to have a serialno option is fatal.
             serialno = cfg.get(device_name, 'serialno')
             console_logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
-            # XXX: We should be able to continue if a device isn't available immediately
-            # or to add/remove devices but this will work for now.
-            dm = ADBDevice(device=serialno,
-                           verbose=self.options.verbose)
-            dm.power_on()
-            device = {"device_name": device_name,
-                      "serialno": serialno,
-                      "dm" : dm}
-            device['osver'] = dm.get_prop('ro.build.version.release')
-            device['hardware'] = dm.get_prop('ro.product.model')
-            device['abi'] = dm.get_prop('ro.product.cpu.abi')
             try:
-                sdk = int(dm.get_prop('ro.build.version.sdk'))
-                device['sdk'] = 'api-9' if sdk <= 10 else 'api-11'
-            except ValueError:
-                device['sdk'] = 'api-9'
-            self._devices[device_name] = device
-            self.register_cmd(device)
-
+                dm = ADBDevice(device=serialno,
+                               verbose=self.options.verbose,
+                               timeout=60)
+                dm.power_on()
+                device = {"device_name": device_name,
+                          "serialno": serialno,
+                          "dm" : dm}
+                device['osver'] = dm.get_prop('ro.build.version.release')
+                device['hardware'] = dm.get_prop('ro.product.model')
+                device['abi'] = dm.get_prop('ro.product.cpu.abi')
+                try:
+                    sdk = int(dm.get_prop('ro.build.version.sdk'))
+                    device['sdk'] = 'api-9' if sdk <= 10 else 'api-11'
+                except ValueError:
+                    device['sdk'] = 'api-9'
+                self._devices[device_name] = device
+                self.register_cmd(device)
+            except (ADBError, ADBTimeoutError), e:
+                console_logger.error('Unable to add device due to %s.' % e.message)
 
     def read_tests(self):
         self._tests = []

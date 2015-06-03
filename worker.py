@@ -154,6 +154,16 @@ class PhoneWorker(object):
         self.state = ProcessStates.SHUTTINGDOWN
         self.queue.put_nowait(('shutdown', None))
 
+    def restart(self):
+        """We tell the PhoneWorkerSubProcess to shut down cleanly, but mark
+        the PhoneWorker state as restarting. AutoPhone will use this
+        information to not remove the device when it has completed
+        shutting down and will restart it.
+        """
+        self.loggerdeco.debug('PhoneWorker:restart')
+        self.state = ProcessStates.RESTARTING
+        self.queue.put_nowait(('shutdown', None))
+
     def new_job(self):
         self.loggerdeco.debug('PhoneWorker:new_job')
         self.queue.put_nowait(('job', None))
@@ -194,6 +204,7 @@ class PhoneWorker(object):
 
     def process_msg(self, msg):
         self.loggerdeco.debug('PhoneWorker:process_msg: %s' % msg)
+
         """These are status messages routed back from the autophone_queue
         listener in the main AutoPhone class. There is probably a bit
         clearer way to do this..."""
