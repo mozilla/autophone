@@ -923,9 +923,10 @@ def load_autophone_options(cmd_options):
     options.sensitive_data.append(options.pulse_password)
     options.sensitive_data.append(options.aws_access_key_id)
     options.sensitive_data.append(options.aws_access_key)
-    for repo in options.repos:
-        options.sensitive_data.append(options.treeherder_credentials[repo]['consumer_key'])
-        options.sensitive_data.append(options.treeherder_credentials[repo]['consumer_secret'])
+    if hasattr(options, 'treeherder_credentials'):
+        for repo in options.repos:
+            options.sensitive_data.append(options.treeherder_credentials[repo]['consumer_key'])
+            options.sensitive_data.append(options.treeherder_credentials[repo]['consumer_secret'])
     return options
 
 
