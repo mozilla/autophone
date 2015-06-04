@@ -442,7 +442,7 @@ class AutoPhone(object):
             # PhoneWorker methods by stripping the leading 'device-'
             # from the command.  The device id is the first parameter.
             valid_cmds = ('is_alive', 'stop', 'shutdown', 'reboot', 'disable',
-                          'enable', 'debug', 'ping', 'status', 'restart')
+                          'enable', 'ping', 'status', 'restart')
             cmd = cmd.replace('device-', '').replace('-', '_')
             if cmd not in valid_cmds:
                 response = 'Unknown command device-%s' % cmd
@@ -523,8 +523,10 @@ Autophone command help:
 autophone-help
     Generate this message.
 
-autophone-add-device <name> <serialno>
-    Adds a new device to the active workers.
+autophone-add-device <devicename> <serialno>
+    Adds a new device to the active workers. <devicename> refers to
+    the name given to the device in the devices.ini file while
+    <serialno> is its adb serial number.
 
 autophone-restart
     Shutdown each worker after its current test, then restart
@@ -541,40 +543,36 @@ autophone-stop
     Immediately stop autophone and all worker processes; may be
     delayed by pending download.
 
-device-debug <device> <level>
-   Set the device's debug level.
-
-device-disable <device>
+device-disable <devicename>
    Disable the device's worker and cancel its pending jobs.
 
-device-enable <device>
+device-enable <devicename>
    Enable a disabled device's worker.
 
-device-is-alive <device>
+device-is-alive <devicename>
    Check if the device's worker process is alive, report to log.
 
-device-ping <device>
+device-ping <devicename>
    Issue a ping command to the device's worker which checks the sdcard
    availability.
 
-device-reboot  <device>
+device-reboot  <devicename>
    Reboot the device.
 
-device-restart <device>
+device-restart <devicename>
    Shutdown the device's worker process after the current test, then
    restart the worker picking up test manifest and test configuration
    changes.
 
-device-status <device>
+device-status <devicename>
    Generate a status report for the device's worker.
 
-device-shutdown  <device>
+device-shutdown  <devicename>
    Shutdown the device's worker process after the current test. The
    device's worker process will not be restarted and will be removed
    from the active list of workers.
 
-device-stop <device>
-
+device-stop <devicename>
    Immediately stop the device's worker process and remove it from the
    list of active workers.
 

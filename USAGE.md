@@ -706,3 +706,78 @@ tests for specific builds.
                                 test identifiers.
           --device=DEVICES      Device on which to run the job.  Defaults to all if
                                 not specified. Can be specified multiple times.
+
+## Controlling Autophone
+
+Autophone listens by default on port 28001 for commands. You can send
+commands to Autophone using the script ap.sh. You will need the
+program ncat/nc installed. On Fedora ncat can be installed via `sudo
+yum install nmap-ncat` and on Ubuntu it can be installed via
+`sudo apt install nmap`.
+
+./ap.sh [command [arguments]]
+
+Without any arguments, ap.sh will generate a help message.
+
+By default, ap.sh will send commands to the local ip address 127.0.0.1
+and port 28001. You can customize the ip address and port where
+commands are sent, you can set the environment variables
+`AUTOPHONE_PORT` and `AUTOPHONE_IP`.
+
+### Autophone command help:
+
+        autophone-help
+            Generate this message.
+
+        autophone-add-device <name> <serialno>
+
+            Adds a new device to the active workers.
+
+        autophone-restart
+            Shutdown each worker after its current test, then restart
+            autophone.
+
+        autophone-shutdown
+            Shutdown each worker after its current test, then
+            shutdown autophone.
+
+        autophone-status
+            Generate a status report for each device.
+
+        autophone-stop
+            Immediately stop autophone and all worker processes; may be
+            delayed by pending download.
+
+        device-disable <device>
+           Disable the device's worker and cancel its pending jobs.
+
+        device-enable <device>
+           Enable a disabled device's worker.
+
+        device-is-alive <device>
+           Check if the device's worker process is alive, report to log.
+
+        device-ping <device>
+           Issue a ping command to the device's worker which checks the sdcard
+           availability.
+
+        device-reboot  <device>
+           Reboot the device.
+
+        device-restart <device>
+           Shutdown the device's worker process after the current test, then
+           restart the worker picking up test manifest and test configuration
+           changes.
+
+        device-status <device>
+           Generate a status report for the device's worker.
+
+        device-shutdown  <device>
+           Shutdown the device's worker process after the current test. The
+           device's worker process will not be restarted and will be removed
+           from the active list of workers.
+
+        device-stop <device>
+
+           Immediately stop the device's worker process and remove it from the
+           list of active workers.

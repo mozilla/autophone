@@ -5,7 +5,6 @@
 from __future__ import with_statement
 
 import Queue
-import copy
 import datetime
 import logging
 import logging.handlers
@@ -184,20 +183,6 @@ class PhoneWorker(object):
     def cancel_test(self, request):
         self.loggerdeco.debug('PhoneWorker:cancel_test')
         self.queue.put_nowait(('cancel_test', request))
-
-    def debug(self, level):
-        self.loggerdeco.debug('PhoneWorker:debug')
-        try:
-            level = int(level)
-        except ValueError:
-            self.loggerdeco.error('Invalid argument for debug: %s' % level)
-        else:
-            # Must copy the options object otherwise the setting will
-            # appear on all workers though it will only be
-            # communicated to this worker's sub process.
-            self.options = copy.copy(self.options)
-            self.options.debug = level
-            self.queue.put_nowait(('debug', level))
 
     def ping(self):
         self.loggerdeco.debug('PhoneWorker:ping')
@@ -787,13 +772,6 @@ class PhoneWorkerSubProcess(object):
             self.cancel_test(test_guid)
             if current_test and current_test.job_guid == test_guid:
                 return {'interrupt': True, 'reason': 'Running Job Canceled'}
-            return {'interrupt': False, 'reason': ''}
-        if request[0] == 'debug':
-            self.loggerdeco.info('Setting debug level %d at user\'s request...' % request[1])
-            self.options.debug = request[1]
-            # update any existing ADB objects
-            if self.dm:
-                self.dm.log_level = self.options.debug
             return {'interrupt': False, 'reason': ''}
         if request[0] == 'ping':
             self.loggerdeco.info('Pinging at user\'s request...')
