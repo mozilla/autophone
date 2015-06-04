@@ -18,8 +18,9 @@ from autophonecrash import AutophoneCrashProcessor
 from phonetest import PhoneTest, PhoneTestResult
 
 class PerfTest(PhoneTest):
-    def __init__(self, phone, options, config_file=None, chunk=1, repos=[]):
-        PhoneTest.__init__(self, phone, options,
+    def __init__(self, dm=None, phone=None, options=None,
+                 config_file=None, chunk=1, repos=[]):
+        PhoneTest.__init__(self, dm=dm, phone=phone, options=options,
                            config_file=config_file, chunk=chunk, repos=repos)
         self._result_server = None
         self._resulturl = None

@@ -23,8 +23,9 @@ logger = logging.getLogger()
 
 
 class UnitTest(PhoneTest):
-    def __init__(self, phone, options, config_file=None, chunk=1, repos=[]):
-        PhoneTest.__init__(self, phone, options,
+    def __init__(self, dm=None, phone=None, options=None,
+                 config_file=None, chunk=1, repos=[]):
+        PhoneTest.__init__(self, dm=dm, phone=phone, options=options,
                            config_file=config_file, chunk=chunk, repos=repos)
         self.enable_unittests = True
         self.unittest_cfg = ConfigParser.RawConfigParser()

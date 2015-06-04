@@ -14,7 +14,6 @@ from mozprofile import FirefoxProfile
 
 import utils
 from adb import ADBError
-from adb_android import ADBAndroid as ADBDevice
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
 
@@ -154,7 +153,7 @@ class PhoneTest(object):
 
         return matches
 
-    def __init__(self, phone, options, config_file=None, chunk=1, repos=[]):
+    def __init__(self, dm=None, phone=None, options=None, config_file=None, chunk=1, repos=[]):
         # Ensure that repos is a list and that it is sorted in order
         # for comparisons with the tests loaded from the jobs database
         # to work.
@@ -168,6 +167,7 @@ class PhoneTest(object):
         self.chunk = chunk
         self.chunks = 1
         self.update_status_cb = None
+        self.dm = dm
         self.phone = phone
         self.worker_subprocess = None
         self.options = options
@@ -211,15 +211,6 @@ class PhoneTest(object):
         # Instrument running time
         self.start_time = None
         self.stop_time = None
-        # We need the PhoneTests created in the main process to have
-        # access to the devices. This duplicates the creation of
-        # ADBDevices in AutoPhone.read_devices. The dm propery will be
-        # overwritten by the PhoneWorkerSubProcess when it begins running.
-        self.dm = ADBDevice(device=self.phone.serial,
-                             logger_name='',
-                             device_ready_retry_wait=self.options.device_ready_retry_wait,
-                             device_ready_retry_attempts=self.options.device_ready_retry_attempts,
-                             verbose=self.options.verbose)
         self.loggerdeco.info('PhoneTest: Connected.')
 
     def __str__(self):

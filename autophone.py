@@ -121,7 +121,7 @@ class AutoPhone(object):
         self.lock = threading.RLock()
         self.shared_lock = multiprocessing.Lock()
         self._tests = []
-        self._devices = {} # hash indexed by device names found in devices ini file
+        self._devices = {} # dict indexed by device names found in devices ini file
         self.server = None
         self.server_thread = None
         self.pulse_monitor = None
@@ -467,8 +467,10 @@ class AutoPhone(object):
             phoneid, space, serialno = params.partition(' ')
             try:
                 dm = ADBDevice(device=serialno,
-                               verbose=self.options.verbose,
-                               timeout=60)
+                               device_ready_retry_wait=self.options.device_ready_retry_wait,
+                               device_ready_retry_attempts=self.options.device_ready_retry_attempts,
+                               verbose=self.options.verbose)
+
                 dm.power_on()
                 device = {"device_name": phoneid,
                           "serialno": serialno,
@@ -584,6 +586,7 @@ ok
 
     def create_worker(self, phone):
         logger.info('Creating worker for %s: %s.' % (phone, self.options))
+        dm = self._devices[phone.id]['dm']
         tests = []
         for test_class, config_file, test_devices_repos in self._tests:
             logger.debug('create_worker: %s %s %s' % (
@@ -600,14 +603,16 @@ ok
                 repos = test_devices_repos[phone.id]
                 skip_test = False
             if not skip_test:
-                test = test_class(phone=phone,
+                test = test_class(dm=dm,
+                                  phone=phone,
                                   options=self.options,
                                   config_file=config_file,
                                   repos=repos)
                 tests.append(test)
                 for chunk in range(2, test.chunks+1):
                     logger.debug('Creating chunk %d/%d' % (chunk, test.chunks))
-                    tests.append(test_class(phone=phone,
+                    tests.append(test_class(dm=dm,
+                                            phone=phone,
                                             options=self.options,
                                             config_file=config_file,
                                             chunk=chunk,
@@ -618,7 +623,7 @@ ok
                                 (phone, self.options))
             return
         logfile_prefix = os.path.splitext(self.options.logfile)[0]
-        worker = PhoneWorker(self.next_worker_num,
+        worker = PhoneWorker(dm, self.next_worker_num,
                              tests, phone, self.options,
                              self.queue,
                              '%s-%s' % (logfile_prefix, phone.id),
@@ -674,8 +679,9 @@ ok
             console_logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
             try:
                 dm = ADBDevice(device=serialno,
-                               verbose=self.options.verbose,
-                               timeout=60)
+                               device_ready_retry_wait=self.options.device_ready_retry_wait,
+                               device_ready_retry_attempts=self.options.device_ready_retry_attempts,
+                               verbose=self.options.verbose)
                 dm.power_on()
                 device = {"device_name": device_name,
                           "serialno": serialno,

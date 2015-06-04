@@ -29,7 +29,6 @@ import phonetest
 import s3
 import utils
 from adb import ADBError, ADBTimeoutError
-from adb_android import ADBAndroid as ADBDevice
 from autophonetreeherder import AutophoneTreeherder
 from builds import BuildMetadata
 from logdecorator import LogDecorator
@@ -102,12 +101,13 @@ class PhoneWorker(object):
     PHONE_PING_INTERVAL = 15*60
     PHONE_COMMAND_QUEUE_TIMEOUT = 10
 
-    def __init__(self, worker_num, tests, phone, options,
+    def __init__(self, dm, worker_num, tests, phone, options,
                  autophone_queue, logfile_prefix, loglevel, mailer,
                  shared_lock):
 
         self.state = ProcessStates.STARTING
         self.tests = tests
+        self.dm = dm
         self.phone = phone
         self.options = options
         self.worker_num = worker_num
@@ -124,7 +124,8 @@ class PhoneWorker(object):
         self.queue = multiprocessing.Queue()
         self.lock = multiprocessing.Lock()
         self.shared_lock = shared_lock
-        self.subprocess = PhoneWorkerSubProcess(self.worker_num,
+        self.subprocess = PhoneWorkerSubProcess(dm,
+                                                self.worker_num,
                                                 tests,
                                                 phone, options,
                                                 autophone_queue,
@@ -254,7 +255,7 @@ class PhoneWorkerSubProcess(object):
     this back to the main AutoPhone process.
     """
 
-    def __init__(self, worker_num, tests, phone, options,
+    def __init__(self, dm, worker_num, tests, phone, options,
                  autophone_queue, queue, logfile_prefix, loglevel, mailer,
                  shared_lock):
         global logger
@@ -262,6 +263,7 @@ class PhoneWorkerSubProcess(object):
         self.state = ProcessStates.RUNNING
         self.worker_num = worker_num
         self.tests = tests
+        self.dm = dm
         self.phone = phone
         self.options = options
         # PhoneWorkerSubProcess.autophone_queue is used to pass
@@ -279,10 +281,8 @@ class PhoneWorkerSubProcess(object):
         self.jobs = None
         self.build = None
         self.last_ping = None
-        self.dm = None
         self.phone_status = None
         self.filehandler = None
-        self.dm = None
         self.s3_bucket = None
         self.treeherder = None
 
@@ -905,12 +905,6 @@ class PhoneWorkerSubProcess(object):
                        s3, utils):
             module.logger = logger
         self.loggerdeco.info('Worker: Connecting to %s...' % self.phone.id)
-        # Moved this from a @property since having the ADBDevice initialized on the fly
-        # can cause problems.
-        self.dm = ADBDevice(device=self.phone.serial,
-                            device_ready_retry_wait=self.options.device_ready_retry_wait,
-                            device_ready_retry_attempts=self.options.device_ready_retry_attempts,
-                            verbose=self.options.verbose)
         # Override mozlog.logger
         self.dm._logger = self.loggerdeco
 
