@@ -141,7 +141,7 @@ class PhoneWorker(object):
 
     def start(self, phone_status=PhoneStatus.IDLE):
         self.loggerdeco.debug('PhoneWorker:start')
-        self.state = ProcessStates.RUNNING
+        self.state = ProcessStates.STARTING
         self.subprocess.start(phone_status)
 
     def stop(self):
