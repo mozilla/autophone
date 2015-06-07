@@ -246,7 +246,8 @@ class WebappStartupTest(PerfTest):
                         PhoneTestResult.TESTFAILED)
                     continue
 
-                if not self.create_profile():
+                custom_prefs = {"consoleservice.logcat": True}
+                if not self.create_profile(custom_prefs=custom_prefs):
                     self.test_failure(self.name,
                                       'TEST_UNEXPECTED_FAIL',
                                       'Failed to create profile',
