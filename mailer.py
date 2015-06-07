@@ -56,17 +56,17 @@ class Mailer(object):
         try:
             self.mail_server = cfg.get('email', 'server')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self.mail_server = 'mail.mozilla.com'
+            self.mail_server = 'smtp.mozilla.org'
 
         try:
             self.mail_port = cfg.getint('email', 'port')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self.mail_port = 465
+            self.mail_port = 25
 
         try:
             self.mail_ssl = cfg.getboolean('email', 'ssl')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self.mail_ssl = True
+            self.mail_ssl = False
 
 
     def send(self, subject, body):
