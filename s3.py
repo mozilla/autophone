@@ -86,7 +86,7 @@ class S3Bucket(object):
                 tf.seek(0)
                 key.set_metadata('Content-Encoding', 'gzip')
                 logger.debug('Setting key contents from: %s' % tf.name)
-                key.set_contents_from_filename(tf.name)
+                key.set_contents_from_file(tf)
 
             url = key.generate_url(expires_in=0,
                                    query_auth=False)
