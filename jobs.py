@@ -20,10 +20,11 @@ class Jobs(object):
     SQL_RETRY_DELAY = 60
     SQL_MAX_RETRIES = 10
 
-    def __init__(self, mailer, default_device=None):
+    def __init__(self, mailer, default_device=None, allow_duplicates=False):
         self.mailer = mailer
         self.default_device = default_device
         self.filename = 'jobs.sqlite'
+        self.allow_duplicates = allow_duplicates
 
         if not os.path.exists(self.filename):
             conn = self._conn()
@@ -144,16 +145,18 @@ class Jobs(object):
         now = datetime.datetime.now().isoformat()
 
         conn = self._conn()
-        job_cursor = self._execute_sql(
-            conn,
-            'select id from jobs where device=? and build_url=?',
-            values=(device, build_url))
+        job_id = None
+        if not self.allow_duplicates:
+            job_cursor = self._execute_sql(
+                conn,
+                'select id from jobs where device=? and build_url=?',
+                values=(device, build_url))
 
-        job = job_cursor.fetchone()
-        job_cursor.close()
-        if job:
-            job_id = job[0]
-        else:
+            job = job_cursor.fetchone()
+            job_cursor.close()
+            if job:
+                job_id = job[0]
+        if not job_id:
             job_cursor = self._execute_sql(
                 conn,
                 'insert into jobs values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)',
@@ -165,20 +168,21 @@ class Jobs(object):
         new_tests = []
         for test in tests:
             repos = json.dumps(test.repos)
-            test_cursor = self._execute_sql(
-                conn,
-                'select * from tests where '
-                'name=? and config_file=? and chunk=? and repos=? and jobid=?',
-                values=(test.name, test.config_file, test.chunk, repos, job_id))
-            test_row = test_cursor.fetchone()
-            test_cursor.close()
-            if test_row:
-                logger.warning(
-                    'jobs.new_job: duplicate test: %s, device: %s, '
-                    'name: %s, config_file: %s, chunk: %s, repos: %s' % (
-                        build_url, device, test.name, test.config_file,
-                        test.chunk, repos))
-                continue
+            if not self.allow_duplicates:
+                test_cursor = self._execute_sql(
+                    conn,
+                    'select * from tests where '
+                    'name=? and config_file=? and chunk=? and repos=? and jobid=?',
+                    values=(test.name, test.config_file, test.chunk, repos, job_id))
+                test_row = test_cursor.fetchone()
+                test_cursor.close()
+                if test_row:
+                    logger.warning(
+                        'jobs.new_job: duplicate test: %s, device: %s, '
+                        'name: %s, config_file: %s, chunk: %s, repos: %s' % (
+                            build_url, device, test.name, test.config_file,
+                            test.chunk, repos))
+                    continue
             new_tests.append(test)
             test.generate_guid()
             self._execute_sql(

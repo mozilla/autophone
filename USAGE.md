@@ -556,6 +556,9 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
                                 Use the specified directory as the current build cache
                                 directory without attempting to download a build or
                                 test package.
+          --allow-duplicate-jobs
+                                Allow duplicate jobs to be queued. This is useful when
+                                testing intermittent failures. Defaults to False.
           --repo=REPOS          The repos to test. One of b2g-inbound, fx-team,
                                 mozilla-aurora, mozilla-beta, mozilla-central,
                                 mozilla-inbound, mozilla-release, try. To specify

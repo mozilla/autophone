@@ -116,7 +116,8 @@ class AutoPhone(object):
         self.mailer = Mailer(options.emailcfg, '[autophone] ')
 
         self._next_worker_num = 0
-        self.jobs = jobs.Jobs(self.mailer)
+        self.jobs = jobs.Jobs(self.mailer,
+                              allow_duplicates=options.allow_duplicate_jobs)
         self.phone_workers = {}  # indexed by phone id
         self.lock = threading.RLock()
         self.shared_lock = multiprocessing.Lock()
@@ -1137,6 +1138,10 @@ if __name__ == '__main__':
                       help='Use the specified directory as the current build '
                       'cache directory without attempting to download a build '
                       'or test package.')
+    parser.add_option('--allow-duplicate-jobs', action='store_true',
+                      dest='allow_duplicate_jobs', default=False,
+                      help='Allow duplicate jobs to be queued. This is useful '
+                      'when testing intermittent failures. Defaults to False.')
     parser.add_option('--repo',
                       dest='repos',
                       action='append',

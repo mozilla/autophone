@@ -30,6 +30,7 @@ class AutophoneOptions(object):
         self.pulse_jobactions_exchange = ''
         self.cache_dir = ''
         self.override_build_dir = ''
+        self.allow_duplicate_jobs = False
         self.repos = []
         self.buildtypes = []
         self.lifo = False
@@ -102,6 +103,7 @@ class AutophoneOptions(object):
                      'pulse_jobactions_exchange',
                      'cache_dir',
                      'override_build_dir',
+                     'allow_duplicate_jobs',
                      'repos',
                      'buildtypes',
                      'lifo',

@@ -886,7 +886,9 @@ class PhoneWorkerSubProcess(object):
         # Override mozlog.logger
         self.dm._logger = self.loggerdeco
 
-        self.jobs = jobs.Jobs(self.mailer, self.phone.id)
+        self.jobs = jobs.Jobs(self.mailer,
+                              default_device=self.phone.id,
+                              allow_duplicates=self.options.allow_duplicate_jobs)
 
         self.loggerdeco.info('Worker: Connected.')
 
