@@ -172,10 +172,14 @@ class PerfTest(PhoneTest):
         req = urllib2.Request(self._resulturl + 'add/', encoded_result,
                               {'Content-Type': content_type})
         max_attempts = 10
-        wait_time = 30
+        wait_time = 10
+        exceptions = []
         for attempt in range(1, max_attempts+1):
             try:
                 f = urllib2.urlopen(req)
+                f.read()
+                f.close()
+                return
             except Exception, e:
                 # Retry submission if the exception is due to a
                 # timeout and if we haven't exceeded the maximum
@@ -190,27 +194,34 @@ class PerfTest(PhoneTest):
                     continue
                 self.loggerdeco.exception('Error sending results to server')
                 self.worker_subprocess.mailer.send(
-                    'Error sending %s results for phone %s, build %s' %
-                    (self.name, self.phone.id, self.build.id),
-                    'There was an error attempting to send test results'
+                    'Attempt %s/%s Error sending %s results for phone %s, '
+                    'build %s' % (attempt, max_attempts, self.name,
+                                  self.phone.id, self.build.id),
+                    'There was an error attempting to send test results '
                     'to the result server %s.\n'
                     '\n'
-                    'Test %s\n'
-                    'Phone %s\n'
-                    'Build %s\n'
-                    'Revision %s\n'
-                    'Exception: %s\n' %
+                    'Job        %s\n'
+                    'Test       %s\n'
+                    'Phone      %s\n'
+                    'Repository %s\n'
+                    'Build      %s\n'
+                    'Revision   %s\n'
+                    'Exception  %s\n'
+                    'Result     %s\n' %
                     (self.result_server,
-                     self.name, self.phone.id, self.build.id,
-                     self.build.revision, e))
+                     self.job_url,
+                     self.name,
+                     self.phone.id,
+                     self.build.tree,
+                     self.build.id,
+                     self.build.revision,
+                     e,
+                     json.dumps(resultdata, sort_keys=True, indent=2)))
                 message = 'Error sending results to server'
                 self.test_result.status = PhoneTestResult.EXCEPTION
                 self.message = message
                 self.update_status(message=message)
-            else:
-                f.read()
-                f.close()
-            break
+                raise
 
     def dump_results(self, starttime=0, tstrt=0, tstop=0,
                      testname='', cache_enabled=True,

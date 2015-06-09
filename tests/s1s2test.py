@@ -238,10 +238,17 @@ class S1S2Test(PerfTest):
                         (testname, self.build.tree, self.build.id,
                          self.phone.id),
                         'No measurements were detected for test %s.\n\n'
-                        'Repository: %s\n'
-                        'Build Id:   %s\n'
-                        'Revision:   %s\n' %
-                        (testname, self.build.tree, self.build.id, self.build.revision))
+                        'Job        %s\n'
+                        'Phone      %s\n'
+                        'Repository %s\n'
+                        'Build      %s\n'
+                        'Revision   %s\n' %
+                        (testname,
+                         self.job_url,
+                         self.phone.id,
+                         self.build.tree,
+                         self.build.id,
+                         self.build.revision))
                     self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
                                       'No measurements detected.',
                                       PhoneTestResult.BUSTED)

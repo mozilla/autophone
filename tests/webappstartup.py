@@ -306,10 +306,16 @@ class WebappStartupTest(PerfTest):
                     'Webappstartup test failed for Build %s %s on Phone %s' %
                     (self.build.tree, self.build.id, self.phone.id),
                     'No measurements were detected for test webappstartup.\n\n'
-                    'Repository: %s\n'
-                    'Build Id:   %s\n'
-                    'Revision:   %s\n' %
-                    (self.build.tree, self.build.id, self.build.revision))
+                    'Job        %s\n'
+                    'Phone      %s\n'
+                    'Repository %s\n'
+                    'Build      %s\n'
+                    'Revision   %s\n' %
+                    (self.job_url,
+                     self.phone.id,
+                     self.build.tree,
+                     self.build.id,
+                     self.build.revision))
                 self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
                                   'No measurements detected.',
                                   PhoneTestResult.BUSTED)

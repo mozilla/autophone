@@ -281,6 +281,15 @@ class PhoneTest(object):
         return self._base_device_path
 
     @property
+    def job_url(self):
+        if not self.options.treeherder_url:
+            return None
+        job_url = '%s/#/jobs?filter-searchStr=autophone&exclusion_profile=false&repo=%s&revision=%s'
+        return job_url % (self.options.treeherder_url,
+                          self.build.tree,
+                          os.path.basename(self.build.revision))
+
+    @property
     def job_name(self):
         if not self.options.treeherder_url:
             return None
