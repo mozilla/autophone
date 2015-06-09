@@ -1,39 +1,42 @@
 [settings]
+# command line/ini options
 #ipaddr = ...
 #port = 28001
+#credentials_file = ...
+#devicescfg = devices.ini
 #logfile = autophone.log
 #loglevel = DEBUG
 #test_path = tests/manifest.ini
+#minidump_stackwalk = 
 #emailcfg = email.ini
+#phonedash_url = http://192.168.1.50:18000
+#webserver_url = http://192.168.1.50:18000
 #enable_pulse = False
-#pulse_user = pulseuser
-#pulse_password = pulsepassword
-#enable_unittests = False
+#pulse_durable_queue = False
+#pulse_jobactions_exchange = exchange/treeherder-stage/v1/job-actions
 #cache_dir = builds
-#override_build_dir = None
-#repos = mozilla-central
+#override_build_dir = 
+#allow_duplicate_jobs = True
+#repos = mozilla-inbound
 #buildtypes = opt
-#lifo = True
+#lifo = False
 #build_cache_port = 28008
-#devicescfg = devices.ini
-#verbose = True
-
+#verbose = False
 #treeherder_url = http://local.treeherder.mozilla.org
-#treeherder_credentials = pathto/credentials.json
 #treeherder_retries = 3
 #treeherder_retry_wait = 300
 
-#build_cache_size = 20
-#build_cache_expires = 7
-#device_ready_retry_wait = 20
-#device_ready_retry_attempts = 3
-#device_battery_min = 90
-#device_battery_max = 95
-#phone_retry_limit = 2
-#phone_retry_wait = 15
-#phone_max_reboots = 3
-#phone_ping_interval = 15
-#phone_command_queue_timeout = 10
-#phone_command_queue_timeout = 1
-#phone_crash_window = 30
-#phone_crash_limit = 5
+# ini only options
+#build_cache_size = BuildCache.MAX_NUM_BUILDS
+#build_cache_expires = BuildCache.EXPIRE_AFTER_DAYS
+#device_ready_retry_wait = PhoneWorker.DEVICE_READY_RETRY_WAIT
+#device_ready_retry_attempts = PhoneWorker.DEVICE_READY_RETRY_ATTEMPTS
+#device_battery_min = PhoneWorker.DEVICE_BATTERY_MIN
+#device_battery_max = PhoneWorker.DEVICE_BATTERY_MAX
+#phone_retry_limit = PhoneWorker.DEVICE_READY_RETRY_ATTEMPTS
+#phone_retry_wait = PhoneWorker.DEVICE_READY_RETRY_WAIT
+#phone_max_reboots = PhoneWorker.PHONE_MAX_REBOOTS
+#phone_ping_interval = PhoneWorker.PHONE_PING_INTERVAL
+#phone_command_queue_timeout = PhoneWorker.PHONE_COMMAND_QUEUE_TIMEOUT
+#phone_crash_window = Crashes.CRASH_WINDOW
+#phone_crash_limit = Crashes.CRASH_LIMIT
