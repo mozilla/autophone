@@ -680,8 +680,13 @@ class PhoneWorkerSubProcess(object):
         client = buildserver.BuildCacheClient(port=self.options.build_cache_port)
         self.update_status(phone_status=PhoneStatus.FETCHING,
                            message='%s %s' % (job['tree'], job['build_id']))
-        cache_response = client.get(job['build_url'],
-                                    enable_unittests=job['enable_unittests'])
+        test_package_names = set()
+        for t in job['tests']:
+            test_package_names.update(t.get_test_package_names())
+        cache_response = client.get(
+            job['build_url'],
+            enable_unittests=job['enable_unittests'],
+            test_package_names=test_package_names)
         client.close()
         if not cache_response['success']:
             self.loggerdeco.warning('Errors occured getting build %s: %s' %

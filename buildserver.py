@@ -45,15 +45,33 @@ class BuildCacheHandler(SocketServer.BaseRequestHandler):
                 build = cmds[0]
                 force = False
                 enable_unittests = False
+                test_package_names = set()
+                collecting_test_packages = False
                 cmds = cmds[1:]
                 for cmd in cmds:
-                    force = (cmd.lower() == 'force')
-                    enable_unittests = (cmd.lower() == 'enable_unittests')
+                    if collecting_test_packages:
+                        test_package_names.add(cmd)
+                    elif cmd.lower() == 'force':
+                        force = True
+                    elif cmd.lower() == 'enable_unittests':
+                        enable_unittests = True
+                    elif cmd.lower() == 'test_packages':
+                        collecting_test_packages = True
                 self.server.cache_lock.acquire()
-                results = self.server.build_cache.get(build,
-                                                      force=force,
-                                                      enable_unittests=enable_unittests)
-                self.server.cache_lock.release()
+                try:
+                    results = self.server.build_cache.get(
+                        build,
+                        force=force,
+                        enable_unittests=enable_unittests,
+                        test_package_names=test_package_names)
+                except Exception, e:
+                    results = {
+                        'success': False,
+                        'error': 'Exception: %s' % e,
+                        'metadata': ''
+                    }
+                finally:
+                    self.server.cache_lock.release()
                 self.request.send(json.dumps(results) + '\n')
 
 
@@ -72,7 +90,8 @@ class BuildCacheClient(object):
         self.sock.close()
         self.sock = None
 
-    def get(self, url, force=False, enable_unittests=False):
+    def get(self, url, force=False, enable_unittests=False,
+            test_package_names=None):
         if not self.sock:
             self.connect()
         line = url
@@ -81,6 +100,10 @@ class BuildCacheClient(object):
             line += ' force'
         if enable_unittests:
             line += ' enable_unittests'
+        if test_package_names:
+            line += ' test_packages'
+            for test_package in test_package_names:
+                line += ' ' + test_package
         self.sock.sendall(line + '\n')
         buf = ''
         while not '\n' in buf:

@@ -173,7 +173,6 @@ class PerfTest(PhoneTest):
                               {'Content-Type': content_type})
         max_attempts = 10
         wait_time = 10
-        exceptions = []
         for attempt in range(1, max_attempts+1):
             try:
                 f = urllib2.urlopen(req)

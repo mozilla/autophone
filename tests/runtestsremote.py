@@ -57,6 +57,8 @@ class UnitTest(PhoneTest):
             'config_file': config_file,
             'test_name': self.cfg.get('runtests', 'test_name'),
             'test_manifest': self.cfg.get('runtests', 'test_manifest'),
+            'test_packages': set(self.cfg.get('runtests',
+                                              'test_package_names').split(' ')),
         }
 
         self.parms['xre_path'] = self.unittest_cfg.get('runtests', 'xre_path')
@@ -89,6 +91,9 @@ class UnitTest(PhoneTest):
     @property
     def name(self):
         return 'autophone-%s%s' % (self.parms['test_name'], self.name_suffix)
+
+    def get_test_package_names(self):
+        return set(self.parms['test_packages'])
 
     def setup_job(self):
         PhoneTest.setup_job(self)

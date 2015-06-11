@@ -327,6 +327,17 @@ class PhoneTest(object):
     def build(self):
         return self.worker_subprocess.build
 
+    def get_test_package_names(self):
+        """Return a set of test package names which need to be downloaded
+        along with the build in order to run the test. This set will
+        be passed to the BuildCache.get() method. Normally, this will
+        only need to be set for UnitTests.
+
+        See https://bugzilla.mozilla.org/show_bug.cgi?id=1158276
+            https://bugzilla.mozilla.org/show_bug.cgi?id=917999
+        """
+        return set()
+
     def generate_guid(self):
         self.job_guid = utils.generate_guid()
 
