@@ -136,10 +136,11 @@ class Jobs(object):
 
     def new_job(self, build_url, build_id=None, changeset=None, tree=None,
                 revision=None, revision_hash=None, tests=None,
-                enable_unittests=False, device=None):
-        logger.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s' % (
+                enable_unittests=False, device=None,
+                attempts=0):
+        logger.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s %s' % (
             build_url, build_id, changeset, tree, revision, revision_hash,
-            tests, enable_unittests, device))
+            tests, enable_unittests, device, attempts))
         if not device:
             device = self.default_device
         now = datetime.datetime.now().isoformat()
@@ -159,9 +160,9 @@ class Jobs(object):
         if not job_id:
             job_cursor = self._execute_sql(
                 conn,
-                'insert into jobs values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)',
+                'insert into jobs values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 values=(None, now, None, build_url, build_id, changeset, tree,
-                        revision, revision_hash, enable_unittests, device))
+                        revision, revision_hash, enable_unittests, attempts, device))
             job_id = job_cursor.lastrowid
             job_cursor.close()
 

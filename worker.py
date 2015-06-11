@@ -643,7 +643,8 @@ class PhoneWorkerSubProcess(object):
                                   revision_hash=job['revision_hash'],
                                   tests=[t],
                                   enable_unittests=job['enable_unittests'],
-                                  device=self.phone.id)
+                                  device=self.phone.id,
+                                  attempts=job['attempts']+1)
                 self.treeherder.submit_pending(self.phone.id,
                                                job['build_url'],
                                                job['tree'],
