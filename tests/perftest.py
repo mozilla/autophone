@@ -185,7 +185,7 @@ class PerfTest(PhoneTest):
                 # timeout and if we haven't exceeded the maximum
                 # number of attempts.
                 if (attempt < max_attempts and
-                    isinstance(e, urllib2.URLError) and e.errno == 60):
+                    isinstance(e, urllib2.URLError) and 'timed out' in e):
                     self.loggerdeco.warning('PerfTest.publish_results: '
                                             'Attempt %d/%d timed out sending '
                                             'results to server' % (
