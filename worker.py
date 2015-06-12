@@ -644,7 +644,7 @@ class PhoneWorkerSubProcess(object):
                                   tests=[t],
                                   enable_unittests=job['enable_unittests'],
                                   device=self.phone.id,
-                                  attempts=job['attempts']+1)
+                                  attempts=job['attempts'])
                 self.treeherder.submit_pending(self.phone.id,
                                                job['build_url'],
                                                job['tree'],
