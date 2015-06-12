@@ -183,12 +183,12 @@ class PerfTest(PhoneTest):
                 # Retry submission if the exception is due to a
                 # timeout and if we haven't exceeded the maximum
                 # number of attempts.
-                if (attempt < max_attempts and
-                    isinstance(e, urllib2.URLError) and 'timed out' in e):
+                if attempt < max_attempts:
                     self.loggerdeco.warning('PerfTest.publish_results: '
-                                            'Attempt %d/%d timed out sending '
+                                            'Attempt %d/%d error %s sending '
                                             'results to server' % (
-                                                attempt, max_attempts))
+                                                attempt, max_attempts,
+                                                e))
                     time.sleep(wait_time)
                     continue
                 self.loggerdeco.exception('Error sending results to server')
