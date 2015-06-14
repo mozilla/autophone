@@ -336,8 +336,16 @@ class AutophoneTreeherder(object):
                 key = "%s/%s" % (key_prefix, fname)
                 with tempfile.NamedTemporaryFile(suffix='logcat.txt') as f:
                     try:
-                        for line in t.logcat.get(full=True):
-                            f.write('%s\n' % line)
+                        if self.worker.is_ok():
+                            for line in t.logcat.get(full=True):
+                                f.write('%s\n' % line)
+                        else:
+                            # Device is in an error state so we can't
+                            # get the full logcat but we can output
+                            # any logcat output we accumulated
+                            # previously.
+                            for line in t.logcat._accumulated_logcat:
+                                f.write('%s\n' % line)
                     except Exception, e:
                         logger.exception('Error reading logcat %s' % fname)
                         t.job_details.append({

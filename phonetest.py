@@ -232,18 +232,6 @@ class PhoneTest(object):
         if key in PhoneTest.instances:
             del PhoneTest.instances[key]
 
-    def _check_device(self):
-        for attempt in range(1, self.options.phone_retry_limit+1):
-            output = self.dm.get_state()
-            if output == 'device':
-                break
-            self.loggerdeco.warning(
-                'PhoneTest:_check_device Attempt: %d: %s' %
-                (attempt, output))
-            time.sleep(self.options.phone_retry_wait)
-        if output != 'device':
-            raise ADBError('PhoneTest:_check_device: Failed')
-
     @property
     def name_suffix(self):
         return  '-%s' % self.chunk if self.chunks > 1 else ''
@@ -345,9 +333,8 @@ class PhoneTest(object):
         return "%s %s opt %s" % (
             self.phone.platform, tree, self.name)
 
-    def handle_test_interrupt(self, reason):
-        self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL', reason,
-                          PhoneTestResult.USERCANCEL)
+    def handle_test_interrupt(self, reason, test_result):
+        self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL', reason, test_result)
 
     def test_pass(self, testpath):
         self.test_result.add_pass(testpath)
@@ -431,7 +418,10 @@ class PhoneTest(object):
         self.loggerdeco.info('Test %s elapsed time: %s' % (
             self.name, self.stop_time - self.start_time))
         try:
-            self.handle_crashes()
+            if self.worker_subprocess.is_ok():
+                # Do not attempt to process crashes if the device is
+                # in an error state.
+                self.handle_crashes()
         except Exception, e:
             self.test_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',

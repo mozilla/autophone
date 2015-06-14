@@ -5,6 +5,7 @@
 import ConfigParser
 import Queue
 import SocketServer
+import datetime
 import errno
 import inspect
 import json
@@ -15,6 +16,7 @@ import os
 import re
 import signal
 import socket
+import subprocess
 import sys
 import threading
 import traceback
@@ -26,7 +28,7 @@ import buildserver
 import jobs
 import utils
 
-from adb import ADBHost, ADBError, ADBTimeoutError
+from adb import ADBHost
 from adb_android import ADBAndroid as ADBDevice
 from autophonepulsemonitor import AutophonePulseMonitor
 from autophonetreeherder import AutophoneTreeherder
@@ -111,6 +113,7 @@ class AutoPhone(object):
 
     def __init__(self, loglevel, options):
         self.state = ProcessStates.STARTING
+        self.unrecoverable_error = False
         self.options = options
         self.loglevel = loglevel
         self.mailer = Mailer(options.emailcfg, '[autophone] ')
@@ -175,6 +178,13 @@ class AutoPhone(object):
         logger.debug('autophone_options: %s' % self.options)
 
         console_logger.info('Autophone started.')
+        if self.options.reboot_on_error:
+            msg_subj = 'Starting'
+            msg_body = ('Hello, this is Autophone. '
+                        'Just to let you know, I have started running. '
+                        'Wish me luck and check on me from time to time. '
+                        'I will send you emails if I have any problems.\n\n')
+            self.mailer.send(msg_subj, msg_body)
 
     def _get_frames(self):
         """Return the stack to the current location"""
@@ -219,28 +229,31 @@ class AutoPhone(object):
         workers = self.phone_workers.values()
         for worker in workers:
             if not worker.is_alive():
-                logger.debug('Worker %s %s is not alive' % (worker.phone.id, worker.state))
-                if worker.phone.id in self.restart_workers:
+                phoneid = worker.phone.id
+                logger.debug('Worker %s %s is not alive' % (phoneid, worker.state))
+                if phoneid in self.restart_workers:
                     initial_state = PhoneStatus.IDLE
                     logger.info('Worker %s exited; restarting with new '
-                                 'values.' % worker.phone.id)
+                                 'values.' % phoneid)
                 elif worker.state == ProcessStates.STOPPING:
                     # The device will be removed and not restarted.
                     initial_state = None
                 elif worker.state == ProcessStates.RESTARTING:
                     initial_state = PhoneStatus.IDLE
                 else:
-                    console_logger.error('Worker %s died!' % worker.phone.id)
-                    msg_subj = 'Worker for phone %s died' % \
-                        worker.phone.id
-                    msg_body = 'Hello, this is Autophone. Just to let you know, ' \
-                        'the worker process\nfor phone %s died.\n' % \
-                        worker.phone.id
+                    console_logger.error('Worker %s died!' % phoneid)
+                    msg_subj = 'Worker for phone %s died' % phoneid
+                    msg_body = ('Hello, this is Autophone. '
+                                'Just to let you know, '
+                                'the worker process '
+                                'for phone %s died.\n' %
+                                phoneid)
                     if worker.crashes.too_many_crashes():
                         initial_state = PhoneStatus.DISABLED
                         msg_subj += ' and was disabled'
-                        msg_body += 'It looks really crashy, so I disabled it. ' \
-                            'Sorry about that.\n'
+                        msg_body += (
+                            'It looks really crashy, so I disabled it. '
+                            'Sorry about that.\n\n')
                     else:
                         initial_state = PhoneStatus.DISCONNECTED
                     logger.info('Sending notification...')
@@ -257,8 +270,8 @@ class AutoPhone(object):
                 # monitor locking the shared lock?
 
                 if worker.state == ProcessStates.STOPPING:
-                    console_logger.info('Worker %s stopped' % worker.phone.id)
-                    del self.phone_workers[worker.phone.id]
+                    console_logger.info('Worker %s stopped' % phoneid)
+                    del self.phone_workers[phoneid]
                 else:
                     if worker.state == ProcessStates.RESTARTING:
                         # The device is being restarted with a
@@ -280,18 +293,59 @@ class AutoPhone(object):
                     # since we need to recreate the
                     # multiprocessing.Process object before we can
                     # call start on it again.
-                    console_logger.info('Worker %s restarting' % worker.phone.id)
+                    console_logger.info('Worker %s restarting' % phoneid)
                     # Save the record of crashes before recreating the
                     # Worker, then restore it afterwards.
                     crashes = worker.crashes
-                    new_worker = self.create_worker(worker.phone)
-                    new_worker.crashes = crashes
-                    new_worker.start(initial_state)
+                    try:
+                        new_worker = self.create_worker(worker.phone)
+                        new_worker.crashes = crashes
+                        new_worker.start(initial_state)
+                    except Exception, e:
+                        console_logger.info('Worker %s failed to restart' %
+                                            phoneid)
+                        msg_subj = ('Worker for phone %s failed to restart' %
+                                    phoneid)
+                        msg_body = ('Hello, this is Autophone. '
+                                    'Just to let you know, '
+                                    'the worker process '
+                                    'for phone %s '
+                                    'failed to restart due to %s.\n' %
+                                    (phoneid, e))
+                        self.mailer.send(msg_subj, msg_body)
+                        self.purge_worker(phoneid)
+
+    def check_for_unrecoverable_errors(self):
+        """Set the property unrecoverable_error to True if any devices have
+        lost usb connectivity or not updated their status within the
+        maximum allowed heartbeat time period. Forcefully stop any
+        workers which have exceeded the maximum heartbeat time.
+        """
+        for worker in self.phone_workers.values():
+            if not worker.last_status_msg:
+                continue
+
+            if worker.last_status_msg.phone_status == PhoneStatus.DISCONNECTED:
+                self.unrecoverable_error = True
+
+            # Do not check the last timestamp of a worker that
+            # is currently downloading a build due to the size
+            # of the downloads and the unknown network speed.
+            elapsed = datetime.datetime.now() - worker.last_status_msg.timestamp
+            if (worker.last_status_msg.phone_status != PhoneStatus.FETCHING and
+                elapsed > datetime.timedelta(seconds=self.options.maximum_heartbeat)):
+                self.unrecoverable_error = True
+                worker.stop()
 
     def worker_msg_loop(self):
         self.lock_acquire()
         try:
             while self.phone_workers and self.state != ProcessStates.STOPPING:
+                if self.options.reboot_on_error:
+                    self.check_for_unrecoverable_errors()
+                    if (self.unrecoverable_error and
+                        self.state != ProcessStates.SHUTTINGDOWN):
+                        self.shutdown()
                 self.check_for_dead_workers()
                 if (self.state == ProcessStates.RUNNING and
                     self.pulse_monitor and not self.pulse_monitor.is_alive()):
@@ -309,6 +363,10 @@ class AutoPhone(object):
                 finally:
                     # Reacquire the lock.
                     self.lock_acquire()
+                if msg.phone.id not in self.phone_workers:
+                    logger.warning('Received message %s '
+                                   'from Non-existent worker' % msg)
+                    continue
                 self.phone_workers[msg.phone.id].process_msg(msg)
                 if msg.phone_status == PhoneStatus.SHUTDOWN:
                     # Have to remove the tests for the worker prior to
@@ -339,6 +397,17 @@ class AutoPhone(object):
             for p in self.phone_workers.values():
                 p.stop()
             self.lock_release()
+
+        if self.unrecoverable_error and self.options.reboot_on_error:
+            console_logger.info('Rebooting due to unrecoverable errors')
+            msg_subj = 'Rebooting host due to unrecoverable errors'
+            msg_body = ('Hello, this is Autophone. '
+                        'Just to let you know, I have experienced '
+                        'unrecoverable device errors and am rebooting in '
+                        'the hope of resolving them.\n\n'
+                        'Please check on me.\n')
+            self.mailer.send(msg_subj, msg_body)
+            subprocess.call('sudo reboot', shell=True)
 
         if self.state == ProcessStates.RESTARTING:
             # Lifted from Sisyphus/Bughunter...
@@ -466,35 +535,40 @@ class AutoPhone(object):
                         response += 'ok'
         elif cmd == 'autophone-add-device':
             phoneid, space, serialno = params.partition(' ')
-            try:
-                dm = ADBDevice(device=serialno,
-                               device_ready_retry_wait=self.options.device_ready_retry_wait,
-                               device_ready_retry_attempts=self.options.device_ready_retry_attempts,
-                               verbose=self.options.verbose)
-
-                dm.power_on()
-                device = {"device_name": phoneid,
-                          "serialno": serialno,
-                          "dm" : dm}
-                device['osver'] = dm.get_prop('ro.build.version.release')
-                device['hardware'] = dm.get_prop('ro.product.model')
-                device['abi'] = dm.get_prop('ro.product.cpu.abi')
+            if phoneid in self.phone_workers:
+                response = 'device %s already exists' % phoneid
+                console_logger.warning(response)
+            else:
                 try:
-                    sdk = int(dm.get_prop('ro.build.version.sdk'))
-                    device['sdk'] = 'api-9' if sdk <= 10 else 'api-11'
-                except ValueError:
-                    device['sdk'] = 'api-9'
-                self._devices[phoneid] = device
-                # We must reload the test manifest again to pick up the
-                # new device's test configuration.
-                console_logger.info('Adding device %s %s' % (phoneid, serialno))
-                self.read_tests()
-                self.register_cmd(device)
-                self.phone_workers[phoneid].start()
-            except (ADBError, ADBTimeoutError), e:
-                response = '%s: Unable to add device due to %s.' % (data, e.message)
-                console_logger.error(response)
+                    dm = ADBDevice(
+                        device=serialno,
+                        device_ready_retry_wait=self.options.device_ready_retry_wait,
+                        device_ready_retry_attempts=self.options.device_ready_retry_attempts,
+                        verbose=self.options.verbose)
 
+                    dm.power_on()
+                    device = {"device_name": phoneid,
+                              "serialno": serialno,
+                              "dm" : dm}
+                    device['osver'] = dm.get_prop('ro.build.version.release')
+                    device['hardware'] = dm.get_prop('ro.product.model')
+                    device['abi'] = dm.get_prop('ro.product.cpu.abi')
+                    try:
+                        sdk = int(dm.get_prop('ro.build.version.sdk'))
+                        device['sdk'] = 'api-9' if sdk <= 10 else 'api-11'
+                    except ValueError:
+                        device['sdk'] = 'api-9'
+                    self._devices[phoneid] = device
+                    # We must reload the test manifest again to pick up the
+                    # new device's test configuration.
+                    console_logger.info('Adding device %s %s' % (phoneid, serialno))
+                    self.read_tests()
+                    self.register_cmd(device)
+                    self.phone_workers[phoneid].start()
+                except Exception, e:
+                    self.purge_worker(phoneid)
+                    response = '%s: Unable to add device due to %s.' % (data, e)
+                    console_logger.error(response)
         elif cmd == 'autophone-restart':
             self.state = ProcessStates.RESTARTING
             console_logger.info('Restarting Autophone...')
@@ -630,43 +704,53 @@ ok
         self.phone_workers[phone.id] = worker
         return worker
 
+    def purge_worker(self, phoneid):
+        """Remove worker and its tests from cached locations."""
+        if phoneid in self.phone_workers:
+            del self.phone_workers[phoneid]
+        if phoneid in self.restart_workers:
+            del self.restart_workers[phoneid]
+        for t in PhoneTest.match(phoneid=phoneid):
+            t.remove()
+
     def register_cmd(self, data):
-        try:
-            # Map MAC Address to ip and user name for phone
-            # The configparser does odd things with the :'s so remove them.
-            phoneid = data['device_name']
-            phone = PhoneData(
-                phoneid,
-                data['serialno'],
-                data['hardware'],
-                data['osver'],
-                data['abi'],
-                data['sdk'],
-                self.options.ipaddr) # XXX IPADDR no longer needed?
-            if logger.getEffectiveLevel() == logging.DEBUG:
-                logger.debug('register_cmd: phone: %s' % phone)
-            if phoneid in self.phone_workers:
-                logger.debug('Received registration message for known phone '
-                                  '%s.' % phoneid)
-                worker = self.phone_workers[phoneid]
-                if worker.phone.__dict_ != phone.__dict__:
-                    # This won't update the subprocess, but it will allow
-                    # us to write out the updated values right away.
-                    worker.phone = phone
-                    logger.info('Registration info has changed; restarting '
-                                     'worker.')
-                    if phoneid in self.restart_workers:
-                        logger.info('Phone worker is already scheduled to be '
-                                     'restarted!')
-                    else:
-                        self.restart_workers[phoneid] = phone
-                        worker.stop()
-            else:
+        # Map MAC Address to ip and user name for phone
+        # The configparser does odd things with the :'s so remove them.
+        phoneid = data['device_name']
+        phone = PhoneData(
+            phoneid,
+            data['serialno'],
+            data['hardware'],
+            data['osver'],
+            data['abi'],
+            data['sdk'],
+            self.options.ipaddr) # XXX IPADDR no longer needed?
+        if logger.getEffectiveLevel() == logging.DEBUG:
+            logger.debug('register_cmd: phone: %s' % phone)
+        if phoneid in self.phone_workers:
+            logger.debug('Received registration message for known phone '
+                              '%s.' % phoneid)
+            worker = self.phone_workers[phoneid]
+            if worker.phone.__dict__ != phone.__dict__:
+                # This won't update the subprocess, but it will allow
+                # us to write out the updated values right away.
+                worker.phone = phone
+                logger.info('Registration info has changed; restarting '
+                                 'worker.')
+                if phoneid in self.restart_workers:
+                    logger.info('Phone worker is already scheduled to be '
+                                 'restarted!')
+                else:
+                    self.restart_workers[phoneid] = phone
+                    worker.stop()
+        else:
+            try:
                 self.create_worker(phone)
                 logger.info('Registered phone %s.' % phone.id)
-        except:
-            logger.exception('register_cmd:')
-            self.stop()
+            except Exception:
+                console_logger.info('Worker %s failed to register' % phoneid)
+                self.purge_worker(phoneid)
+                raise
 
     def read_devices(self):
         cfg = ConfigParser.RawConfigParser()
@@ -695,8 +779,17 @@ ok
                     device['sdk'] = 'api-9'
                 self._devices[device_name] = device
                 self.register_cmd(device)
-            except (ADBError, ADBTimeoutError), e:
-                console_logger.error('Unable to add device due to %s.' % e.message)
+            except Exception, e:
+                console_logger.error('Unable to initialize device %s due to %s.' %
+                                     (device_name, e))
+                msg_subj = 'Unable to initialize device %s' % device_name
+                msg_body = ('Hello, this is Autophone. '
+                            'Just to let you know, '
+                            'phone %s '
+                            'failed to initialize due to %s.\n' %
+                            (device_name, e))
+                self.mailer.send(msg_subj, msg_body)
+                self.purge_worker(device_name)
 
     def read_tests(self):
         self._tests = []
@@ -1268,6 +1361,17 @@ if __name__ == '__main__':
                       Defaults to None. If specified, --s3-upload-bucket
                       and --aws-secret-access-key-id must also be specified.
                       """)
+    parser.add_option('--reboot-on-error', action='store_true',
+                      dest='verbose', default=False,
+                      help='Reboot host in the event of an unrecoverable error.'
+                      'Defaults to False.')
+    parser.add_option('--maximum-heartbeat',
+                      dest='maximum_heartbeat',
+                      action='store',
+                      type='int',
+                      default=900,
+                      help='Maximum heartbeat in seconds before worker is '
+                      'considered to be hung. Defaults to 900.')
 
     (cmd_options, args) = parser.parse_args()
     if cmd_options.treeherder_url and not cmd_options.treeherder_credentials_path:

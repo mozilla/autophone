@@ -25,6 +25,8 @@
 #treeherder_url = http://local.treeherder.mozilla.org
 #treeherder_retries = 3
 #treeherder_retry_wait = 300
+#reboot_on_error = False
+#maximum_heartbeat = 900
 
 # ini only options
 #build_cache_size = BuildCache.MAX_NUM_BUILDS

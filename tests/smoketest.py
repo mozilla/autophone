@@ -20,7 +20,6 @@ class SmokeTest(PhoneTest):
     def setup_job(self):
         PhoneTest.setup_job(self)
         self.crash_processor = AutophoneCrashProcessor(self.dm,
-                                                       self.loggerdeco,
                                                        self.profile_path,
                                                        self.upload_dir)
         self.crash_processor.clear()
@@ -43,13 +42,14 @@ class SmokeTest(PhoneTest):
         self.loggerdeco.debug('running fennec')
         self.run_fennec_with_profile(self.build.app_name, 'about:fennec')
 
+        is_test_completed = True
         command = None
         fennec_launched = self.dm.process_exist(self.build.app_name)
         found_throbber = False
         start = datetime.datetime.now()
         while (not fennec_launched and (datetime.datetime.now() - start
                                         <= datetime.timedelta(seconds=60))):
-            command = self.worker_subprocess.process_autophone_cmd(self)
+            command = self.worker_subprocess.process_autophone_cmd(test=self)
             if command['interrupt']:
                 break
             sleep(3)
@@ -59,15 +59,17 @@ class SmokeTest(PhoneTest):
             found_throbber = self.check_throbber()
             while (not found_throbber and (datetime.datetime.now() - start
                                            <= datetime.timedelta(seconds=60))):
-                command = self.worker_subprocess.process_autophone_cmd(self)
+                command = self.worker_subprocess.process_autophone_cmd(test=self)
                 if command['interrupt']:
                     break
                 sleep(3)
                 found_throbber = self.check_throbber()
 
         if command and command['interrupt']:
-            self.handle_test_interrupt(command['reason'])
-        if self.fennec_crashed:
+            is_test_completed = False
+            self.handle_test_interrupt(command['reason'],
+                                       command['test_result'])
+        elif self.fennec_crashed:
             pass # Handle the crash in teardown_job
         elif not fennec_launched:
             self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
@@ -86,6 +88,7 @@ class SmokeTest(PhoneTest):
 
         self.loggerdeco.debug('removing sessionstore files')
         self.remove_sessionstore_files()
+        return is_test_completed
 
     def prepare_phone(self):
         prefs = { 'browser.firstrun.show.localepicker': False,

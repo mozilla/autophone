@@ -505,6 +505,11 @@ file to be easily reused. To set up your own Autophone configuration
 file, copy [`autophone.ini.example`](autophone.ini.example) to
 `autophone.ini` and edit it to suit your needs.
 
+Note that if you wish to use Autophone as a service with the
+--reboot-on-error command line option, the user that autophone.py runs
+under must be able to execute sudo reboot without requiring a
+password.
+
 #### autophone.py command line options
 
         Usage: autophone.py [options]
@@ -622,6 +627,11 @@ file, copy [`autophone.ini.example`](autophone.ini.example) to
                                 AWS Access Key used to access AWS S3.
                                 Defaults to None. If specified, --s3-upload-bucket
                                 and --aws-secret-access-key-id must also be specified.
+          --reboot-on-error     Reboot host in the event of an unrecoverable
+                                error.Defaults to False.
+          --maximum-heartbeat=MAXIMUM_HEARTBEAT
+                                Maximum heartbeat in seconds before worker is
+                                considered to be hung. Defaults to 900.
 
 ##### Configuring Email notifications
 

@@ -207,6 +207,7 @@ class WebappStartupTest(PerfTest):
         # be reported.
         success = False
         command = None
+        is_test_completed = True
         for attempt in range(1, self.stderrp_attempts+1):
             # dataset is a list of the measurements made for the
             # iterations for this test.
@@ -222,9 +223,11 @@ class WebappStartupTest(PerfTest):
 
             dataset = []
             for iteration in range(1, self._iterations+1):
-                command = self.worker_subprocess.process_autophone_cmd(self)
+                command = self.worker_subprocess.process_autophone_cmd(test=self)
                 if command['interrupt']:
-                    self.handle_test_interrupt(command['reason'])
+                    is_test_completed = False
+                    self.handle_test_interrupt(command['reason'],
+                                               command['test_result'])
                     break
 
                 self.update_status(message='Attempt %d/%d for Test %s, '
@@ -346,6 +349,8 @@ class WebappStartupTest(PerfTest):
                         rejected=rejected)
             if not rejected:
                 break
+
+        return is_test_completed
 
     def kill_webappstartup(self):
         re_webapp = re.compile(r'%s|%s|%s:%s.Webapp0' % (

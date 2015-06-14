@@ -116,20 +116,23 @@ class S1S2Test(PerfTest):
         PerfTest.setup_job(self)
 
     def run_job(self):
+        is_test_completed = False
+
         if not self.install_local_pages():
             self.test_failure(
                 self.name, 'TEST_UNEXPECTED_FAIL',
                 'Aborting test - Could not install local pages on phone.',
                 PhoneTestResult.EXCEPTION)
-            return
+            return is_test_completed
 
         if not self.create_profile():
             self.test_failure(
                 self.name, 'TEST_UNEXPECTED_FAIL',
                 'Aborting test - Could not run Fennec.',
                 PhoneTestResult.BUSTED)
-            return
+            return is_test_completed
 
+        is_test_completed = True
         testcount = len(self._urls.keys())
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
             if self.fennec_crashed:
@@ -167,9 +170,12 @@ class S1S2Test(PerfTest):
 
                 dataset = []
                 for iteration in range(1, self._iterations+1):
-                    command = self.worker_subprocess.process_autophone_cmd(self)
+                    command = self.worker_subprocess.process_autophone_cmd(
+                        test=self, require_ip_address=url.startswith('http'))
                     if command['interrupt']:
-                        self.handle_test_interrupt(command['reason'])
+                        is_test_completed = False
+                        self.handle_test_interrupt(command['reason'],
+                                                   command['test_result'])
                         break
                     if self.fennec_crashed:
                         break
@@ -284,6 +290,8 @@ class S1S2Test(PerfTest):
                 break
             elif not success:
                 break
+
+        return is_test_completed
 
     def runtest(self, url):
         # Clear logcat

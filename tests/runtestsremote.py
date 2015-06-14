@@ -36,23 +36,12 @@ class UnitTest(PhoneTest):
         self.loggerdeco.info('config_file = %s, unittest_config_file = %s' %
                              (config_file, unittest_config_file))
 
-        # Mochitests in particular are broken when run via adb. We must
-        # use the SUTAgent and will need the phone's ip address.
-        phone_ip_address = None
-        for attempt in range(1, self.options.phone_retry_limit+1):
-            phone_ip_address = self.dm.get_ip_address()
-            self.loggerdeco.debug(
-                'UnitTest: get phone ip address Attempt: %d: %s' %
-                (attempt, phone_ip_address))
-            if phone_ip_address:
-                break
-            time.sleep(self.options.phone_retry_wait)
-        if not phone_ip_address:
-            raise Exception('UnitTest: Failed to get phone %s ip address' % self.phone.id)
+        self.phone_ip_address = self.dm.get_ip_address()
+        if not self.phone_ip_address:
+            raise Exception('PhoneTest: Failed to get phone %s ip address' % self.phone.id)
 
         self.parms = {
             'host_ip_address': self.phone.host_ip,
-            'phone_ip_address': phone_ip_address,
             'phoneid': self.phone.id,
             'config_file': config_file,
             'test_name': self.cfg.get('runtests', 'test_name'),
@@ -134,8 +123,6 @@ class UnitTest(PhoneTest):
         self.loggerdeco.debug('runtestsremote.py run_job start')
         self.update_status(message='runtestsremote.py run_job start')
 
-        self.worker_subprocess.check_sdcard()
-
         if logger.getEffectiveLevel() == logging.DEBUG:
             self.loggerdeco.debug('phone = %s' % self.phone)
 
@@ -143,7 +130,7 @@ class UnitTest(PhoneTest):
             raise Exception('Job configuration %s does not specify a test' %
                             self.config_file)
         try:
-            self.runtest()
+            is_test_completed = self.runtest()
         except:
             # This exception handler deals with exceptions which occur outside
             # of the actual test runner. Exceptions from the test runner
@@ -154,10 +141,11 @@ class UnitTest(PhoneTest):
                                'running test')
             # give the phone a minute to recover
             time.sleep(60)
-            self.worker_subprocess.recover_phone()
+            self.worker_subprocess.ping()
 
         self.loggerdeco.debug('runtestsremote.py run_job exit')
         self.update_status(message='runtestsremote.py run_job exit')
+        return is_test_completed
 
     def create_test_args(self):
         args = ['python', '-u']
@@ -228,7 +216,7 @@ class UnitTest(PhoneTest):
 
         common_args = [
             '--dm_trans=sut',
-            '--deviceIP=%s' % self.parms['phone_ip_address'],
+            '--deviceIP=%s' % self.phone_ip_address,
             '--devicePort=20701',
             '--app=%s' % self.parms['app_name'],
             '--xre-path=%s' % self.parms['xre_path'],
@@ -307,6 +295,8 @@ class UnitTest(PhoneTest):
 
         self.update_status(message='Starting test %s' % self.parms['test_name'])
 
+        is_test_completed = False
+
         if self.parms['test_name'] == 'robocoptest':
             try:
                 self.dm.uninstall_app('org.mozilla.roboexample.test')
@@ -318,11 +308,12 @@ class UnitTest(PhoneTest):
                 self.message = 'Exception installing robocop.apk: %s' % e
                 with open(self._log, "w") as logfilehandle:
                     logfilehandle.write('%s\n' % self.message)
-                return
+                return is_test_completed
 
         self.parms['port_manager'] = PortManager(self.parms['host_ip_address'])
 
         try:
+            is_test_completed = True
             logfilehandle = None
             while True:
                 socket_collision = False
@@ -367,10 +358,13 @@ class UnitTest(PhoneTest):
                     returncode = proc.poll()
                     if returncode is not None:
                         break
-                    command = self.worker_subprocess.process_autophone_cmd(self)
+                    command = self.worker_subprocess.process_autophone_cmd(
+                        test=self, require_ip_address=True)
                     if command['interrupt']:
+                        is_test_completed = False
                         proc.kill()
-                        self.handle_test_interrupt(command['reason'])
+                        self.handle_test_interrupt(command['reason'],
+                                                   command['test_result'])
                         break
 
                 if command and command['interrupt']:
@@ -414,7 +408,7 @@ class UnitTest(PhoneTest):
 
         self.loggerdeco.debug('runtestsremote.py runtest exit')
 
-        return
+        return is_test_completed
 
 
 class PortManager(object):

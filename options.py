@@ -42,6 +42,8 @@ class AutophoneOptions(object):
         self.treeherder_retry_wait = 0
         self._treeherder_protocol = ''
         self._treeherder_server = ''
+        self.reboot_on_error = False
+        self.maximum_heartbeat = 0
         # Sensitive options should not be output to the logs
         self.phonedash_user = ''
         self.phonedash_password = ''
@@ -114,6 +116,8 @@ class AutophoneOptions(object):
                      'treeherder_retry_wait',
                      '_treeherder_protocol',
                      '_treeherder_server',
+                     'reboot_on_error',
+                     'maximum_heartbeat',
                      'build_cache_size',
                      'build_cache_expires',
                      'device_ready_retry_wait',
