@@ -374,6 +374,7 @@ class S1S2Test(PerfTest):
             'extensions.update.enabled': False,
             'general.useragent.updates.enabled': False,
             'media.autoplay.enabled': True,
+            'plugin.state.flash': 2,
             'shell.checkDefaultClient': False,
             'toolkit.telemetry.enabled': False,
             'toolkit.telemetry.notifiedOptOut': telemetry_prompt,
