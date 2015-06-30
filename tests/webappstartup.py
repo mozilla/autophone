@@ -22,6 +22,8 @@ class WebappStartupTest(PerfTest):
         PerfTest.__init__(self, dm=dm, phone=phone, options=options,
                           config_file=config_file, chunk=chunk, repos=repos)
         self.webappstartup_name = None
+        # Enable the consoleservice for logcat in release builds.
+        self.preferences["consoleservice.logcat"] = True
 
     @property
     def name(self):
@@ -147,46 +149,10 @@ class WebappStartupTest(PerfTest):
         # changes each time.
         self.crash_processor.remote_profile_dir = self.profile_path
 
-        telemetry_prompt = 999
-        if self.build.id < '20130103':
-            telemetry_prompt = 2
-        prefs = {
-            'app.update.auto': False,
-            'app.update.enabled': False,
-            'app.update.url': '',
-            'app.update.url.android':  '',
-            'app.update.url.override': '',
-            'beacon.enabled': False,
-            'browser.EULA.override': True,
-            'browser.safebrowsing.enabled': False,
-            'browser.safebrowsing.malware.enabled': False,
-            'browser.search.countryCode': 'US',
-            'browser.search.isUS': True,
-            'browser.selfsupport.url': '',
-            'browser.sessionstore.resume_from_crash': False,
-            'browser.snippets.enabled': False,
-            'browser.snippets.firstrunHomepage.enabled': False,
-            'browser.snippets.syncPromo.enabled': False,
-            'browser.warnOnQuit': False,
-            'browser.webapps.checkForUpdates': 0,
-            'datareporting.healthreport.service.enabled': False,
-            'datareporting.policy.dataSubmissionPolicyBypassAcceptance': True,
-            'dom.ipc.plugins.flash.subprocess.crashreporter.enabled': False,
-            'extensions.blocklist.enabled': False,
-            'extensions.getAddons.cache.enabled': False,
-            'extensions.update.enabled': False,
-            'general.useragent.updates.enabled': False,
-            'media.autoplay.enabled': True,
-            'shell.checkDefaultClient': False,
-            'toolkit.telemetry.enabled': False,
-            'toolkit.telemetry.notifiedOptOut': telemetry_prompt,
-            'toolkit.telemetry.prompted': telemetry_prompt,
-            'urlclassifier.updateinterval': 172800,
-            'webapprt.app_update_interval': 86400,
-            'xpinstall.signatures.required': False,
-            }
         if isinstance(custom_prefs, dict):
-            prefs = dict(prefs.items() + custom_prefs.items())
+            prefs = dict(self.preferences.items() + custom_prefs.items())
+        else:
+            prefs = self.preferences
         profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
                                  os.getcwd())
         if not self.install_profile(profile):
@@ -249,8 +215,7 @@ class WebappStartupTest(PerfTest):
                         PhoneTestResult.TESTFAILED)
                     continue
 
-                custom_prefs = {"consoleservice.logcat": True}
-                if not self.create_profile(custom_prefs=custom_prefs):
+                if not self.create_profile():
                     self.test_failure(self.name,
                                       'TEST_UNEXPECTED_FAIL',
                                       'Failed to create profile',
@@ -377,15 +342,12 @@ class WebappStartupTest(PerfTest):
 
         extras = {}
 
-        moz_env = {'MOZ_CRASHREPORTER_NO_REPORT': '1'}
-        # moz_env is expected to be a dictionary of environment variables:
+        # self.environment is expected to be a dictionary of environment variables:
         # Fennec itself will set them when launched
-        for (env_count, (env_key, env_val)) in enumerate(moz_env.iteritems()):
-            extras["env" + str(env_count)] = env_key + "=" + env_val
+        for (env_count, (env_key, env_val)) in enumerate(self.environment.iteritems()):
+            extras["env" + str(env_count)] = "%s=%s" % (env_key, env_val)
 
-        # Additional command line arguments that fennec will read and use (e.g.
-        # with a custom profile)
-        #extra_args = ['--profile', self.profile_path]
+        # Additional command line arguments that fennec will read and use.
         extra_args = []
         if extra_args:
             extras['args'] = " ".join(extra_args)

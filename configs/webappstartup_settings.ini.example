@@ -18,6 +18,12 @@
 # If not set, stderrp_attempts defaults to 1.
 #stderrp_attempts = 1
 
+#[preferences]
+#prefname=prefvalue
+
+#[environment]
+#envname=envvalue
+
 #[treeherder]
 #job_name = Autophone Webappstartup
 #job_symbol = w

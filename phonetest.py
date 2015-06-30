@@ -6,6 +6,7 @@ import ConfigParser
 import datetime
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -160,8 +161,16 @@ class PhoneTest(object):
         assert type(repos) == list, 'PhoneTest repos argument must be a list'
         repos.sort()
         self._add_instance(phone.id, config_file, chunk)
+        # The default preferences and environment for running fennec
+        # are set here in PhoneTest. Tests which subclass PhoneTest can
+        # add or override these preferences during their
+        # initialization.
+        self._preferences = None
+        self._environment = None
         self.config_file = config_file
         self.cfg = ConfigParser.ConfigParser()
+        # Make the values in the config file case-sensitive
+        self.cfg.optionxform = str
         self.cfg.read(self.config_file)
         self.enable_unittests = False
         self.chunk = chunk
@@ -231,6 +240,127 @@ class PhoneTest(object):
         key = '%s:%s:%s' % (self.phone.id, self.config_file, self.chunk)
         if key in PhoneTest.instances:
             del PhoneTest.instances[key]
+
+    @property
+    def preferences(self):
+        # https://dxr.mozilla.org/mozilla-central/source/mobile/android/app/mobile.js
+        # https://dxr.mozilla.org/mozilla-central/source/browser/app/profile/firefox.js
+        # https://dxr.mozilla.org/mozilla-central/source/addon-sdk/source/test/preferences/no-connections.json
+
+        if not self._preferences:
+            self._preferences = {
+                'app.update.auto': False,
+                'app.update.certs.1.commonName': '',
+                'app.update.certs.2.commonName': '',
+                'app.update.enabled': False,
+                'app.update.staging.enabled': False,
+                'app.update.url': '',
+                'app.update.url.android':  '',
+                'app.update.url.override': '',
+                'beacon.enabled': False,
+                'browser.EULA.override': True,
+                'browser.aboutHomeSnippets.updateUrl': '',
+                'browser.newtab.url': '',
+                'browser.newtabpage.directory.ping': '',
+                'browser.newtabpage.directory.source': 'data:application/json,{"dummy":1}',
+                'browser.safebrowsing.downloads.enabled': False,
+                'browser.safebrowsing.downloads.remote.enabled': False,
+                'browser.safebrowsing.enabled': False,
+                'browser.safebrowsing.gethashURL': '',
+                'browser.safebrowsing.malware.enabled': False,
+                'browser.safebrowsing.malware.reportURL': '',
+                'browser.safebrowsing.updateURL': '',
+                'browser.search.countryCode': 'US',
+                'browser.search.geoip.url': '',
+                'browser.search.isUS': True,
+                'browser.search.suggest.enabled': False,
+                'browser.search.update': False,
+                'browser.selfsupport.url': '',
+                'browser.sessionstore.resume_from_crash': False,
+                'browser.snippets.enabled': False,
+                'browser.snippets.firstrunHomepage.enabled': False,
+                'browser.snippets.syncPromo.enabled': False,
+                'browser.snippets.updateUrl': '',
+                'browser.tiles.reportURL': '',
+                'browser.trackingprotection.gethashURL': '',
+                'browser.trackingprotection.updateURL': '',
+                'browser.warnOnQuit': False,
+                'browser.webapps.apkFactoryUrl': '',
+                'browser.webapps.checkForUpdates': 0,
+                'browser.webapps.updateCheckUrl': '',
+                'datareporting.healthreport.documentServerURI': '',
+                'datareporting.healthreport.service.enabled': False,
+                'datareporting.healthreport.uploadEnabled': False,
+                'datareporting.policy.dataSubmissionEnabled': False,
+                'datareporting.policy.dataSubmissionPolicyBypassAcceptance': True,
+                'dom.ipc.plugins.flash.subprocess.crashreporter.enabled': False,
+                'extensions.blocklist.enabled': False,
+                'extensions.blocklist.interval': 172800,
+                'extensions.blocklist.url': '',
+                'extensions.getAddons.cache.enabled': False,
+                'extensions.update.background.url': '',
+                'extensions.update.enabled': False,
+                'extensions.update.url': '',
+                'extensions.webservice.discoverURL': '',
+                'general.useragent.updates.enabled': False,
+                'geo.wifi.scan': False,
+                'geo.wifi.uri': '',
+                'media.autoplay.enabled': True,
+                'media.gmp-gmpopenh264.autoupdate': False,
+                'media.gmp-manager.cert.checkAttributes': False,
+                'media.gmp-manager.cert.requireBuiltIn': False,
+                'media.gmp-manager.certs.1.commonName': '',
+                'media.gmp-manager.certs.2.commonName': '',
+                'media.gmp-manager.url': '',
+                'media.gmp-manager.url.override': '',
+                'plugin.state.flash': 2,
+                'shell.checkDefaultClient': False,
+                'toolkit.telemetry.enabled': False,
+                'toolkit.telemetry.notifiedOptOut': 999,
+                'toolkit.telemetry.prompted': 999,
+                'toolkit.telemetry.rejected': True,
+                'toolkit.telemetry.server': '',
+                'toolkit.telemetry.unified': False,
+                'urlclassifier.updateinterval': 172800,
+                'webapprt.app_update_interval': 172800,
+                'xpinstall.signatures.required': False,
+                }
+            if self.cfg.has_section('preferences'):
+                overrides = self.cfg.options('preferences')
+                for name in overrides:
+                    value = self.cfg.get('preferences', name)
+                    if value.lower() == 'true':
+                        value = True
+                    elif value.lower() == 'false':
+                        value = False
+                    elif re.match('\d+$', value):
+                        value = int(value)
+                    self._preferences[name] = value
+        return self._preferences
+
+    @property
+    def environment(self):
+        if not self._environment:
+            # https://developer.mozilla.org/en-US/docs/Environment_variables_affecting_crash_reporting
+            self._environment = {
+                'MOZ_CRASHREPORTER': '1',
+                'MOZ_CRASHREPORTER_SHUTDOWN': '1',
+                'MOZ_DISABLE_NONLOCAL_CONNECTIONS': '1',
+                'NO_EM_RESTART': '1',
+                #'NSPR_LOG_MODULES': 'all:5',
+            }
+            if self.cfg.has_section('environment'):
+                overrides = self.cfg.options('environment')
+                for name in overrides:
+                    value = self.cfg.get('environment', name)
+                    if value.lower() == 'true':
+                        value = True
+                    elif value.lower() == 'false':
+                        value = False
+                    elif re.match('\d+$', value):
+                        value = int(value)
+                    self._environment[name] = value
+        return self._environment
 
     @property
     def name_suffix(self):
@@ -518,8 +648,7 @@ class PhoneTest(object):
             self.dm.pkill(appname, root=True)
             self.dm.launch_fennec(appname,
                                  intent="android.intent.action.VIEW",
-                                 moz_env={'MOZ_CRASHREPORTER_NO_REPORT': '1',
-                                          'MOZ_CRASHREPORTER': '1'},
+                                 moz_env=self.environment,
                                  extra_args=['--profile', self.profile_path],
                                  url=url,
                                  wait=False,

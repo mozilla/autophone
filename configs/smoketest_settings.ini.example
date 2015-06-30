@@ -1,3 +1,9 @@
+#[preferences]
+#prefname=prefvalue
+
+#[environment]
+#envname=envvalue
+
 [treeherder]
 job_name = Autophone Smoketest
 job_symbol = s

@@ -72,11 +72,6 @@ class UnitTest(PhoneTest):
         if self.cfg.has_option('runtests', 'total_chunks'):
             self.chunks = self.cfg.getint('runtests', 'total_chunks')
 
-        if self.cfg.has_option('runtests', 'prefs'):
-            self.parms['prefs'] = self.cfg.get('runtests', 'prefs').split(',')
-        else:
-            self.parms['prefs'] = []
-
     @property
     def name(self):
         return 'autophone-%s%s' % (self.parms['test_name'], self.name_suffix)
@@ -229,8 +224,20 @@ class UnitTest(PhoneTest):
             '--this-chunk=%d' % self.chunk,
             '--pidfile=%s-%s-%s.pid' % (self.parms['test_name'], self.chunk, self.parms['phoneid']),
         ]
-        for pref in self.parms['prefs']:
-            common_args.append('--setpref=%s' % pref)
+        for pref_name in self.preferences:
+            pref_value = self.preferences[pref_name]
+            if pref_value == True:
+                pref_value = 'true'
+            elif pref_value == False:
+                pref_value = 'false'
+            common_args.append('--setpref=%s=%s' % (pref_name, pref_value))
+        for env_name in self.environment:
+            env_value = self.environment[env_name]
+            if env_value == True:
+                env_value = 'true'
+            elif env_value == False:
+                env_value = 'false'
+            common_args.append('--setenv=%s=%s' % (env_name, env_value))
 
         args.extend(test_args)
         args.extend(common_args)

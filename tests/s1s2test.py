@@ -351,48 +351,10 @@ class S1S2Test(PerfTest):
         # install the profile.
 
         self.dm.pkill(self.build.app_name, root=root)
-
-        telemetry_prompt = 999
-        if self.build.id < '20130103':
-            telemetry_prompt = 2
-        prefs = {
-            'app.update.auto': False,
-            'app.update.enabled': False,
-            'app.update.url': '',
-            'app.update.url.android':  '',
-            'app.update.url.override': '',
-            'beacon.enabled': False,
-            'browser.EULA.override': True,
-            'browser.safebrowsing.enabled': False,
-            'browser.safebrowsing.malware.enabled': False,
-            'browser.search.countryCode': 'US',
-            'browser.search.isUS': True,
-            'browser.selfsupport.url': '',
-            'browser.sessionstore.resume_from_crash': False,
-            'browser.snippets.enabled': False,
-            'browser.snippets.firstrunHomepage.enabled': False,
-            'browser.snippets.syncPromo.enabled': False,
-            'browser.warnOnQuit': False,
-            'browser.webapps.checkForUpdates': 0,
-            'datareporting.healthreport.service.enabled': False,
-            'datareporting.policy.dataSubmissionPolicyBypassAcceptance': True,
-            'dom.ipc.plugins.flash.subprocess.crashreporter.enabled': False,
-            'extensions.blocklist.enabled': False,
-            'extensions.getAddons.cache.enabled': False,
-            'extensions.update.enabled': False,
-            'general.useragent.updates.enabled': False,
-            'media.autoplay.enabled': True,
-            'plugin.state.flash': 2,
-            'shell.checkDefaultClient': False,
-            'toolkit.telemetry.enabled': False,
-            'toolkit.telemetry.notifiedOptOut': telemetry_prompt,
-            'toolkit.telemetry.prompted': telemetry_prompt,
-            'urlclassifier.updateinterval': 172800,
-            'webapprt.app_update_interval': 86400,
-            'xpinstall.signatures.required': False,
-            }
         if isinstance(custom_prefs, dict):
-            prefs = dict(prefs.items() + custom_prefs.items())
+            prefs = dict(self.preferences.items() + custom_prefs.items())
+        else:
+            prefs = self.preferences
         profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
                                  os.getcwd())
         if not self.install_profile(profile):
