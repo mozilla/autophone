@@ -12,7 +12,6 @@ import tempfile
 import time
 import urlparse
 
-import requests
 from thclient import (TreeherderClient, TreeherderJobCollection)
 
 from s3 import S3Error
@@ -92,25 +91,16 @@ class AutophoneTreeherder(object):
                         self.credentials[project]['consumer_secret'],
                         job_collection)
                     return
-                except requests.exceptions.Timeout:
-                    msg = ('Attempt %d to post result to '
-                           'Treeherder timed out.\n\n\n' % attempt)
-                    logger.error(msg)
-                    if self.mailer:
-                        self.mailer.send('Attempt %d for Phone %s failed to post to Treeherder' %
-                                         (attempt, machine), msg)
-                    time.sleep(self.retry_wait)
                 except Exception, e:
                     logger.exception('Error submitting request to Treeherder')
                     if self.mailer:
-                        self.mailer.send('Error submitting request to Treeherder',
+                        self.mailer.send('Attempt %d Error submitting request to Treeherder',
                                          'Phone: %s\n'
-                                         'TreeherderClientError: %s\n'
-                                         'TreeherderJobCollection %s\n' % (
+                                         'TreeherderClientError: %s\n' % (
+                                             attempt,
                                              machine,
-                                             e,
-                                             job_collection.to_json()))
-                    return
+                                             e))
+                time.sleep(self.retry_wait)
             logger.error('Error submitting request to Treeherder')
             if self.mailer:
                 self.mailer.send('Error submitting request to Treeherder',
