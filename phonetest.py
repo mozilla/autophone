@@ -271,6 +271,7 @@ class PhoneTest(object):
                 'browser.safebrowsing.malware.reportURL': '',
                 'browser.safebrowsing.updateURL': '',
                 'browser.search.countryCode': 'US',
+                'browser.search.geoSpecificDefaults': False,
                 'browser.search.geoip.url': '',
                 'browser.search.isUS': True,
                 'browser.search.suggest.enabled': False,
