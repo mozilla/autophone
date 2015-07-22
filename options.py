@@ -38,6 +38,7 @@ class AutophoneOptions(object):
         self.verbose = False
         self.treeherder_url = ''
         self.treeherder_credentials_path = ''
+        self.treeherder_tier = 0
         self.treeherder_retries = 0
         self.treeherder_retry_wait = 0
         self._treeherder_protocol = ''
@@ -112,6 +113,7 @@ class AutophoneOptions(object):
                      'build_cache_port',
                      'verbose',
                      'treeherder_url',
+                     'treeherder_tier',
                      'treeherder_retries',
                      'treeherder_retry_wait',
                      '_treeherder_protocol',

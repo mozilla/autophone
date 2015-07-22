@@ -1320,6 +1320,12 @@ if __name__ == '__main__':
                       credentials for contacting the Treeherder server.
                       Defaults to None. If specified, --treeherder-url
                       must also be specified.""")
+    parser.add_option('--treeherder-tier',
+                      dest='treeherder_tier',
+                      action='store',
+                      type='int',
+                      default=3,
+                      help="""Integer specifying Treeherder Job Tier. Defaults to 3.""")
     parser.add_option('--treeherder-retries',
                       dest='treeherder_retries',
                       action='store',

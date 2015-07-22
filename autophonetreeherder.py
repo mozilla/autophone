@@ -12,7 +12,7 @@ import tempfile
 import time
 import urlparse
 
-from thclient import (TreeherderClient, TreeherderJobCollection)
+from thclient import (TreeherderAuth, TreeherderClient, TreeherderJobCollection)
 
 from s3 import S3Error
 
@@ -81,15 +81,14 @@ class AutophoneTreeherder(object):
         logger.debug('AutophoneTreeherder shared_lock.acquire')
         self.shared_lock.acquire()
         try:
-            client = TreeherderClient(protocol=self.protocol, host=self.server)
+            auth = TreeherderAuth(self.credentials[project]['consumer_key'],
+                                  self.credentials[project]['consumer_secret'],
+                                  project)
+            client = TreeherderClient(protocol=self.protocol, host=self.server, auth=auth)
 
             for attempt in range(1, self.retries+1):
                 try:
-                    client.post_collection(
-                        project,
-                        self.credentials[project]['consumer_key'],
-                        self.credentials[project]['consumer_secret'],
-                        job_collection)
+                    client.post_collection(project, job_collection)
                     return
                 except Exception, e:
                     logger.exception('Error submitting request to Treeherder')
@@ -128,7 +127,7 @@ class AutophoneTreeherder(object):
             logger.debug('AutophoneTreeherder.submit_pending: no url/revision hash')
             return
 
-        tjc = TreeherderJobCollection(job_type='update')
+        tjc = TreeherderJobCollection()
 
         for t in tests:
             t.message = None
@@ -145,6 +144,7 @@ class AutophoneTreeherder(object):
                              t.config_file, t.cfg.sections()))
 
             tj = tjc.get_job()
+            tj.add_tier(self.options.treeherder_tier)
             tj.add_revision_hash(revision_hash)
             tj.add_project(project)
             tj.add_job_guid(t.job_guid)
@@ -195,7 +195,7 @@ class AutophoneTreeherder(object):
             logger.debug('AutophoneTreeherder.submit_running: no url/revision hash')
             return
 
-        tjc = TreeherderJobCollection(job_type='update')
+        tjc = TreeherderJobCollection()
 
         for t in tests:
             logger.debug('AutophoneTreeherder.submit_running: '
@@ -205,6 +205,7 @@ class AutophoneTreeherder(object):
             t.start_timestamp = timestamp_now()
 
             tj = tjc.get_job()
+            tj.add_tier(self.options.treeherder_tier)
             tj.add_revision_hash(revision_hash)
             tj.add_project(project)
             tj.add_job_guid(t.job_guid)
@@ -297,7 +298,8 @@ class AutophoneTreeherder(object):
 
             tj = tjc.get_job()
 
-            # Attach logs
+            # Attach logs, ANRs, tombstones, etc.
+
             if self.s3_bucket:
                 # We must make certain that S3 keys for uploaded files
                 # are unique. We can create a unique log_identifier as
@@ -344,8 +346,6 @@ class AutophoneTreeherder(object):
                             'title': 'Error'})
                     try:
                         url = self.s3_bucket.upload(f.name, key)
-                        tj.add_log_reference(lname, url,
-                                             parse_status='parsed')
                         t.job_details.append({
                             'url': url,
                             'value': lname,
@@ -378,11 +378,22 @@ class AutophoneTreeherder(object):
                                 'content_type': 'text',
                                 'title': 'Error'})
 
+                # Bug 1113264 - Multiple job logs push action buttons outside
+                # the job details navbar
+                #
+                # Due to the way Treeherder UI displays log buttons in the
+                # Job Info panel, it is important to only specify one log
+                # file to prevent the multiple log buttons from hiding the
+                # retrigger button. If the test is a Unit Test, its log
+                # will marked as the log file. Otherwise, the Autophone
+                # log will be marked as the log file.
                 logurl = None
+                logname = None
+
                 # UnitTest Log
                 if t._log and os.path.exists(t._log):
                     fname = '%s.log' % log_identifier
-                    lname = os.path.basename(t._log)
+                    logname = os.path.basename(t._log)
                     key = "%s/%s" % (key_prefix, fname)
                     try:
                         logurl = self.s3_bucket.upload(t._log, key)
@@ -390,7 +401,7 @@ class AutophoneTreeherder(object):
                                              parse_status='parsed')
                         t.job_details.append({
                             'url': logurl,
-                            'value': lname,
+                            'value': logname,
                             'content_type': 'link',
                             'title': 'artifact uploaded'})
                     except Exception, e:
@@ -400,6 +411,7 @@ class AutophoneTreeherder(object):
                             'value': 'Failed to upload log %s: %s' % (fname, e),
                             'content_type': 'text',
                             'title': 'Error'})
+                # Autophone Log
                 # Since we are submitting results to Treeherder, we flush
                 # the worker's log before uploading the log to
                 # Treeherder. When we upload the log, it will contain
@@ -414,15 +426,16 @@ class AutophoneTreeherder(object):
                     url = self.s3_bucket.upload(self.worker.logfile, key)
                     self.worker.filehandler.close()
                     os.unlink(self.worker.logfile)
-                    tj.add_log_reference(fname, url,
-                                         parse_status='parsed')
                     t.job_details.append({
                         'url': url,
                         'value': lname,
                         'content_type': 'link',
                         'title': 'artifact uploaded'})
                     if not logurl:
+                        tj.add_log_reference(fname, url,
+                                             parse_status='parsed')
                         logurl = url
+                        logname = fname
                 except Exception, e:
                     logger.exception('Error %s uploading %s' % (
                         e, fname))
@@ -431,6 +444,7 @@ class AutophoneTreeherder(object):
                         'content_type': 'text',
                         'title': 'Error'})
 
+            tj.add_tier(self.options.treeherder_tier)
             tj.add_revision_hash(revision_hash)
             tj.add_project(project)
             tj.add_job_guid(t.job_guid)
@@ -491,7 +505,8 @@ class AutophoneTreeherder(object):
                     ],
                     'errors_truncated': False
                     },
-                'logurl': logurl
+                'logurl': logurl,
+                'logname': logname
                 }
 
             tj.add_artifact('text_log_summary', 'json', json.dumps(text_log_summary))

@@ -609,6 +609,8 @@ password.
                                 credentials for contacting the Treeherder server.
                                 Defaults to None. If specified, --treeherder-url
                                 must also be specified.
+          --treeherder-tier=TREEHERDER_TIER
+                                Integer specifying Treeherder Job Tier. Defaults to 3.
           --treeherder-retries=TREEHERDER_RETRIES
                                 Number of attempts for sending data to
                                 Treeherder. Defaults to 3.

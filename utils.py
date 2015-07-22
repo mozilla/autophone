@@ -127,16 +127,17 @@ def get_treeherder_revision_hash(treeherder_url, repo, revision):
     if not treeherder_url or not repo or not revision:
         return None
 
-    revurl = '%s/api/project/%s/revision-lookup/?revision=%s' % (
+    result_set_url = '%s/api/project/%s/resultset/?revision=%s' % (
         treeherder_url, repo, revision)
-    revision_lookup = get_remote_json(revurl)
-    if not revision_lookup:
+    result_set = get_remote_json(result_set_url)
+    if not result_set:
         return None
 
-    if revision not in revision_lookup:
+    if ('results' not in result_set or len(result_set['results']) == 0 or
+        'revision_hash' not in result_set['results'][0]):
         return None
 
-    return revision_lookup[revision]['revision_hash']
+    return result_set['results'][0]['revision_hash']
 
 
 def generate_guid():
