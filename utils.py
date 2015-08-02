@@ -14,6 +14,7 @@ import time
 import urllib2
 import urlparse
 import uuid
+import math
 
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
@@ -142,3 +143,30 @@ def get_treeherder_revision_hash(treeherder_url, repo, revision):
 
 def generate_guid():
     return str(uuid.uuid4())
+
+
+# These computational functions are taken from Talos:filter.py
+def median(series):
+    """
+    median of data; needs at least one data point
+    """
+    series = sorted(series)
+    if len(series) % 2:
+        # odd
+        return series[len(series)/2]
+    else:
+        # even
+        middle = len(series)/2  # the higher of the middle 2, actually
+        return 0.5*(series[middle-1] + series[middle])
+
+
+def geometric_mean(series):
+    """
+    geometric_mean: http://en.wikipedia.org/wiki/Geometric_mean
+    """
+    if len(series) == 0:
+        return 0
+    total = 0
+    for i in series:
+        total += math.log(i+1)
+    return math.exp(total / len(series)) - 1

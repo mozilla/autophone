@@ -643,14 +643,18 @@ class PhoneTest(object):
 
         return success
 
-    def run_fennec_with_profile(self, appname, url):
-        self.loggerdeco.debug('run_fennec_with_profile: %s %s' % (appname, url))
+    def run_fennec_with_profile(self, appname, url, extra_args=[]):
+        self.loggerdeco.debug('run_fennec_with_profile: %s %s %s' %
+                              (appname, url, extra_args))
+        local_extra_args = ['-profile', self.profile_path]
+        local_extra_args.extend(extra_args)
+
         try:
             self.dm.pkill(appname, root=True)
             self.dm.launch_fennec(appname,
                                  intent="android.intent.action.VIEW",
                                  moz_env=self.environment,
-                                 extra_args=['--profile', self.profile_path],
+                                 extra_args=local_extra_args,
                                  url=url,
                                  wait=False,
                                  fail_if_running=False)
