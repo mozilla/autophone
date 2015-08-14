@@ -129,7 +129,7 @@ def get_treeherder_revision_hash(treeherder_url, repo, revision):
         return None
 
     result_set_url = '%s/api/project/%s/resultset/?revision=%s' % (
-        treeherder_url, repo, revision)
+        treeherder_url, repo, revision[:12])
     result_set = get_remote_json(result_set_url)
     if not result_set:
         return None
