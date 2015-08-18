@@ -3,17 +3,11 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
-import glob
 import logging
 import os
-import posixpath
 import re
-import sys
 from time import sleep
 
-from mozprofile import FirefoxProfile
-
-from adb import ADBError
 from logdecorator import LogDecorator
 from perftest import PerfTest
 from phonetest import PhoneTestResult
@@ -29,52 +23,6 @@ class TalosTest(PerfTest):
         PerfTest.__init__(self, dm=dm, phone=phone, options=options,
                           config_file=config_file, chunk=chunk, repos=repos)
 
-        # [paths]
-        autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
-        self._paths = {}
-        self._paths['dest'] = posixpath.join(self.base_device_path, '%stest/' %
-                                             self.type)
-        try:
-            sources = self.cfg.get('paths', 'sources').split()
-            self._paths['sources'] = []
-            for source in sources:
-                if not source.endswith('/'):
-                    source += '/'
-                self._paths['sources'].append(source)
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self._paths['sources'] = [
-                os.path.join(autophone_directory, 'files/base/')]
-        try:
-            self._paths['dest'] = self.cfg.get('paths', 'dest')
-            if not self._paths['dest'].endswith('/'):
-                self._paths['dest'] += '/'
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            pass
-        try:
-            self._paths['profile'] = self.cfg.get('paths', 'profile')
-            if not self._paths['profile'].endswith('/'):
-                self._paths['profile'] += '/'
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            pass
-        if 'profile' in self._paths:
-            self.profile_path = self._paths['profile']
-        # _pushes = {'sourcepath' : 'destpath', ...}
-        self._pushes = {}
-        for source in self._paths['sources']:
-            for push in glob.glob(source + '*'):
-                if push.endswith('~') or push.endswith('.bak'):
-                    continue
-                push_dest = posixpath.join(self._paths['dest'],
-                                           os.path.basename(push))
-                self._pushes[push] = push_dest
-        # [tests]
-        self._tests = {}
-        try:
-            for t in self.cfg.items('tests'):
-                self._tests[t[0]] = t[1]
-        except ConfigParser.NoSectionError:
-            self._tests['blank'] = 'blank.html'
-
         self._test_args = {}
         config_vars = {'webserver_url': options.webserver_url}
 
@@ -83,6 +31,7 @@ class TalosTest(PerfTest):
         except ConfigParser.NoSectionError:
             location_items = [('local', None)]
 
+        # Finialize test configuration
         for test_location, test_path in location_items:
             if test_location in config_vars:
                 # Ignore the pseudo-options which result from passing
@@ -98,7 +47,7 @@ class TalosTest(PerfTest):
 
                 try:
                     for source in self._paths['sources']:
-                        fname = os.path.join(autophone_directory,
+                        fname = os.path.join(self.autophone_directory,
                                              source, tpname)
                         if not os.path.exists(fname):
                             continue
@@ -125,19 +74,14 @@ class TalosTest(PerfTest):
                     (test_location, test_name, test_path,
                      self._tests[test_name], extra_args))
                 self._test_args["%s-%s" % (test_location, test_name)] = extra_args
-        self._initialize_url = os.path.join('file://', self._paths['dest'],
-                                            'initialize_profile.html')
-
-    @property
-    def type(self):
-        return 'talos'
 
     @property
     def name(self):
-        return 'autophone-%s%s' % (self.type, self.name_suffix)
+        return 'autophone-talos%s' % self.name_suffix
 
     def run_job(self):
         is_test_completed = False
+        custom_addons = ['pageloader.xpi']
 
         if not self.install_local_pages():
             self.test_failure(
@@ -146,7 +90,7 @@ class TalosTest(PerfTest):
                 PhoneTestResult.EXCEPTION)
             return is_test_completed
 
-        if not self.create_profile():
+        if not self.create_profile(custom_addons=custom_addons):
             self.test_failure(
                 self.name, 'TEST_UNEXPECTED_FAIL',
                 'Aborting test - Could not run Fennec.',
@@ -203,7 +147,7 @@ class TalosTest(PerfTest):
 
                 dataset.append({})
 
-                if not self.create_profile():
+                if not self.create_profile(custom_addons=custom_addons):
                     self.test_failure(test_args,
                                       'TEST_UNEXPECTED_FAIL',
                                       'Failed to create profile',
@@ -231,8 +175,8 @@ class TalosTest(PerfTest):
                     'Failed to get measurements for test %s after '
                     '%d iterations' % (testname, self._iterations))
                 self.worker_subprocess.mailer.send(
-                    '%sTest %s failed for Build %s %s on Phone %s' %
-                    (self.type, testname, self.build.tree, self.build.id,
+                    '%s %s failed for Build %s %s on Phone %s' %
+                    (self.__class__.__name__, testname, self.build.tree, self.build.id,
                      self.phone.id),
                     'No measurements were detected for test %s.\n\n'
                     'Job        %s\n'
@@ -282,88 +226,6 @@ class TalosTest(PerfTest):
         if pageload_metric['summary'] != 0:
             datapoint = {'pageload_metric': pageload_metric}
         return datapoint
-
-    def create_profile(self, custom_prefs=None, root=True):
-        if not custom_prefs:
-            custom_prefs = {}
-
-        self.dm.pkill(self.build.app_name, root=root)
-        if isinstance(custom_prefs, dict):
-            prefs = dict(self.preferences.items() + custom_prefs.items())
-        else:
-            prefs = self.preferences
-        profile = FirefoxProfile(preferences=prefs,
-                                 addons=['%s/xpi/quitter.xpi' % os.getcwd(),
-                                         '%s/xpi/pageloader.xpi' % os.getcwd()])
-        if not self.install_profile(profile):
-            return False
-
-        success = False
-        for attempt in range(1, self.options.phone_retry_limit+1):
-            self.loggerdeco.debug('Attempt %d Initializing profile' % attempt)
-            self.run_fennec_with_profile(self.build.app_name,
-                                         self._initialize_url)
-            if self.wait_for_fennec():
-                success = True
-                break
-            sleep(self.options.phone_retry_wait)
-
-        if not success:
-            msg = 'Aborting Test - Failure initializing profile.'
-            self.loggerdeco.error(msg)
-
-        return success
-
-    def wait_for_fennec(self, max_wait_time=60, wait_time=5,
-                        kill_wait_time=20, root=True):
-        # Wait for up to a max_wait_time seconds for fennec to close
-        # itself in response to the quitter request. Check that fennec
-        # is still running every wait_time seconds. If fennec doesn't
-        # close on its own, attempt up to 3 times to kill fennec, waiting
-        # kill_wait_time seconds between attempts.
-        # Return True if fennec exits on its own, False to kill it.
-        # Re-raise the last exception if fennec can not be killed.
-        max_wait_attempts = max_wait_time / wait_time
-        for wait_attempt in range(1, max_wait_attempts+1):
-            if not self.dm.process_exist(self.build.app_name):
-                return True
-            sleep(wait_time)
-        self.loggerdeco.debug('killing fennec')
-        max_killattempts = 3
-        for kill_attempt in range(1, max_killattempts+1):
-            try:
-                self.dm.pkill(self.build.app_name, root=root)
-                break
-            except ADBError:
-                self.loggerdeco.exception('Attempt %d to kill fennec failed' %
-                                          kill_attempt)
-                if kill_attempt == max_killattempts:
-                    raise
-                sleep(kill_wait_time)
-        return False
-
-    def install_local_pages(self):
-        success = False
-        for attempt in range(1, self.options.phone_retry_limit+1):
-            self.loggerdeco.debug('Attempt %d Installing local pages' %
-                                  attempt)
-            try:
-                self.dm.rm(self._paths['dest'], recursive=True, force=True)
-                self.dm.mkdir(self._paths['dest'], parents=True)
-                for push_source in self._pushes:
-                    push_dest = self._pushes[push_source]
-                    self.dm.push(push_source, push_dest)
-                success = True
-                break
-            except ADBError:
-                self.loggerdeco.exception('Attempt %d Installing local pages' %
-                                          attempt)
-                sleep(self.options.phone_retry_wait)
-
-        if not success:
-            self.loggerdeco.error('Failure installing local pages')
-
-        return success
 
     def analyze_logcat(self):
         """

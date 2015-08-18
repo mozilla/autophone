@@ -63,9 +63,13 @@ class WebappStartupTest(PerfTest):
                 self.loggerdeco.exception('Exception uninstalling %s' %
                                           self.webappstartup_name)
 
-    def create_profile(self, custom_prefs=None, root=True):
+    def create_profile(self, custom_addons=[], custom_prefs=None, root=True):
         # Create, install and initialize the profile to be
         # used in the test.
+
+        temp_addons = ['quitter.xpi']
+        temp_addons.extend(custom_addons)
+        addons = ['%s/xpi/%s' % (os.getcwd(), addon) for addon in temp_addons]
 
         self.loggerdeco.debug('create_profile: custom_prefs: %s' % custom_prefs)
 
@@ -153,8 +157,7 @@ class WebappStartupTest(PerfTest):
             prefs = dict(self.preferences.items() + custom_prefs.items())
         else:
             prefs = self.preferences
-        profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
-                                 os.getcwd())
+        profile = FirefoxProfile(preferences=prefs, addons=addons)
         if not self.install_profile(profile):
             return False
 

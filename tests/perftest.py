@@ -14,7 +14,6 @@ from math import sqrt
 from jot import jwt, jws
 
 import utils
-from autophonecrash import AutophoneCrashProcessor
 from phonetest import PhoneTest, PhoneTestResult
 
 class PerfTest(PhoneTest):
@@ -56,10 +55,6 @@ class PerfTest(PhoneTest):
 
     def setup_job(self):
         PhoneTest.setup_job(self)
-        self.crash_processor = AutophoneCrashProcessor(self.dm,
-                                                       self.profile_path,
-                                                       self.upload_dir)
-        self.crash_processor.clear()
 
         if not self._resulturl:
             self._resultfile = open('autophone-results-%s.csv' %

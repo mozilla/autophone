@@ -4,16 +4,21 @@
 
 import ConfigParser
 import datetime
+import glob
 import logging
 import os
+import posixpath
 import re
+import sys
 import shutil
 import tempfile
-import time
+
+from time import sleep
 
 from mozprofile import FirefoxProfile
 
 import utils
+from autophonecrash import AutophoneCrashProcessor
 from adb import ADBError
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
@@ -55,7 +60,7 @@ class Logcat(object):
                 self.phonetest.loggerdeco.exception('Attempt %d get logcat' % attempt)
                 if attempt == self.phonetest.options.phone_retry_limit:
                     raise
-                time.sleep(self.phonetest.options.phone_retry_wait)
+                sleep(self.phonetest.options.phone_retry_wait)
 
     def clear(self):
         """Clears the device's logcat."""
@@ -220,6 +225,58 @@ class PhoneTest(object):
         # Instrument running time
         self.start_time = None
         self.stop_time = None
+        # Perform initial configuration. For tests which do not
+        # specify all config options, reasonable defaults will be
+        # chosen.
+
+        # [paths]
+        self.autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
+        self._paths = {}
+        self._paths['dest'] = posixpath.join(self.base_device_path,
+                                             self.__class__.__name__)
+        try:
+            sources = self.cfg.get('paths', 'sources').split()
+            self._paths['sources'] = []
+            for source in sources:
+                if not source.endswith('/'):
+                    source += '/'
+                self._paths['sources'].append(source)
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            self._paths['sources'] = [
+                os.path.join(self.autophone_directory, 'files/base/')]
+        try:
+            self._paths['dest'] = self.cfg.get('paths', 'dest')
+            if not self._paths['dest'].endswith('/'):
+                self._paths['dest'] += '/'
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            pass
+        try:
+            self._paths['profile'] = self.cfg.get('paths', 'profile')
+            if not self._paths['profile'].endswith('/'):
+                self._paths['profile'] += '/'
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            pass
+        if 'profile' in self._paths:
+            self.profile_path = self._paths['profile']
+        # _pushes = {'sourcepath' : 'destpath', ...}
+        self._pushes = {}
+        for source in self._paths['sources']:
+            for push in glob.glob(source + '*'):
+                if push.endswith('~') or push.endswith('.bak'):
+                    continue
+                push_dest = posixpath.join(self._paths['dest'],
+                                           os.path.basename(push))
+                self._pushes[push] = push_dest
+        self._initialize_url = os.path.join('file://', self._paths['dest'],
+                                            'initialize_profile.html')
+        # [tests]
+        self._tests = {}
+        try:
+            for t in self.cfg.items('tests'):
+                self._tests[t[0]] = t[1]
+        except ConfigParser.NoSectionError:
+            self._tests['blank'] = 'blank.html'
+
         self.loggerdeco.info('PhoneTest: Connected.')
 
     def __str__(self):
@@ -390,7 +447,7 @@ class PhoneTest(object):
                 self.loggerdeco.exception('Attempt %d creating base device '
                                           'path %s' % (
                                               attempt, self._base_device_path))
-                time.sleep(self.options.phone_retry_wait)
+                sleep(self.options.phone_retry_wait)
 
         if not success:
             raise e
@@ -507,6 +564,104 @@ class PhoneTest(object):
             else:
                 self.loggerdeco.warning('Unknown error reason: %s' % error['reason'])
 
+    def create_profile(self, custom_addons=[], custom_prefs=None, root=True):
+        # Create, install and initialize the profile to be
+        # used in the test.
+
+        temp_addons = ['quitter.xpi']
+        temp_addons.extend(custom_addons)
+        addons = ['%s/xpi/%s' % (os.getcwd(), addon) for addon in temp_addons]
+
+        # make sure firefox isn't running when we try to
+        # install the profile.
+
+        self.dm.pkill(self.build.app_name, root=root)
+        if isinstance(custom_prefs, dict):
+            prefs = dict(self.preferences.items() + custom_prefs.items())
+        else:
+            prefs = self.preferences
+        profile = FirefoxProfile(preferences=prefs, addons=addons)
+        if not self.install_profile(profile):
+            return False
+
+        success = False
+        for attempt in range(1, self.options.phone_retry_limit+1):
+            self.loggerdeco.debug('Attempt %d Initializing profile' % attempt)
+            self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
+
+            if self.wait_for_fennec():
+                success = True
+                break
+            sleep(self.options.phone_retry_wait)
+
+        if not success:
+            msg = 'Aborting Test - Failure initializing profile.'
+            self.loggerdeco.error(msg)
+
+        return success
+
+    def wait_for_fennec(self, max_wait_time=60, wait_time=5,
+                        kill_wait_time=20, root=True):
+        # Wait for up to a max_wait_time seconds for fennec to close
+        # itself in response to the quitter request. Check that fennec
+        # is still running every wait_time seconds. If fennec doesn't
+        # close on its own, attempt up to 3 times to kill fennec, waiting
+        # kill_wait_time seconds between attempts.
+        # Return True if fennec exits on its own, False if it needs to be killed.
+        # Re-raise the last exception if fennec can not be killed.
+        max_wait_attempts = max_wait_time / wait_time
+        for wait_attempt in range(1, max_wait_attempts+1):
+            if not self.dm.process_exist(self.build.app_name):
+                return True
+            sleep(wait_time)
+        self.loggerdeco.debug('killing fennec')
+        max_killattempts = 3
+        for kill_attempt in range(1, max_killattempts+1):
+            try:
+                self.dm.pkill(self.build.app_name, root=root)
+                break
+            except ADBError:
+                self.loggerdeco.exception('Attempt %d to kill fennec failed' %
+                                          kill_attempt)
+                if kill_attempt == max_killattempts:
+                    raise
+                sleep(kill_wait_time)
+        return False
+
+    def install_local_pages(self):
+        success = False
+        for attempt in range(1, self.options.phone_retry_limit+1):
+            self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
+            try:
+                self.dm.rm(self._paths['dest'], recursive=True, force=True)
+                self.dm.mkdir(self._paths['dest'], parents=True)
+                for push_source in self._pushes:
+                    push_dest = self._pushes[push_source]
+                    if os.path.isdir(push_source):
+                        self.dm.push(push_source, push_dest)
+                    else:
+                        self.dm.push(push_source, push_dest)
+                success = True
+                break
+            except ADBError:
+                self.loggerdeco.exception('Attempt %d Installing local pages' % attempt)
+                sleep(self.options.phone_retry_wait)
+
+        if not success:
+            self.loggerdeco.error('Failure installing local pages')
+
+        return success
+
+    def is_fennec_running(self, appname):
+        for attempt in range(1, self.options.phone_retry_limit+1):
+            try:
+                return self.dm.process_exist(appname)
+            except ADBError:
+                self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
+                if attempt == self.options.phone_retry_limit:
+                    raise
+                sleep(self.options.phone_retry_wait)
+
     def setup_job(self):
         self.start_time = datetime.datetime.now()
         self.stop_time = self.start_time
@@ -535,6 +690,10 @@ class PhoneTest(object):
             os.unlink(self._log)
         self._log = None
         self.upload_dir = tempfile.mkdtemp()
+        self.crash_processor = AutophoneCrashProcessor(self.dm,
+                                                       self.profile_path,
+                                                       self.upload_dir)
+        self.crash_processor.clear()
         self.test_result = PhoneTestResult()
         if not self.worker_subprocess.is_disabled():
             self.update_status(phone_status=PhoneStatus.WORKING,
@@ -554,6 +713,7 @@ class PhoneTest(object):
                 # in an error state.
                 self.handle_crashes()
         except Exception, e:
+            self.loggerdeco.exception('Exception during crash processing')
             self.test_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Exception %s during crash processing' % e,
@@ -636,7 +796,7 @@ class PhoneTest(object):
                 self.loggerdeco.exception('Attempt %d Exception installing '
                                           'profile to %s' % (
                                               attempt, self.profile_path))
-                time.sleep(self.options.phone_retry_wait)
+                sleep(self.options.phone_retry_wait)
 
         if not success:
             self.loggerdeco.error('Failure installing profile to %s' % self.profile_path)

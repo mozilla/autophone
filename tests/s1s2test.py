@@ -4,18 +4,13 @@
 
 import ConfigParser
 import datetime
-import glob
 import logging
 import os
-import posixpath
 import re
-import sys
 import urlparse
+
 from time import sleep
 
-from mozprofile import FirefoxProfile
-
-from adb import ADBError
 from logdecorator import LogDecorator
 from perftest import PerfTest
 from phonetest import PhoneTestResult
@@ -28,60 +23,20 @@ logger = logging.getLogger()
 class S1S2Test(PerfTest):
     def __init__(self, dm=None, phone=None, options=None,
                  config_file=None, chunk=1, repos=[]):
+
         PerfTest.__init__(self, dm=dm, phone=phone, options=options,
                           config_file=config_file, chunk=chunk, repos=repos)
 
-        # [paths]
-        autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
-        self._paths = {}
-        self._paths['dest'] = posixpath.join(self.base_device_path, 's1s2test/')
-        try:
-            sources = self.cfg.get('paths', 'sources').split()
-            self._paths['sources'] = []
-            for source in sources:
-                if not source.endswith('/'):
-                    source += '/'
-                self._paths['sources'].append(source)
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self._paths['sources'] = [
-                os.path.join(autophone_directory, 'files/base/'),
-                os.path.join(autophone_directory, 'files/s1s2/')]
-        try:
-            self._paths['dest'] = self.cfg.get('paths', 'dest')
-            if not self._paths['dest'].endswith('/'):
-                self._paths['dest'] += '/'
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            pass
-        try:
-            self._paths['profile'] = self.cfg.get('paths', 'profile')
-            if not self._paths['profile'].endswith('/'):
-                self._paths['profile'] += '/'
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            pass
-        if 'profile' in self._paths:
-            self.profile_path = self._paths['profile']
-        # _pushes = {'sourcepath' : 'destpath', ...}
-        self._pushes = {}
-        for source in self._paths['sources']:
-            for push in glob.glob(source + '*'):
-                if push.endswith('~') or push.endswith('.bak'):
-                    continue
-                push_dest = posixpath.join(self._paths['dest'], os.path.basename(push))
-                self._pushes[push] = push_dest
-        # [tests]
-        self._tests = {}
-        try:
-            for t in self.cfg.items('tests'):
-                self._tests[t[0]] = t[1]
-        except ConfigParser.NoSectionError:
-            self._tests['blank'] = 'blank.html'
         # Map URLS - {urlname: url} - urlname serves as testname
         self._urls = {}
         config_vars = {'webserver_url': options.webserver_url}
+
         try:
             location_items = self.cfg.items('locations', False, config_vars)
         except ConfigParser.NoSectionError:
             location_items = [('local', None)]
+
+        # Finialize test configuration
         for test_location, test_path in location_items:
             if test_location in config_vars:
                 # Ignore the pseudo-options which result from passing
@@ -99,8 +54,6 @@ class S1S2Test(PerfTest):
                     (test_location, test_name, test_path,
                      self._tests[test_name], test_url))
                 self._urls["%s-%s" % (test_location, test_name)] = test_url
-        self._initialize_url = os.path.join('file://', self._paths['dest'],
-                                            'initialize_profile.html')
 
     @property
     def name(self):
@@ -111,9 +64,6 @@ class S1S2Test(PerfTest):
         # For s1s2test, there are 4 different test names due to historical design.
         # We pick local-blank as the default.
         return self._phonedash_url('local-blank')
-
-    def setup_job(self):
-        PerfTest.setup_job(self)
 
     def run_job(self):
         is_test_completed = False
@@ -240,8 +190,8 @@ class S1S2Test(PerfTest):
                                               self.stderrp_attempts,
                                               self._iterations))
                     self.worker_subprocess.mailer.send(
-                        'S1S2Test %s failed for Build %s %s on Phone %s' %
-                        (testname, self.build.tree, self.build.id,
+                        '%s %s failed for Build %s %s on Phone %s' %
+                        (self.__class__.__name__, testname, self.build.tree, self.build.id,
                          self.phone.id),
                         'No measurements were detected for test %s.\n\n'
                         'Job        %s\n'
@@ -314,100 +264,6 @@ class S1S2Test(PerfTest):
             datapoint['throbberstop'] = throbberstop
             datapoint['throbbertime'] = throbberstop - throbberstart
         return datapoint
-
-    def wait_for_fennec(self, max_wait_time=60, wait_time=5,
-                        kill_wait_time=20, root=True):
-        # Wait for up to a max_wait_time seconds for fennec to close
-        # itself in response to the quitter request. Check that fennec
-        # is still running every wait_time seconds. If fennec doesn't
-        # close on its own, attempt up to 3 times to kill fennec, waiting
-        # kill_wait_time seconds between attempts.
-        # Return True if fennec exits on its own, False if it needs to be killed.
-        # Re-raise the last exception if fennec can not be killed.
-        max_wait_attempts = max_wait_time / wait_time
-        for wait_attempt in range(1, max_wait_attempts+1):
-            if not self.dm.process_exist(self.build.app_name):
-                return True
-            sleep(wait_time)
-        self.loggerdeco.debug('killing fennec')
-        max_killattempts = 3
-        for kill_attempt in range(1, max_killattempts+1):
-            try:
-                self.dm.pkill(self.build.app_name, root=root)
-                break
-            except ADBError:
-                self.loggerdeco.exception('Attempt %d to kill fennec failed' %
-                                          kill_attempt)
-                if kill_attempt == max_killattempts:
-                    raise
-                sleep(kill_wait_time)
-        return False
-
-    def create_profile(self, custom_prefs=None, root=True):
-        # Create, install and initialize the profile to be
-        # used in the test.
-
-        # make sure firefox isn't running when we try to
-        # install the profile.
-
-        self.dm.pkill(self.build.app_name, root=root)
-        if isinstance(custom_prefs, dict):
-            prefs = dict(self.preferences.items() + custom_prefs.items())
-        else:
-            prefs = self.preferences
-        profile = FirefoxProfile(preferences=prefs, addons='%s/xpi/quitter.xpi' %
-                                 os.getcwd())
-        if not self.install_profile(profile):
-            return False
-
-        success = False
-        for attempt in range(1, self.options.phone_retry_limit+1):
-            self.loggerdeco.debug('Attempt %d Initializing profile' % attempt)
-            self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
-            if self.wait_for_fennec():
-                success = True
-                break
-            sleep(self.options.phone_retry_wait)
-
-        if not success:
-            msg = 'Aborting Test - Failure initializing profile.'
-            self.loggerdeco.error(msg)
-
-        return success
-
-    def install_local_pages(self):
-        success = False
-        for attempt in range(1, self.options.phone_retry_limit+1):
-            self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
-            try:
-                self.dm.rm(self._paths['dest'], recursive=True, force=True)
-                self.dm.mkdir(self._paths['dest'], parents=True)
-                for push_source in self._pushes:
-                    push_dest = self._pushes[push_source]
-                    if os.path.isdir(push_source):
-                        self.dm.push(push_source, push_dest)
-                    else:
-                        self.dm.push(push_source, push_dest)
-                success = True
-                break
-            except ADBError:
-                self.loggerdeco.exception('Attempt %d Installing local pages' % attempt)
-                sleep(self.options.phone_retry_wait)
-
-        if not success:
-            self.loggerdeco.error('Failure installing local pages')
-
-        return success
-
-    def is_fennec_running(self, appname):
-        for attempt in range(1, self.options.phone_retry_limit+1):
-            try:
-                return self.dm.process_exist(appname)
-            except ADBError:
-                self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
-                if attempt == self.options.phone_retry_limit:
-                    raise
-                sleep(self.options.phone_retry_wait)
 
     def analyze_logcat(self):
         self.loggerdeco.debug('analyzing logcat')
@@ -542,5 +398,3 @@ class S1S2Test(PerfTest):
             start_time = throbber_start_time = throbber_stop_time = 0
 
         return (start_time, throbber_start_time, throbber_stop_time)
-
-

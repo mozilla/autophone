@@ -7,7 +7,6 @@ from time import sleep
 
 from mozprofile import FirefoxProfile
 
-from autophonecrash import AutophoneCrashProcessor
 from phonetest import PhoneTest, PhoneTestResult
 
 
@@ -16,17 +15,6 @@ class SmokeTest(PhoneTest):
     @property
     def name(self):
         return 'autophone-smoketest%s' % self.name_suffix
-
-    def setup_job(self):
-        PhoneTest.setup_job(self)
-        self.crash_processor = AutophoneCrashProcessor(self.dm,
-                                                       self.profile_path,
-                                                       self.upload_dir)
-        self.crash_processor.clear()
-
-    def teardown_job(self):
-        self.loggerdeco.debug('PerfTest.teardown_job')
-        PhoneTest.teardown_job(self)
 
     def run_job(self):
         self.update_status(message='Running smoketest')
