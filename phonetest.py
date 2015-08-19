@@ -317,6 +317,8 @@ class PhoneTest(object):
                 'beacon.enabled': False,
                 'browser.EULA.override': True,
                 'browser.aboutHomeSnippets.updateUrl': '',
+                'browser.firstrun.show.localepicker': False,
+                'browser.firstrun.show.uidiscovery': False,
                 'browser.newtab.url': '',
                 'browser.newtabpage.directory.ping': '',
                 'browser.newtabpage.directory.source': 'data:application/json,{"dummy":1}',

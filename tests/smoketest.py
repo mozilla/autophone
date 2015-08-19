@@ -79,15 +79,7 @@ class SmokeTest(PhoneTest):
         return is_test_completed
 
     def prepare_phone(self):
-        prefs = { 'browser.firstrun.show.localepicker': False,
-                  'browser.sessionstore.resume_from_crash': False,
-                  'browser.firstrun.show.uidiscovery': False,
-                  'shell.checkDefaultClient': False,
-                  'browser.warnOnQuit': False,
-                  'browser.EULA.override': True,
-                  'toolkit.telemetry.prompted': 999,
-                  'toolkit.telemetry.notifiedOptOut': 999 }
-        profile = FirefoxProfile(preferences=prefs)
+        profile = FirefoxProfile(preferences=self.preferences)
         self.install_profile(profile)
 
     def check_throbber(self):
