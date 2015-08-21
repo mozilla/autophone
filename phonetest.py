@@ -373,7 +373,7 @@ class PhoneTest(object):
                 'media.gmp-manager.certs.2.commonName': '',
                 'media.gmp-manager.url': '',
                 'media.gmp-manager.url.override': '',
-                'plugin.state.flash': 2,
+                #'plugin.state.flash': 2,
                 'shell.checkDefaultClient': False,
                 'toolkit.telemetry.enabled': False,
                 'toolkit.telemetry.notifiedOptOut': 999,
