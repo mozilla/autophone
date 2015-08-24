@@ -105,7 +105,14 @@ def get_build_data(build_url):
     changeset_regex = re.compile(r'.*/([^/]*)/rev/(.*)')
 
     buildid_match = buildid_regex.match(lines[0])
-    changeset_match = changeset_regex.match(lines[1])
+
+    if len(lines) >= 2:
+        changeset_match = changeset_regex.match(lines[1])
+    else:
+        logger.warning("Unable to find revision in %s, results cannot be " 
+                       " uploaded to treeherder" % build_url)
+        changeset_match = changeset_regex.match("file://local/rev/local")
+        lines.append("file://local/rev/local")
     if not buildid_match or not changeset_match:
         return None
 

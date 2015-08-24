@@ -718,8 +718,11 @@ class BuildCache(object):
                 else:
                     # XXX: assumes fixed buildurl-> tests_url mapping
                     logger.debug('default test package')
-                    tests_url = re.sub('.apk$', '.tests.zip', buildurl)
-                    test_package_files = set([os.path.basename(tests_url)])
+                    if not test_packages:
+                        # Only use the old style tests zip file if
+                        # the split test_packages.json was not found.
+                        tests_url = re.sub('.apk$', '.tests.zip', buildurl)
+                        test_package_files = set([os.path.basename(tests_url)])
                 for test_package_file in test_package_files:
                     logger.debug('test_package_file: %s' % test_package_file)
                     test_package_path = os.path.join(cache_build_dir,
@@ -736,13 +739,18 @@ class BuildCache(object):
                         err = 'IO Error retrieving tests: %s.' % test_package_url
                         logger.exception(err)
                         return {'success': False, 'error': err}
-                    tests_zipfile = zipfile.ZipFile(tmpf.name)
-                    tests_zipfile.extractall(tests_path)
-                    tests_zipfile.close()
-                    # Move the test package zip file to the cache
-                    # build directory so we can check if it has been
-                    # downloaded.
-                    shutil.move(tmpf.name, test_package_path)
+                    try:
+                        tests_zipfile = zipfile.ZipFile(tmpf.name)
+                        tests_zipfile.extractall(tests_path)
+                        tests_zipfile.close()
+                        # Move the test package zip file to the cache
+                        # build directory so we can check if it has been
+                        # downloaded.
+                        shutil.move(tmpf.name, test_package_path)
+                    except zipfile.BadZipfile:
+                        err = 'Zip file error retrieving tests: %s.' % test_package_url
+                        logger.exception(err)
+                        return {'success': False, 'error': err}
                 if test_packages:
                     # Save the test_packages.json file
                     test_packages_json_path = os.path.join(cache_build_dir,
