@@ -148,16 +148,33 @@ class UnitTest(PhoneTest):
         test_name_lower = self.parms['test_name'].lower()
 
         if test_name_lower.startswith('robocoptest'):
+            # See Bug 1179981 - Robocop harness has too much per-test overhead
+            # which changed the way the robocop tests are run. If the new
+            # runrobocop.py script is available, use that otherwise fall back
+            # to the older runtestsremote.py script.
             self.parms['harness_type'] = 'mochitest'
+            runrobocop_path = ('%s/tests/mochitest/runrobocop.py' %
+                               self.parms['build_dir'])
+            self.loggerdeco.debug('create_test_args: runrobocop_path: %s' %
+                                  runrobocop_path)
+            if os.path.exists(runrobocop_path):
+                test_args = [
+                    'mochitest/runrobocop.py',
+                    '--robocop-ini=%s' % self.parms['test_manifest'],
+                    '--certificate-path=certs',
+                    '--console-level=%s' % self.parms['console_level'],
+                    '--log-raw=%s' % 'raw-log-' + os.path.basename(self._log),
+                ]
+            else:
+                test_args = [
+                    'mochitest/runtestsremote.py',
+                    '--robocop-ini=%s' % self.parms['test_manifest'],
+                    '--robocop-ids=%s/fennec_ids.txt' % self.parms['build_dir'],
+                    '--certificate-path=certs',
+                    '--console-level=%s' % self.parms['console_level'],
+                    '--log-raw=%s' % 'raw-log-' + os.path.basename(self._log),
+                ]
 
-            test_args = [
-                'mochitest/runtestsremote.py',
-                '--robocop-ini=%s' % self.parms['test_manifest'],
-                '--robocop-ids=%s/fennec_ids.txt' % self.parms['build_dir'],
-                '--certificate-path=certs',
-                '--console-level=%s' % self.parms['console_level'],
-                '--log-raw=%s' % 'raw-log-' + os.path.basename(self._log),
-            ]
         elif test_name_lower.startswith('mochitest'):
             self.parms['harness_type'] = 'mochitest'
 
