@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
+import glob
 import json
 import logging
 import os
@@ -336,6 +337,16 @@ class UnitTest(PhoneTest):
 
         self.parms['port_manager'] = PortManager(self.parms['host_ip_address'])
 
+        # Create the env dictionary to pass to the test runner.
+        env = dict(os.environ)
+        env['MOZ_UPLOAD_DIR'] = self.upload_dir
+
+        # Create PYTHONPATH to point the test runner to the test's mozbase packages.
+        python_path =  ':'.join(
+            [pkg for pkg in
+             glob.glob('%s/tests/mozbase/*' % self.parms['build_dir'])
+             if os.path.isdir(pkg)])
+        env['PYTHONPATH'] = python_path
         try:
             is_test_completed = True
             logfilehandle = None
@@ -372,6 +383,7 @@ class UnitTest(PhoneTest):
                     args,
                     cwd=os.path.join(self.parms['build_dir'],
                                      'tests'),
+                    env=env,
                     preexec_fn=lambda: os.setpgid(0, 0),
                     stdout=logfilehandle,
                     stderr=subprocess.STDOUT,
