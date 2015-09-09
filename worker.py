@@ -508,6 +508,11 @@ class PhoneWorkerSubProcess(object):
                 command = self.process_autophone_cmd(test=test, wait_time=60)
                 if command['interrupt']:
                     return command
+                if self.state == ProcessStates.SHUTTINGDOWN:
+                    return {'interrupt': True,
+                            'reason': 'Shutdown while charging',
+                            'test_result': PhoneTestResult.RETRY}
+
         return {'interrupt': False, 'reason': '', 'test_result': None}
 
     def cancel_test(self, test_guid):
