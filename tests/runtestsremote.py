@@ -228,9 +228,8 @@ class UnitTest(PhoneTest):
         self.parms['ssl_port'] = self.parms['port_manager'].reserve()
 
         common_args = [
-            '--dm_trans=sut',
-            '--deviceIP=%s' % self.phone_ip_address,
-            '--devicePort=20701',
+            '--dm_trans=adb',
+            '--deviceSerial=%s' % self.phone.serial,
             '--app=%s' % self.parms['app_name'],
             '--xre-path=%s' % self.parms['xre_path'],
             '--utility-path=%s' % self.parms['utility_path'],
