@@ -670,93 +670,96 @@ class BuildCache(object):
 
         # tests
         if enable_unittests:
+            # Do not skip installing the tests if the tests directory
+            # already exists, since it may be the case that trigger_builds.py
+            # was used to specify a new test package which has not already
+            # been installed.
             tests_path = os.path.join(cache_build_dir, 'tests')
-            if force or not os.path.exists(tests_path):
-                # XXX: assumes fixed buildurl-> robocop mapping
-                robocop_url = urlparse.urljoin(buildurl, 'robocop.apk')
-                robocop_path = os.path.join(cache_build_dir, 'robocop.apk')
-                if not os.path.exists(robocop_path):
-                    tmpf = tempfile.NamedTemporaryFile(delete=False)
-                    tmpf.close()
-                    try:
-                        urllib.urlretrieve(robocop_url, tmpf.name)
-                    except IOError:
-                        os.unlink(tmpf.name)
-                        err = 'IO Error retrieving robocop.apk: %s.' % robocop_url
-                        logger.exception(err)
-                        return {'success': False, 'error': err}
-                    shutil.move(tmpf.name, robocop_path)
-                # XXX: assumes fixed buildurl-> fennec_ids.txt mapping
-                fennec_ids_url = urlparse.urljoin(buildurl, 'fennec_ids.txt')
-                fennec_ids_path = os.path.join(cache_build_dir, 'fennec_ids.txt')
-                if not os.path.exists(fennec_ids_path):
-                    tmpf = tempfile.NamedTemporaryFile(delete=False)
-                    tmpf.close()
-                    try:
-                        urllib.urlretrieve(fennec_ids_url, tmpf.name)
-                    except IOError:
-                        os.unlink(tmpf.name)
-                        err = 'IO Error retrieving fennec_ids.txt: %s.' % \
-                            fennec_ids_url
-                        logger.exception(err)
-                        return {'success': False, 'error': err}
-                    shutil.move(tmpf.name, fennec_ids_path)
-                test_packages = utils.get_remote_json(
-                    urlparse.urljoin(buildurl, 'test_packages.json'))
-                # The test_packages.json file contains keys for each
-                # test category but they all point to the same tests
-                # zip file. This will change when
-                # https://bugzilla.mozilla.org/show_bug.cgi?id=917999
-                # goes into production, but using a set allows us to
-                # easily eliminate duplicate file names.
-                test_package_files = set()
-                if test_package_names and test_packages:
-                    logger.debug('test_packages: %s' % json.dumps(test_packages))
-                    for test_package_name in test_package_names:
-                        logger.debug('test_package_name: %s' % test_package_name)
-                        test_package_files.update(set(test_packages[test_package_name]))
-                else:
-                    # XXX: assumes fixed buildurl-> tests_url mapping
-                    logger.debug('default test package')
-                    if not test_packages:
-                        # Only use the old style tests zip file if
-                        # the split test_packages.json was not found.
-                        tests_url = re.sub('.apk$', '.tests.zip', buildurl)
-                        test_package_files = set([os.path.basename(tests_url)])
-                for test_package_file in test_package_files:
-                    logger.debug('test_package_file: %s' % test_package_file)
-                    test_package_path = os.path.join(cache_build_dir,
-                                                     test_package_file)
-                    if os.path.exists(test_package_path):
-                        continue
-                    test_package_url = urlparse.urljoin(buildurl, test_package_file)
-                    tmpf = tempfile.NamedTemporaryFile(delete=False)
-                    tmpf.close()
-                    try:
-                        urllib.urlretrieve(test_package_url, tmpf.name)
-                    except IOError:
-                        os.unlink(tmpf.name)
-                        err = 'IO Error retrieving tests: %s.' % test_package_url
-                        logger.exception(err)
-                        return {'success': False, 'error': err}
-                    try:
-                        tests_zipfile = zipfile.ZipFile(tmpf.name)
-                        tests_zipfile.extractall(tests_path)
-                        tests_zipfile.close()
-                        # Move the test package zip file to the cache
-                        # build directory so we can check if it has been
-                        # downloaded.
-                        shutil.move(tmpf.name, test_package_path)
-                    except zipfile.BadZipfile:
-                        err = 'Zip file error retrieving tests: %s.' % test_package_url
-                        logger.exception(err)
-                        return {'success': False, 'error': err}
-                if test_packages:
-                    # Save the test_packages.json file
-                    test_packages_json_path = os.path.join(cache_build_dir,
-                                                          'test_packages.json')
-                    file(test_packages_json_path, 'w').write(
-                        json.dumps(test_packages))
+            # XXX: assumes fixed buildurl-> robocop mapping
+            robocop_url = urlparse.urljoin(buildurl, 'robocop.apk')
+            robocop_path = os.path.join(cache_build_dir, 'robocop.apk')
+            if force or not os.path.exists(robocop_path):
+                tmpf = tempfile.NamedTemporaryFile(delete=False)
+                tmpf.close()
+                try:
+                    urllib.urlretrieve(robocop_url, tmpf.name)
+                except IOError:
+                    os.unlink(tmpf.name)
+                    err = 'IO Error retrieving robocop.apk: %s.' % robocop_url
+                    logger.exception(err)
+                    return {'success': False, 'error': err}
+                shutil.move(tmpf.name, robocop_path)
+            # XXX: assumes fixed buildurl-> fennec_ids.txt mapping
+            fennec_ids_url = urlparse.urljoin(buildurl, 'fennec_ids.txt')
+            fennec_ids_path = os.path.join(cache_build_dir, 'fennec_ids.txt')
+            if force or not os.path.exists(fennec_ids_path):
+                tmpf = tempfile.NamedTemporaryFile(delete=False)
+                tmpf.close()
+                try:
+                    urllib.urlretrieve(fennec_ids_url, tmpf.name)
+                except IOError:
+                    os.unlink(tmpf.name)
+                    err = 'IO Error retrieving fennec_ids.txt: %s.' % \
+                        fennec_ids_url
+                    logger.exception(err)
+                    return {'success': False, 'error': err}
+                shutil.move(tmpf.name, fennec_ids_path)
+            test_packages = utils.get_remote_json(
+                urlparse.urljoin(buildurl, 'test_packages.json'))
+            # The test_packages.json file contains keys for each
+            # test category but they all point to the same tests
+            # zip file. This will change when
+            # https://bugzilla.mozilla.org/show_bug.cgi?id=917999
+            # goes into production, but using a set allows us to
+            # easily eliminate duplicate file names.
+            test_package_files = set()
+            if test_package_names and test_packages:
+                logger.debug('test_packages: %s' % json.dumps(test_packages))
+                for test_package_name in test_package_names:
+                    logger.debug('test_package_name: %s' % test_package_name)
+                    test_package_files.update(set(test_packages[test_package_name]))
+            else:
+                # XXX: assumes fixed buildurl-> tests_url mapping
+                logger.debug('default test package')
+                if not test_packages:
+                    # Only use the old style tests zip file if
+                    # the split test_packages.json was not found.
+                    tests_url = re.sub('.apk$', '.tests.zip', buildurl)
+                    test_package_files = set([os.path.basename(tests_url)])
+            for test_package_file in test_package_files:
+                logger.debug('test_package_file: %s' % test_package_file)
+                test_package_path = os.path.join(cache_build_dir,
+                                                 test_package_file)
+                if not force and os.path.exists(test_package_path):
+                    continue
+                test_package_url = urlparse.urljoin(buildurl, test_package_file)
+                tmpf = tempfile.NamedTemporaryFile(delete=False)
+                tmpf.close()
+                try:
+                    urllib.urlretrieve(test_package_url, tmpf.name)
+                except IOError:
+                    os.unlink(tmpf.name)
+                    err = 'IO Error retrieving tests: %s.' % test_package_url
+                    logger.exception(err)
+                    return {'success': False, 'error': err}
+                try:
+                    tests_zipfile = zipfile.ZipFile(tmpf.name)
+                    tests_zipfile.extractall(tests_path)
+                    tests_zipfile.close()
+                    # Move the test package zip file to the cache
+                    # build directory so we can check if it has been
+                    # downloaded.
+                    shutil.move(tmpf.name, test_package_path)
+                except zipfile.BadZipfile:
+                    err = 'Zip file error retrieving tests: %s.' % test_package_url
+                    logger.exception(err)
+                    return {'success': False, 'error': err}
+            if test_packages:
+                # Save the test_packages.json file
+                test_packages_json_path = os.path.join(cache_build_dir,
+                                                      'test_packages.json')
+                file(test_packages_json_path, 'w').write(
+                    json.dumps(test_packages))
 
         metadata = self.build_metadata(buildurl, cache_build_dir)
         if metadata:
