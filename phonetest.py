@@ -22,6 +22,7 @@ from autophonecrash import AutophoneCrashProcessor
 from adb import ADBError
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
+from sensitivedatafilter import SensitiveDataFilter
 
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
@@ -191,10 +192,15 @@ class PhoneTest(object):
         self.loggerdeco_original = None
         self.dm_logger_original = None
         self.loggerdeco.info('init autophone.phonetest')
+        # test_logfilehandler is used by running tests to save log
+        # messages to a separate file which can be reset at the
+        # beginning of each test independently of the worker's log.
+        self.test_logfilehandler = None
         self._base_device_path = ''
         self.profile_path = '/data/local/tmp/profile'
         self.repos = repos
-        self._log = None
+        self.test_logfile = None
+        self.unittest_logpath = None
         # Treeherder related items.
         self._job_name = None
         self._job_symbol = None
@@ -680,6 +686,26 @@ class PhoneTest(object):
         # self.dm._logger can raise ADBTimeoutError due to the
         # property dm therefore place it after the initialization.
         self.dm_logger_original = self.dm._logger
+        # Create a test run specific logger which will propagate to
+        # the root logger in the worker which runs in the same
+        # process. This log will be uploaded to Treeherder if
+        # Treeherder submission is enabled and will be cleared at the
+        # beginning of each test run.
+        sensitive_data_filter = SensitiveDataFilter(self.options.sensitive_data)
+        logger = logging.getLogger('phonetest')
+        logger.addFilter(sensitive_data_filter)
+        logger.propagate = True
+        logger.setLevel(self.worker_subprocess.loglevel)
+        self.test_logfile = (self.worker_subprocess.logfile_prefix +
+                             '-' + self.name + '.log')
+        self.test_logfilehandler = logging.FileHandler(
+            self.test_logfile, mode='w')
+        fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
+                            '%(levelname)s|%(message)s')
+        fileformatter = logging.Formatter(fileformatstring)
+        self.test_logfilehandler.setFormatter(fileformatter)
+        logger.addHandler(self.test_logfilehandler)
+
         self.loggerdeco = LogDecorator(logger,
                                        {'phoneid': self.phone.id,
                                         'buildid': self.build.id,
@@ -688,9 +714,9 @@ class PhoneTest(object):
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
         self.loggerdeco.debug('PhoneTest.setup_job')
-        if self._log:
-            os.unlink(self._log)
-        self._log = None
+        if self.unittest_logpath:
+            os.unlink(self.unittest_logpath)
+        self.unittest_logpath = None
         self.upload_dir = tempfile.mkdtemp()
         self.crash_processor = AutophoneCrashProcessor(self.dm,
                                                        self.profile_path,
@@ -741,11 +767,12 @@ class PhoneTest(object):
                 shutil.rmtree(self.upload_dir)
             self.upload_dir = None
 
-        if (logger.getEffectiveLevel() == logging.DEBUG and self._log and
-            os.path.exists(self._log)):
+        logger = logging.getLogger('phonetest')
+        if (logger.getEffectiveLevel() == logging.DEBUG and self.unittest_logpath and
+            os.path.exists(self.unittest_logpath)):
             self.loggerdeco.debug(40 * '=')
             try:
-                logfilehandle = open(self._log)
+                logfilehandle = open(self.unittest_logpath)
                 self.loggerdeco.debug(logfilehandle.read())
                 logfilehandle.close()
             except Exception:
@@ -763,12 +790,20 @@ class PhoneTest(object):
         self.upload_dir = None
         self.start_time = None
         self.stop_time = None
-        self._log = None
+        self.unittest_logpath = None
         self.logcat = Logcat(self)
         if self.loggerdeco_original:
             self.loggerdeco = self.loggerdeco_original
+            self.loggerdeco_original = None
         if self.dm_logger_original:
             self.dm._logger = self.dm_logger_original
+            self.dm_logger_original = None
+
+        self.test_logfilehandler.close()
+        logger.removeHandler(self.test_logfilehandler)
+        self.test_logfilehandler = None
+        os.unlink(self.test_logfile)
+        self.test_logfile = None
 
     def update_status(self, phone_status=None, message=None):
         if self.update_status_cb:

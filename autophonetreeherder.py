@@ -308,13 +308,15 @@ class AutophoneTreeherder(object):
             if self.s3_bucket:
                 # We must make certain that S3 keys for uploaded files
                 # are unique. We can create a unique log_identifier as
-                # follows: For Unittests, t._log's basename contains a
-                # unique name based on the actual Unittest name, chunk
-                # and machine id. For Non-Unittests, the test classname,
-                # chunk and machine id can be used.
+                # follows: For Unittests, t.unittest_logpath's
+                # basename contains a unique name based on the actual
+                # Unittest name, chunk and machine id. For
+                # Non-Unittests, the test classname, chunk and machine
+                # id can be used.
 
-                if t._log:
-                    log_identifier = os.path.splitext(os.path.basename(t._log))[0]
+                if t.unittest_logpath:
+                    log_identifier = os.path.splitext(os.path.basename(
+                        t.unittest_logpath))[0]
                 else:
                     log_identifier = "%s-%s-%s-%s" % (
                         t.name, os.path.basename(t.config_file), t.chunk,
@@ -396,12 +398,12 @@ class AutophoneTreeherder(object):
                 logname = None
 
                 # UnitTest Log
-                if t._log and os.path.exists(t._log):
+                if t.unittest_logpath and os.path.exists(t.unittest_logpath):
                     fname = '%s.log' % log_identifier
-                    logname = os.path.basename(t._log)
+                    logname = os.path.basename(t.unittest_logpath)
                     key = "%s/%s" % (key_prefix, fname)
                     try:
-                        logurl = self.s3_bucket.upload(t._log, key)
+                        logurl = self.s3_bucket.upload(t.unittest_logpath, key)
                         tj.add_log_reference(fname, logurl,
                                              parse_status='parsed')
                         t.job_details.append({
@@ -423,31 +425,30 @@ class AutophoneTreeherder(object):
                 # results for a single test run with possibly an error
                 # message from the previous test if the previous log
                 # upload failed.
-                try:
-                    self.worker.filehandler.flush()
-                    fname = '%s-autophone.log' % log_identifier
-                    lname = 'Autophone Log'
-                    key = "%s/%s" % (key_prefix, fname)
-                    url = self.s3_bucket.upload(self.worker.logfile, key)
-                    self.worker.filehandler.close()
-                    os.unlink(self.worker.logfile)
-                    t.job_details.append({
-                        'url': url,
-                        'value': lname,
-                        'content_type': 'link',
-                        'title': 'artifact uploaded'})
-                    if not logurl:
-                        tj.add_log_reference(fname, url,
-                                             parse_status='parsed')
-                        logurl = url
-                        logname = fname
-                except Exception, e:
-                    logger.exception('Error %s uploading %s' % (
-                        e, fname))
-                    t.job_details.append({
-                        'value': 'Failed to upload Autophone log: %s' % e,
-                        'content_type': 'text',
-                        'title': 'Error'})
+                if t.test_logfile:
+                    try:
+                        t.test_logfilehandler.flush()
+                        fname = '%s-autophone.log' % log_identifier
+                        lname = 'Autophone Log'
+                        key = "%s/%s" % (key_prefix, fname)
+                        url = self.s3_bucket.upload(t.test_logfile, key)
+                        t.job_details.append({
+                            'url': url,
+                            'value': lname,
+                            'content_type': 'link',
+                            'title': 'artifact uploaded'})
+                        if not logurl:
+                            tj.add_log_reference(fname, url,
+                                                 parse_status='parsed')
+                            logurl = url
+                            logname = fname
+                    except Exception, e:
+                        logger.exception('Error %s uploading %s' % (
+                            e, fname))
+                        t.job_details.append({
+                            'value': 'Failed to upload Autophone log: %s' % e,
+                            'content_type': 'text',
+                            'title': 'Error'})
 
             tj.add_tier(self.options.treeherder_tier)
             tj.add_revision_hash(revision_hash)

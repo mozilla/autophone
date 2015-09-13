@@ -16,6 +16,11 @@ class LogDecorator(object):
             raise ValueError('format string contains a %(attribute)'
                              'pattern without a type specifier.')
 
+    def clone(self, extradict=None, extraformat=None):
+        extradict = extradict or self._extradict
+        extraformat = extraformat or self.extraformat
+        return LogDecorator(self._logger, extradict, extraformat)
+
     def _expanded_message(self, message):
         extradict = dict(self._extradict)
         try:

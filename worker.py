@@ -259,8 +259,10 @@ class PhoneWorkerSubProcess(object):
         # main process.
         self.autophone_queue = autophone_queue
         self.queue = queue
+        self.logfile_prefix = logfile_prefix
         self.logfile = logfile_prefix + '.log'
         self.outfile = logfile_prefix + '.out'
+        self.test_logfile = None
         self.loglevel = loglevel
         self.mailer = mailer
         self.shared_lock = shared_lock
@@ -387,7 +389,7 @@ class PhoneWorkerSubProcess(object):
         the device is rebooted in an attempt to recover.
         """
         for attempt in range(1, self.options.phone_retry_limit+1):
-            self.loggerdeco.info('Pinging phone attempt %d' % attempt)
+            self.loggerdeco.debug('Pinging phone attempt %d' % attempt)
             msg = 'Phone OK'
             phone_status = PhoneStatus.OK
             try:
@@ -973,7 +975,10 @@ class PhoneWorkerSubProcess(object):
                 other_logger.removeHandler(other_handler)
             other_logger.addHandler(logging.NullHandler())
 
-        self.filehandler = logging.FileHandler(self.logfile)
+        self.filehandler = logging.handlers.TimedRotatingFileHandler(
+            self.logfile,
+            when='midnight',
+            backupCount=7)
         fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
                             '%(levelname)s|%(message)s')
         fileformatter = logging.Formatter(fileformatstring)

@@ -15,7 +15,6 @@ import traceback
 
 from logparser import LogParser
 
-from logdecorator import LogDecorator
 from phonetest import PhoneTest, PhoneTestResult
 
 # Set the logger globally in the file, but this must be reset when
@@ -100,11 +99,12 @@ class UnitTest(PhoneTest):
         self.parms['buildid'] = self.build.id
         self.parms['tree'] = self.build.tree
 
-        self._log = '%s/tests/%s-%s-%s-%s.log' % (build_dir,
-                                               self.parms['test_name'],
-                                               os.path.basename(self.config_file),
-                                               self.chunk,
-                                               self.parms['phoneid'])
+        self.unittest_logpath = '%s/tests/%s-%s-%s-%s.log' % (
+            build_dir,
+            self.parms['test_name'],
+            os.path.basename(self.config_file),
+            self.chunk,
+            self.parms['phoneid'])
 
     def teardown_job(self):
         PhoneTest.teardown_job(self)
@@ -158,7 +158,7 @@ class UnitTest(PhoneTest):
                     '--robocop-ini=%s' % self.parms['test_manifest'],
                     '--certificate-path=certs',
                     '--console-level=%s' % self.parms['console_level'],
-                    '--log-raw=%s' % 'raw-log-' + os.path.basename(self._log),
+                    '--log-raw=%s' % 'raw-log-' + os.path.basename(self.unittest_logpath),
                 ]
             else:
                 test_args = [
@@ -167,7 +167,7 @@ class UnitTest(PhoneTest):
                     '--robocop-ids=%s/fennec_ids.txt' % self.parms['build_dir'],
                     '--certificate-path=certs',
                     '--console-level=%s' % self.parms['console_level'],
-                    '--log-raw=%s' % 'raw-log-' + os.path.basename(self._log),
+                    '--log-raw=%s' % 'raw-log-' + os.path.basename(self.unittest_logpath),
                 ]
 
         elif test_name_lower.startswith('mochitest'):
@@ -181,7 +181,7 @@ class UnitTest(PhoneTest):
                                                                  self.parms['phoneid']),
                 '--certificate-path=certs',
                 '--console-level=%s' % self.parms['console_level'],
-                '--log-raw=%s' % 'raw-log-' + os.path.basename(self._log),
+                '--log-raw=%s' % 'raw-log-' + os.path.basename(self.unittest_logpath),
             ]
         elif test_name_lower.startswith('reftest'):
             self.parms['harness_type'] = 'reftest'
@@ -263,16 +263,13 @@ class UnitTest(PhoneTest):
         logfilehandle.close()
 
         # convert embedded \n into real newlines
-        logfilehandle = open(self._log)
-        self.loggerdeco.debug('process_test_log: name: %s, self._log: %s' % (
-            logfilehandle.name, self._log))
+        logfilehandle = open(self.unittest_logpath)
         logcontents = logfilehandle.read()
         logfilehandle.close()
         logcontents = re.sub(r'\\n', '\n', logcontents)
-        logfilehandle = open(self._log, 'wb')
+        logfilehandle = open(self.unittest_logpath, 'wb')
         logfilehandle.write(logcontents)
         logfilehandle.close()
-        self.loggerdeco.debug('process_test_log: raw log:\n%s\n' % logcontents)
 
         lp = LogParser([logfilehandle.name],
                        includePass=True,
@@ -280,8 +277,9 @@ class UnitTest(PhoneTest):
                        logger=self.loggerdeco,
                        harnessType=self.parms['harness_type'])
         parsed_log = lp.parseFiles()
-        self.loggerdeco.debug('process_test_log: LogParser parsed log : %s' %
-                              json.dumps(parsed_log, indent=2))
+        if self.options.verbose:
+            self.loggerdeco.debug('process_test_log: LogParser parsed log : %s' %
+                                  json.dumps(parsed_log, indent=2))
 
         self.test_result.todo = parsed_log.get('todo', 0)
         self.test_result.passes = parsed_log.get('passes', [])
@@ -298,18 +296,16 @@ class UnitTest(PhoneTest):
 
     def runtest(self):
 
-        self.loggerdeco = LogDecorator(logger,
-                                       {'phoneid': self.phone.id,
-                                        'buildid': self.parms['buildid'],
-                                        'testname': self.parms['test_name']},
-                                       '%(phoneid)s|%(buildid)s|'
-                                       '%(testname)s|%(message)s')
+        self.loggerdeco = self.loggerdeco.clone(
+            extradict={'phoneid': self.phone.id,
+                       'buildid': self.parms['buildid'],
+                       'testname': self.parms['test_name']},
+            extraformat='%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
 
-        if logger.getEffectiveLevel() == logging.DEBUG:
-            self.loggerdeco.debug('runtestsremote.py runtest start')
-            for key in self.parms.keys():
-                self.loggerdeco.debug('test parameters: %s = %s' %
-                                      (key, self.parms[key]))
+        self.loggerdeco.info('runtestsremote.py runtest start')
+        for key in self.parms.keys():
+            self.loggerdeco.info('test parameters: %s = %s' %
+                                 (key, self.parms[key]))
 
         self.update_status(message='Starting test %s' % self.parms['test_name'])
 
@@ -324,7 +320,7 @@ class UnitTest(PhoneTest):
                 self.loggerdeco.exception('runtestsremote.py:runtest: Exception running test.')
                 self.test_result.status = PhoneTestResult.EXCEPTION
                 self.message = 'Exception installing robocop.apk: %s' % e
-                with open(self._log, "w") as logfilehandle:
+                with open(self.unittest_logpath, "w") as logfilehandle:
                     logfilehandle.write('%s\n' % self.message)
                 return is_test_completed
 
@@ -350,14 +346,15 @@ class UnitTest(PhoneTest):
             while True:
                 socket_collision = False
 
-                logfilehandle = open(self._log, 'wb')
-                self.loggerdeco.debug('logging to %s' % logfilehandle.name)
+                self.loggerdeco.info('logging to %s' % logfilehandle.name)
+                os.unlink(self.unittest_logpath)
+                logfilehandle = open(self.unittest_logpath, 'wb')
 
                 args = self.create_test_args()
 
                 self.parms['cmdline'] = ' '.join(args)
-                self.loggerdeco.debug("cmdline = %s" %
-                                      self.parms['cmdline'])
+                self.loggerdeco.info("cmdline = %s" %
+                                     self.parms['cmdline'])
 
                 self.update_status(message='Running test %s chunk %d of %d' %
                                    (self.parms['test_name'],
@@ -406,13 +403,13 @@ class UnitTest(PhoneTest):
                     self.test_result.status = PhoneTestResult.EXCEPTION
                     self.message = 'Test exited with return code %d' % proc.returncode
 
-                self.loggerdeco.debug('runtestsremote.py return code %d' %
-                                      proc.returncode)
+                self.loggerdeco.info('runtestsremote.py return code %d' %
+                                     proc.returncode)
 
                 logfilehandle.close()
                 # XXX: investigate if this is still needed.
                 re_socket_error = re.compile('socket\.error:')
-                logfilehandle = open(self._log)
+                logfilehandle = open(self.unittest_logpath)
                 logcontents = logfilehandle.read()
                 logfilehandle.close()
                 if re_socket_error.search(logcontents):

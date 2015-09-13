@@ -11,7 +11,6 @@ import urlparse
 
 from time import sleep
 
-from logdecorator import LogDecorator
 from perftest import PerfTest
 from phonetest import PhoneTestResult
 
@@ -87,12 +86,11 @@ class S1S2Test(PerfTest):
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
             if self.fennec_crashed:
                 break
-            self.loggerdeco = LogDecorator(logger,
-                                           {'phoneid': self.phone.id,
-                                            'buildid': self.build.id,
-                                            'testname': testname},
-                                           '%(phoneid)s|%(buildid)s|'
-                                           '%(testname)s|%(message)s')
+            self.loggerdeco = self.loggerdeco.clone(
+                extradict={'phoneid': self.phone.id,
+                           'buildid': self.build.id,
+                           'testname': testname},
+                extraformat='%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
                                  (testnum, testcount, self._iterations))

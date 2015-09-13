@@ -8,7 +8,6 @@ import os
 import re
 from time import sleep
 
-from logdecorator import LogDecorator
 from perftest import PerfTest
 from phonetest import PhoneTestResult
 from utils import median, geometric_mean
@@ -103,12 +102,11 @@ class TalosTest(PerfTest):
         for testnum, (testname, test_args) in test_items:
             if self.fennec_crashed:
                 break
-            self.loggerdeco = LogDecorator(logger,
-                                           {'phoneid': self.phone.id,
-                                            'buildid': self.build.id,
-                                            'testname': testname},
-                                           '%(phoneid)s|%(buildid)s|'
-                                           '%(testname)s|%(message)s')
+            self.loggerdeco = self.loggerdeco.clone(
+                extradict={'phoneid': self.phone.id,
+                           'buildid': self.build.id,
+                           'testname': testname},
+                extraformat='%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
                                  (testnum, testcount, self._iterations))
