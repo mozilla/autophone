@@ -105,14 +105,8 @@ class UnitTest(PhoneTest):
                                                os.path.basename(self.config_file),
                                                self.chunk,
                                                self.parms['phoneid'])
-        os.putenv('MINIDUMP_STACKWALK', self.options.minidump_stackwalk)
-        os.putenv('MINIDUMP_SAVE_PATH', self.upload_dir)
-        os.putenv('MOZ_UPLOAD_DIR', self.upload_dir)
 
     def teardown_job(self):
-        os.unsetenv('MINIDUMP_STACKWALK')
-        os.unsetenv('MINIDUMP_SAVE_PATH')
-        os.unsetenv('MOZ_UPLOAD_DIR')
         PhoneTest.teardown_job(self)
 
     def run_job(self):
@@ -338,6 +332,10 @@ class UnitTest(PhoneTest):
 
         # Create the env dictionary to pass to the test runner.
         env = dict(os.environ)
+        # Set the environment to process crashes.
+
+        env['MINIDUMP_STACKWALK'] = self.options.minidump_stackwalk
+        env['MINIDUMP_SAVE_PATH'] = self.upload_dir
         env['MOZ_UPLOAD_DIR'] = self.upload_dir
 
         # Create PYTHONPATH to point the test runner to the test's mozbase packages.
