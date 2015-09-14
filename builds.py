@@ -57,7 +57,7 @@ def url_links(url):
     if not content:
         return []
 
-    soup = BeautifulSoup(content)
+    soup = BeautifulSoup(content, 'html.parser')
     # do not return a generator but an array, so we can store it for later use
     return [link for link in soup.findAll('a')
             if not link.get('href').startswith('?') and
