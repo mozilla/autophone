@@ -313,8 +313,11 @@ class PhoneWorkerSubProcess(object):
             logger.debug('PhoneWorkerSubProcess:stop p.join() %s %s %s' %
                          (self.phone.id, self.p, self.p.pid))
             self.p.join(self.options.phone_command_queue_timeout*2)
-            logger.debug('PhoneWorkerSubProcess:stop %s %s %s alive %s' %
-                         (self.phone.id, self.p, self.p.pid, self.p.is_alive()))
+            if self.p.is_alive():
+                logger.debug('PhoneWorkerSubProcess:stop killing %s %s '
+                             'stuck process %s' %
+                             (self.phone.id, self.p, self.p.pid))
+                os.kill(self.p.pid, 9)
 
     def is_ok(self):
         return (self.phone_status != PhoneStatus.DISCONNECTED and
