@@ -31,9 +31,9 @@ logger = logging.getLogger()
 
 class Logcat(object):
     def __init__(self, phonetest):
+        logger.debug('Logcat()')
         self.phonetest = phonetest
         self._accumulated_logcat = []
-        self._last_logcat = []
 
     def get(self, full=False):
         """Return the contents of logcat as list of strings.
@@ -46,28 +46,36 @@ class Logcat(object):
                      teardown_job was last called.
 
         """
+        logger.debug('Logcat.get()')
         for attempt in range(1, self.phonetest.options.phone_retry_limit+1):
             try:
-                self._last_logcat = [x.strip() for x in
-                                     self.phonetest.dm.get_logcat(
-                                         filter_specs=['*:V']
-                                     )]
-                output = []
+                current_logcat = [x.strip() for x in
+                                  self.phonetest.dm.get_logcat(
+                                      filter_specs=['*:V']
+                                  )]
+                self._accumulated_logcat.extend(current_logcat)
                 if full:
-                    output.extend(self._accumulated_logcat)
-                output.extend(self._last_logcat)
-                return output
+                    return  self._accumulated_logcat
+                return current_logcat
             except ADBError:
                 self.phonetest.loggerdeco.exception('Attempt %d get logcat' % attempt)
                 if attempt == self.phonetest.options.phone_retry_limit:
                     raise
                 sleep(self.phonetest.options.phone_retry_wait)
 
+    def reset(self):
+        """Clears the Logcat buffers and the device's logcat buffer."""
+        logger.debug('Logcat.reset()')
+        self.__init__(self.phonetest)
+        self.phonetest.dm.clear_logcat()
+
     def clear(self):
-        """Clears the device's logcat."""
+        """Accumulates current logcat buffers, then clears the device's logcat
+        buffers. clear() is used to prevent the device's logcat buffer
+        from overflowing while not losing any output.
+        """
+        logger.debug('Logcat.clear()')
         self.get()
-        self._accumulated_logcat.extend(self._last_logcat)
-        self._last_logcat = []
         self.phonetest.dm.clear_logcat()
 
 
@@ -671,6 +679,12 @@ class PhoneTest(object):
                 sleep(self.options.phone_retry_wait)
 
     def setup_job(self):
+        # Log the current full contents of logcat, then clear the
+        # logcat buffers to help prevent the device's buffer from
+        # over flowing during the test.
+        self.loggerdeco.debug('phonetest.setup_job: full logcat before job:')
+        self.loggerdeco.debug('\n'.join(self.logcat.get(full=True)))
+        self.logcat.reset()
         self.start_time = datetime.datetime.now()
         self.stop_time = self.start_time
         # Clear the Treeherder job details.
@@ -746,6 +760,22 @@ class PhoneTest(object):
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Exception %s during crash processing' % e,
                 PhoneTestResult.EXCEPTION)
+        logger = logging.getLogger('phonetest')
+        if (logger.getEffectiveLevel() == logging.DEBUG and self.unittest_logpath and
+            os.path.exists(self.unittest_logpath)):
+            self.loggerdeco.debug(40 * '=')
+            try:
+                logfilehandle = open(self.unittest_logpath)
+                self.loggerdeco.debug(logfilehandle.read())
+                logfilehandle.close()
+            except Exception:
+                self.loggerdeco.exception('Exception %s loading log')
+            self.loggerdeco.debug(40 * '-')
+        # Log the current full contents of logcat, then reset the
+        # logcat buffers to help prevent the device's buffer from
+        # over flowing after the test.
+        self.loggerdeco.debug('phonetest.teardown_job full logcat after job:')
+        self.loggerdeco.debug('\n'.join(self.logcat.get(full=True)))
         try:
             if (self.worker_subprocess.is_disabled() and
                 self.test_result.status != PhoneTestResult.USERCANCEL):
@@ -767,17 +797,6 @@ class PhoneTest(object):
                 shutil.rmtree(self.upload_dir)
             self.upload_dir = None
 
-        logger = logging.getLogger('phonetest')
-        if (logger.getEffectiveLevel() == logging.DEBUG and self.unittest_logpath and
-            os.path.exists(self.unittest_logpath)):
-            self.loggerdeco.debug(40 * '=')
-            try:
-                logfilehandle = open(self.unittest_logpath)
-                self.loggerdeco.debug(logfilehandle.read())
-                logfilehandle.close()
-            except Exception:
-                self.loggerdeco.exception('Exception %s loading log')
-            self.loggerdeco.debug(40 * '-')
         # Reset the tests' volatile members in order to prevent them
         # from being reused after a test has completed.
         self.test_result = PhoneTestResult()
@@ -791,7 +810,7 @@ class PhoneTest(object):
         self.start_time = None
         self.stop_time = None
         self.unittest_logpath = None
-        self.logcat = Logcat(self)
+        self.logcat.reset()
         if self.loggerdeco_original:
             self.loggerdeco = self.loggerdeco_original
             self.loggerdeco_original = None

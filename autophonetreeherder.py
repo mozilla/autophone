@@ -338,6 +338,7 @@ class AutophoneTreeherder(object):
                         if self.worker.is_ok():
                             for line in t.logcat.get(full=True):
                                 f.write('%s\n' % line)
+                            t.logcat.reset()
                         else:
                             # Device is in an error state so we can't
                             # get the full logcat but we can output

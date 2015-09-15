@@ -346,8 +346,9 @@ class UnitTest(PhoneTest):
             while True:
                 socket_collision = False
 
-                self.loggerdeco.info('logging to %s' % logfilehandle.name)
-                os.unlink(self.unittest_logpath)
+                self.loggerdeco.info('logging to %s' % self.unittest_logpath)
+                if os.path.exists(self.unittest_logpath):
+                    os.unlink(self.unittest_logpath)
                 logfilehandle = open(self.unittest_logpath, 'wb')
 
                 args = self.create_test_args()
@@ -396,6 +397,9 @@ class UnitTest(PhoneTest):
                         self.handle_test_interrupt(command['reason'],
                                                    command['test_result'])
                         break
+                    # Don't beat up the device by pinging it
+                    # continually without a pause.
+                    time.sleep(60)
 
                 if command and command['interrupt']:
                     break
