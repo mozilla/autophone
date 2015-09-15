@@ -910,6 +910,12 @@ class PhoneWorkerSubProcess(object):
         # block on the command queue for PhoneWorker.PHONE_COMMAND_QUEUE_TIMEOUT seconds.
         request = None
         while True:
+            while True:
+                try:
+                    (pid, status, resource) = os.wait3(os.WNOHANG)
+                    logger.debug('Reaped %s %s' % (pid, status))
+                except OSError:
+                    break
             try:
                 self.heartbeat()
                 if self.state == ProcessStates.SHUTTINGDOWN:
@@ -951,6 +957,13 @@ class PhoneWorkerSubProcess(object):
                         except Queue.Empty:
                             request = None
                             self.handle_timeout()
+
+        while True:
+            try:
+                (pid, status, resource) = os.wait3(os.WNOHANG)
+                logger.debug('Reaped %s %s' % (pid, status))
+            except OSError:
+                break
 
     def run(self):
         global logger

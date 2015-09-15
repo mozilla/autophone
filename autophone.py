@@ -427,6 +427,13 @@ class AutoPhone(object):
                 except:
                     pass
 
+            while True:
+                try:
+                    (pid, status, resource) = os.wait3(os.WNOHANG)
+                    logger.debug('Reaped %s %s' % (pid, status))
+                except OSError:
+                    break
+
             os.execvp(sys.executable, newargv)
 
     # Start the phones for testing
@@ -1150,6 +1157,13 @@ unpacked tests package for the build.
                 logger.debug('Dropping phone %s worker.queue: %s' % (phoneid, msg))
             except Queue.Empty:
                 break
+
+    while True:
+        try:
+            (pid, status, resource) = os.wait3(os.WNOHANG)
+            logger.debug('Reaped %s %s' % (pid, status))
+        except OSError:
+            break
 
     console_logger.info('AutoPhone terminated.')
     console_logger.info('Shutting down build-cache server...')
