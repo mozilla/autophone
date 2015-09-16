@@ -424,6 +424,7 @@ class PhoneTest(object):
             # https://developer.mozilla.org/en-US/docs/Environment_variables_affecting_crash_reporting
             self._environment = {
                 'MOZ_CRASHREPORTER': '1',
+                'MOZ_CRASHREPORTER_NO_REPORT': '1',
                 'MOZ_CRASHREPORTER_SHUTDOWN': '1',
                 'MOZ_DISABLE_NONLOCAL_CONNECTIONS': '1',
                 'NO_EM_RESTART': '1',
