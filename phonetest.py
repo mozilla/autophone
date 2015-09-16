@@ -486,7 +486,7 @@ class PhoneTest(object):
         job_url = '%s/#/jobs?filter-searchStr=autophone&exclusion_profile=false&repo=%s&revision=%s'
         return job_url % (self.options.treeherder_url,
                           self.build.tree,
-                          os.path.basename(self.build.revision))
+                          os.path.basename(self.build.revision)[:12])
 
     @property
     def job_name(self):
