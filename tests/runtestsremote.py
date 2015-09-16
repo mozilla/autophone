@@ -400,6 +400,12 @@ class UnitTest(PhoneTest):
                     # Don't beat up the device by pinging it
                     # continually without a pause.
                     time.sleep(60)
+                    # Collect logcat as we go, since many unit tests
+                    # will cause it to overflow. Autophone's copy of
+                    # the data should be complete while the version
+                    # collected by the unit test framework may be
+                    # missing the initial portions.
+                    self.logcat.get()
 
                 if command and command['interrupt']:
                     break
