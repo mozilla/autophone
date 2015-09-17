@@ -905,15 +905,15 @@ ok
             else:
                 # Autophone try builds will have a comment of the form:
                 # try: -b o -p android-api-9,android-api-11 -u autophone-smoke,autophone-s1s2 -t none
+                # Do not allow global selection of tests
+                # since Autophone can not handle the load.
                 tests = []
                 reTests = re.compile('try:.* -u (.*) -t.*')
                 match = reTests.match(msg['comments'])
                 if match:
                     test_names = [t for t in match.group(1).split(',')
-                                  if t.startswith('autophone-')]
-                    if 'autophone-tests' in test_names:
-                        # Match all test names
-                        test_names = [None]
+                                  if t.startswith('autophone-') and
+                                  t != 'autophone-tests']
                     for test_name in test_names:
                         tests.extend(PhoneTest.match(test_name=test_name,
                                                      build_url=build_url))
