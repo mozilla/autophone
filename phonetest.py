@@ -44,24 +44,73 @@ class Logcat(object):
                      full is True, then get() will return all
                      logcat output since the test was initialized or
                      teardown_job was last called.
-
         """
-        logger.debug('Logcat.get()')
+
+        # Get the datetime from the last logcat message
+        # previously collected. Note that with the time
+        # format, logcat lines begin with a date time of the
+        # form: 09-17 16:45:04.370 which is the first 18
+        # characters of the line.
+        if self._accumulated_logcat:
+            logcat_date = self._accumulated_logcat[-1][:18]
+        else:
+            logcat_date = '00-00 00:00:00.000'
+
+        logger.debug('Logcat.get() since %s' % logcat_date)
+
         for attempt in range(1, self.phonetest.options.phone_retry_limit+1):
             try:
-                current_logcat = [x.strip() for x in
+                current_logcat = [unicode(x,
+                                          'UTF-8',
+                                          errors='replace').strip()
+                                  for x in
                                   self.phonetest.dm.get_logcat(
                                       filter_specs=['*:V']
                                   )]
-                self._accumulated_logcat.extend(current_logcat)
-                if full:
-                    return  self._accumulated_logcat
-                return current_logcat
+                break
             except ADBError:
-                self.phonetest.loggerdeco.exception('Attempt %d get logcat' % attempt)
+                logger.exception('Attempt %d get logcat' % attempt)
                 if attempt == self.phonetest.options.phone_retry_limit:
                     raise
                 sleep(self.phonetest.options.phone_retry_wait)
+
+        # Keep the messages which are on or after the last accumulated
+        # logcat date.
+        current_logcat = [x for x in current_logcat
+                          if x >= logcat_date]
+
+        # In order to eliminate the possible duplicate
+        # messages, partition the messages by before, on and
+        # after the logcat_date.
+        accumulated_logcat_before = []
+        accumulated_logcat_now = []
+        for x in self._accumulated_logcat:
+            if x < logcat_date:
+                accumulated_logcat_before.append(x)
+            elif x[:18] == logcat_date:
+                accumulated_logcat_now.append(x)
+
+        current_logcat_now = []
+        current_logcat_after = []
+        for x in current_logcat:
+            if x[:18] == logcat_date:
+                current_logcat_now.append(x)
+            elif x > logcat_date:
+                current_logcat_after.append(x)
+
+        # Remove any previously received messages from
+        # current_logcat_now for the logcat_date.
+        current_logcat_now = set(current_logcat_now).difference(
+            set(accumulated_logcat_now))
+        current_logcat_now = list(current_logcat_now)
+        current_logcat_now.sort()
+
+        current_logcat = current_logcat_now + current_logcat_after
+        self._accumulated_logcat += current_logcat
+
+        if full:
+            return self._accumulated_logcat
+        return current_logcat
 
     def reset(self):
         """Clears the Logcat buffers and the device's logcat buffer."""

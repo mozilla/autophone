@@ -337,7 +337,8 @@ class AutophoneTreeherder(object):
                     try:
                         if self.worker.is_ok():
                             for line in t.logcat.get(full=True):
-                                f.write('%s\n' % line)
+                                f.write('%s\n' % line.encode('UTF-8',
+                                                             errors='replace'))
                             t.logcat.reset()
                         else:
                             # Device is in an error state so we can't
@@ -345,7 +346,8 @@ class AutophoneTreeherder(object):
                             # any logcat output we accumulated
                             # previously.
                             for line in t.logcat._accumulated_logcat:
-                                f.write('%s\n' % line)
+                                f.write('%s\n' % line.encode('UTF-8',
+                                                             errors='replace'))
                     except Exception, e:
                         logger.exception('Error reading logcat %s' % fname)
                         t.job_details.append({
