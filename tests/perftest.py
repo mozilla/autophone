@@ -215,7 +215,6 @@ class PerfTest(PhoneTest):
                 self.test_result.status = PhoneTestResult.EXCEPTION
                 self.message = message
                 self.update_status(message=message)
-                raise
 
     def dump_results(self, starttime=0, tstrt=0, tstop=0,
                      testname='', cache_enabled=True,
