@@ -303,7 +303,12 @@ class S1S2Test(PerfTest):
                     self.loggerdeco.debug('analyze_logcat: start_time: %s' % start_time)
                     continue
                 match = re_throbber_start_time.match(line)
-                if match and not throbber_start_time:
+                if match:
+                    if throbber_start_time:
+                        self.loggerdeco.warning(
+                            'analyze_logcat: throbber_start_time: %s '
+                            'missing throbber_stop. Resetting '
+                            'throbber_start_time.' % throbber_start_time)
                     throbber_start_time = match.group(1)
                     self.loggerdeco.debug('analyze_logcat: throbber_start_time: %s' % throbber_start_time)
                     continue
@@ -316,6 +321,7 @@ class S1S2Test(PerfTest):
                     break
             if self.fennec_crashed:
                 # If fennec crashed, don't bother looking for the Throbbers
+                self.loggerdeco.warning('analyze_logcat: fennec crashed.')
                 break
             if (start_time == 0 or
                 throbber_start_time == 0 or
@@ -323,7 +329,7 @@ class S1S2Test(PerfTest):
                 sleep(wait_time)
                 attempt += 1
         if throbber_start_time and throbber_stop_time == 0:
-            self.loggerdeco.info('Unable to find Throbber stop')
+            self.loggerdeco.warning('Unable to find Throbber stop')
 
         # The captured time from the logcat lines is in the format
         # MM-DD HH:MM:SS.mmm. It is possible for the year to change

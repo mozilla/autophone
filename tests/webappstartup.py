@@ -507,7 +507,12 @@ class WebappStartupTest(PerfTest):
                     self.loggerdeco.debug('analyze_logcat: start_time: %s' % start_time)
                     continue
                 match = re_chrome_time.match(line)
-                if match and not chrome_time:
+                if match:
+                    if chrome_time:
+                        self.loggerdeco.warning(
+                            'analyze_logcat: chrome_time: %s '
+                            'missing startup_time. Resetting '
+                            'throbber_start_time.' % chrome_time)
                     chrome_time = match.group(1)
                     self.loggerdeco.debug('analyze_logcat: chrome_time: %s' % chrome_time)
                     continue
@@ -519,12 +524,14 @@ class WebappStartupTest(PerfTest):
                 if start_time and startup_time:
                     break
             if self.fennec_crashed:
+                # If fennec crashed, don't bother looking for the Throbbers
+                self.loggerdeco.warning('analyze_logcat: fennec crashed.')
                 break
             if start_time == 0 or chrome_time == 0 or startup_time == 0:
                 sleep(wait_time)
                 attempt += 1
         if chrome_time and startup_time == 0:
-            self.loggerdeco.info('Unable to find WEBAPP STARTUP COMPLETE')
+            self.loggerdeco.warning('Unable to find WEBAPP STARTUP COMPLETE')
 
         # The captured time from the logcat lines is in the format
         # MM-DD HH:MM:SS.mmm. It is possible for the year to change
