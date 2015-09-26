@@ -93,6 +93,11 @@ class AutophoneTreeherder(object):
                 except Exception, e:
                     logger.exception('Error submitting request to Treeherder')
                     if self.mailer:
+                        if e.response:
+                            response_json = json.dumps(e.response.json(),
+                                                       indent=2, sort_keys=True)
+                        else:
+                            response_json = None
                         self.mailer.send(
                             'Attempt %d Error submitting request to Treeherder' %
                             attempt,
@@ -101,7 +106,7 @@ class AutophoneTreeherder(object):
                             'Response: %s\n' % (
                                 machine,
                                 e,
-                                json.dumps(e.response.json(), indent=2, sort_keys=True)))
+                                response_json))
                 time.sleep(self.retry_wait)
             logger.error('Error submitting request to Treeherder')
             if self.mailer:
@@ -112,7 +117,7 @@ class AutophoneTreeherder(object):
                                  'TreeherderJobCollection %s\n' % (
                                      machine,
                                      e,
-                                     json.dumps(e.response.json(), indent=2, sort_keys=True),
+                                     response_json,
                                      job_collection.to_json()))
         finally:
             logger.debug('AutophoneTreeherder shared_lock.release')
