@@ -698,7 +698,7 @@ class PhoneWorkerSubProcess(object):
                             message,
                             PhoneTestResult.EXCEPTION)
                         self.ping(test=t)
-            except (ADBError, ADBTimeoutError):
+            except:
                 self.loggerdeco.exception('device error during '
                                           '%s.setup_job.' % t.name)
                 message = ('Uncaught device error during %s.setup_job.\n\n%s' % (

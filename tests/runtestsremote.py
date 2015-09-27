@@ -36,12 +36,7 @@ class UnitTest(PhoneTest):
         self.loggerdeco.info('config_file = %s, unittest_config_file = %s' %
                              (config_file, unittest_config_file))
 
-        self.phone_ip_address = self.dm.get_ip_address()
-        if not self.phone_ip_address:
-            raise Exception('PhoneTest: Failed to get phone %s ip address' % self.phone.id)
-
         self.parms = {
-            'host_ip_address': self.phone.host_ip,
             'phoneid': self.phone.id,
             'config_file': config_file,
             'test_name': self.cfg.get('runtests', 'test_name'),
@@ -92,6 +87,23 @@ class UnitTest(PhoneTest):
         else:
             revision = self.build.revision
 
+        # Check that the device is accessible and that its network is up.
+        ping_msg = self.worker_subprocess.ping(test=self, require_ip_address=True)
+        if not self.worker_subprocess.is_ok():
+            raise Exception(ping_msg)
+        # Delay getting the phone's ip address until job setup.
+        for attempt in range(1, self.options.device_ready_retry_attempts+1):
+            self.phone_ip_address = self.dm.get_ip_address()
+            if self.phone_ip_address:
+                break
+            self.loggerdeco.info('Attempt %d/%d failed to get ip address' %
+                                 (attempt,
+                                  self.options.device_ready_retry_attempts))
+            time.sleep(self.options.device_ready_retry_wait)
+        if not self.phone_ip_address:
+            raise Exception('PhoneTest: Failed to get phone %s ip address' % self.phone.id)
+
+        self.parms['host_ip_address'] = self.phone.host_ip
         self.parms['app_name'] = self.build.app_name
         self.parms['build_dir'] = build_dir
         self.parms['symbols_path'] = symbols_path
