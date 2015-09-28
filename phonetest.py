@@ -772,13 +772,13 @@ class PhoneTest(object):
         # Log the current full contents of logcat, then clear the
         # logcat buffers to help prevent the device's buffer from
         # over flowing during the test.
-        self.loggerdeco.debug('phonetest.setup_job: full logcat before job:')
-        self.loggerdeco.debug('\n'.join(self.logcat.get(full=True)))
-        self.logcat.reset()
         self.start_time = datetime.datetime.now()
         self.stop_time = self.start_time
         # Clear the Treeherder job details.
         self.job_details = []
+        self.loggerdeco.debug('phonetest.setup_job: full logcat before job:')
+        self.loggerdeco.debug('\n'.join(self.logcat.get(full=True)))
+        self.logcat.reset()
         self.worker_subprocess.treeherder.submit_running(
             self.phone.id,
             self.build.url,
