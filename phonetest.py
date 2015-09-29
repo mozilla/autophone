@@ -30,9 +30,10 @@ logger = logging.getLogger()
 
 
 class Logcat(object):
-    def __init__(self, phonetest):
+    def __init__(self, phonetest, logger):
         logger.debug('Logcat()')
         self.phonetest = phonetest
+        self.logger = logger
         self._accumulated_logcat = []
 
     def get(self, full=False):
@@ -56,7 +57,7 @@ class Logcat(object):
         else:
             logcat_date = '00-00 00:00:00.000'
 
-        logger.debug('Logcat.get() since %s' % logcat_date)
+        self.logger.debug('Logcat.get() since %s' % logcat_date)
 
         for attempt in range(1, self.phonetest.options.phone_retry_limit+1):
             try:
@@ -69,7 +70,7 @@ class Logcat(object):
                                   )]
                 break
             except ADBError:
-                logger.exception('Attempt %d get logcat' % attempt)
+                self.logger.exception('Attempt %d get logcat' % attempt)
                 if attempt == self.phonetest.options.phone_retry_limit:
                     raise
                 sleep(self.phonetest.options.phone_retry_wait)
@@ -114,8 +115,8 @@ class Logcat(object):
 
     def reset(self):
         """Clears the Logcat buffers and the device's logcat buffer."""
-        logger.debug('Logcat.reset()')
-        self.__init__(self.phonetest)
+        self.logger.debug('Logcat.reset()')
+        self.__init__(self.phonetest, self.logger)
         self.phonetest.dm.clear_logcat()
 
     def clear(self):
@@ -123,7 +124,7 @@ class Logcat(object):
         buffers. clear() is used to prevent the device's logcat buffer
         from overflowing while not losing any output.
         """
-        logger.debug('Logcat.clear()')
+        self.logger.debug('Logcat.clear()')
         self.get()
         self.phonetest.dm.clear_logcat()
 
@@ -274,7 +275,7 @@ class PhoneTest(object):
         self.submit_timestamp = None
         self.start_timestamp = None
         self.end_timestamp = None
-        self.logcat = Logcat(self)
+        self.logcat = Logcat(self, self.loggerdeco)
         self.loggerdeco.debug('PhoneTest: %s, cfg sections: %s' % (self.__dict__, self.cfg.sections()))
         if not self.cfg.sections():
             self.loggerdeco.warning('Test configuration not found. '
