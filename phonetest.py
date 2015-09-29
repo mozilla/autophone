@@ -53,21 +53,32 @@ class Logcat(object):
         # form: 09-17 16:45:04.370 which is the first 18
         # characters of the line.
         if self._accumulated_logcat:
-            logcat_date = self._accumulated_logcat[-1][:18]
+            logcat_datestr = self._accumulated_logcat[-1][:18]
         else:
-            logcat_date = '00-00 00:00:00.000'
+            logcat_datestr = '00-00 00:00:00.000'
 
-        self.logger.debug('Logcat.get() since %s' % logcat_date)
+        self.logger.debug('Logcat.get() since %s' % logcat_datestr)
+
+        # adb logcat can return lines with bogus dates where the MM-DD
+        # is not correct. This in particular has happened on a Samsung
+        # Galaxy S3 where Vold emits lines with the fixed date
+        # 11-30. It is not known if this is a general problem with
+        # other devices.
+
+        # This incorrect date causes problems when attempting to use
+        # the logcat dates to eliminate duplicates. It also conflicts
+        # with the strategy used in analyze_logcat to determine a
+        # potential year change during a test run. To distinguish
+        # between false year changes, we can decide that if the
+        # previous date and the current date are different by more
+        # than an hour, a decision must be made on which date is
+        # legitimate.
 
         for attempt in range(1, self.phonetest.options.phone_retry_limit+1):
             try:
-                current_logcat = [unicode(x,
-                                          'UTF-8',
-                                          errors='replace').strip()
-                                  for x in
-                                  self.phonetest.dm.get_logcat(
-                                      filter_specs=['*:V']
-                                  )]
+                raw_logcat = [
+                    unicode(x, 'UTF-8', errors='replace').strip()
+                    for x in self.phonetest.dm.get_logcat(filter_specs=['*:V'])]
                 break
             except ADBError:
                 self.logger.exception('Attempt %d get logcat' % attempt)
@@ -75,32 +86,74 @@ class Logcat(object):
                     raise
                 sleep(self.phonetest.options.phone_retry_wait)
 
-        # Keep the messages which are on or after the last accumulated
-        # logcat date.
-        current_logcat = [x for x in current_logcat
-                          if x >= logcat_date]
+        current_logcat = []
+        prev_line_date = None
+        curr_line_date = None
+        curr_year = datetime.datetime.now().year
+        hour = datetime.timedelta(hours=1)
+
+        for line in raw_logcat:
+            try:
+                curr_line_date = datetime.datetime.strptime('%4d-%s' % (
+                    curr_year, line[:18]), '%Y-%m-%d %H:%M:%S.%f')
+            except ValueError:
+                curr_line_date = None
+            if curr_line_date and prev_line_date:
+                delta = curr_line_date - prev_line_date
+                prev_line_datestr = prev_line_date.strftime('%m-%d %H:%M:%S.%f')
+                if delta <= -hour:
+                    # The previous line's date is one or more hours in
+                    # the future compared to the current line. Keep
+                    # the current lines which are before the previous
+                    # line's date.
+                    new_current_logcat = []
+                    for x in current_logcat:
+                        if x < prev_line_datestr:
+                            self.logger.debug('Logcat.get(): Discarding future line: %s' % x)
+                        else:
+                            self.logger.debug('Logcat.get(): keeping line: %s' % x)
+                            new_current_logcat.append(x)
+                    current_logcat = new_current_logcat
+                elif delta >= hour:
+                    # The previous line's date is one or more hours in
+                    # the past compared to the current line. Keep the
+                    # current lines which are after the previous
+                    # line's date.
+                    new_current_logcat = []
+                    for x in current_logcat:
+                        if x > prev_line_datestr:
+                            self.logger.debug('Logcat.get(): Discarding past line: %s' % x)
+                        else:
+                            self.logger.debug('Logcat.get(): keeping line: %s' % x)
+                            new_current_logcat.append(x)
+                    current_logcat = new_current_logcat
+            # Keep the messages which are on or after the last accumulated
+            # logcat date.
+            if line >= logcat_datestr:
+                current_logcat.append(line)
+            prev_line_date = curr_line_date
 
         # In order to eliminate the possible duplicate
         # messages, partition the messages by before, on and
-        # after the logcat_date.
+        # after the logcat_datestr.
         accumulated_logcat_before = []
         accumulated_logcat_now = []
         for x in self._accumulated_logcat:
-            if x < logcat_date:
+            if x < logcat_datestr:
                 accumulated_logcat_before.append(x)
-            elif x[:18] == logcat_date:
+            elif x[:18] == logcat_datestr:
                 accumulated_logcat_now.append(x)
 
         current_logcat_now = []
         current_logcat_after = []
         for x in current_logcat:
-            if x[:18] == logcat_date:
+            if x[:18] == logcat_datestr:
                 current_logcat_now.append(x)
-            elif x > logcat_date:
+            elif x > logcat_datestr:
                 current_logcat_after.append(x)
 
         # Remove any previously received messages from
-        # current_logcat_now for the logcat_date.
+        # current_logcat_now for the logcat_datestr.
         current_logcat_now = set(current_logcat_now).difference(
             set(accumulated_logcat_now))
         current_logcat_now = list(current_logcat_now)
