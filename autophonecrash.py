@@ -35,7 +35,7 @@ StackInfo = namedtuple("StackInfo",
 
 
 class AutophoneCrashProcessor(object):
-    def __init__(self, adbdevice, remote_profile_dir, upload_dir):
+    def __init__(self, adbdevice, remote_profile_dir, upload_dir, app_name):
         """Initialize an AutophoneCrashProcessor object.
 
         AutophoneCrashProcessor re-implements several features from
@@ -48,16 +48,24 @@ class AutophoneCrashProcessor(object):
             profile.
         :param upload_dir: path to a host directory to be used to contain
             ANR traces, tombstones uploaded from the device.
+        :param app_name: name of the application package,
+            e.g. org.mozilla.fennec.
         """
         self.adb = adbdevice
         self.remote_profile_dir = remote_profile_dir
         self.upload_dir = upload_dir
         self._dump_files = None
+        self.app_name = app_name
 
     @property
     def remote_dump_dir(self):
         """Minidump directory in Firefox profile."""
         return os.path.join(self.remote_profile_dir, 'minidumps')
+
+    @property
+    def remote_pending_crashreports_dir(self):
+        """Pending Crash Reports in the application directory.."""
+        return '/data/data/%s/files/mozilla/Crash\\ Reports/pending/' % self.app_name
 
     def delete_anr_traces(self, root=True):
         """Empty ANR traces.txt file."""
@@ -295,6 +303,8 @@ class AutophoneCrashProcessor(object):
             return crashes
         self.adb.chmod(self.remote_dump_dir, recursive=True, root=root)
         self.adb.pull(self.remote_dump_dir, self.upload_dir)
+        if self.adb.is_dir(self.remote_pending_crashreports_dir, root=root):
+            self.adb.pull(self.remote_pending_crashreports_dir, self.upload_dir)
         dump_files = [(path, os.path.splitext(path)[0] + '.extra') for path in
                       glob.glob(os.path.join(self.upload_dir, '*.dmp'))]
         max_dumps = 10

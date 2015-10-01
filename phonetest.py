@@ -878,7 +878,8 @@ class PhoneTest(object):
         self.upload_dir = tempfile.mkdtemp()
         self.crash_processor = AutophoneCrashProcessor(self.dm,
                                                        self.profile_path,
-                                                       self.upload_dir)
+                                                       self.upload_dir,
+                                                       self.build.app_name)
         self.crash_processor.clear()
         self.test_result = PhoneTestResult()
         if not self.worker_subprocess.is_disabled():
@@ -1040,6 +1041,11 @@ class PhoneTest(object):
         if self.dm.exists(os.path.join(self.profile_path, 'minidumps', '*.dmp'),
                           root=root):
             self.loggerdeco.info('fennec crashed')
+            return True
+        if self.dm.exists(os.path.join(
+                '/data/data/%s/files/mozilla/Crash\\ Reports/pending/' % self.build.app_name,
+                '*.dmp')):
+            self.loggerdeco.info('fennec crashed, but minidumps are in Pending Crash Reports.')
             return True
         return False
 
