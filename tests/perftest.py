@@ -16,43 +16,6 @@ from jot import jwt, jws
 import utils
 from phonetest import PhoneTest, PhoneTestResult
 
-"""
-   PerfherderArtifact and PerfherderSuite are specific formats for
-   Perfherder as defined in:
-   https://bugzilla.mozilla.org/show_bug.cgi?id=1175295
-
-   These work with summarized suite values and summarized test value,
-   instead of working with raw replicates.
-
-   In the future it would be nice to have a generic PerfData class which
-   stores the raw replicates and then the output functions can do the final
-   summarization and calculations as defined by the output medium (e.g. perfherder)
-"""
-class PerfherderArtifact(dict):
-    def __init__(self, suites=None):
-        self.framework = 'autophone'
-        if suites is None:
-            suites = []
-        self["suites"] = suites
-
-    def add_suite(self, suite):
-        self["suites"].append(suite)
-
-
-class PerfherderSuite(dict):
-
-    def __init__(self, name=None, value=0, subtests=None):
-        if subtests is None:
-            self['subtests'] = []
-        else:
-            self['subtests'] = subtests
-        self['name'] = name
-        self['value'] = value
-
-    def add_subtest(self, name, value):
-        self['subtests'].append({'name': name, 'value': value})
-
-
 class PerfTest(PhoneTest):
     def __init__(self, dm=None, phone=None, options=None,
                  config_file=None, chunk=1, repos=[]):
@@ -60,7 +23,6 @@ class PerfTest(PhoneTest):
                            config_file=config_file, chunk=chunk, repos=repos)
         self._result_server = None
         self._resulturl = None
-        self.perfherder_artifact = None
         if options.phonedash_url:
             self._resulturl = urlparse.urljoin(options.phonedash_url, '/api/s1s2/')
             self.loggerdeco.debug('PerfTest._resulturl: %s' % self._resulturl)
@@ -93,7 +55,6 @@ class PerfTest(PhoneTest):
 
     def setup_job(self):
         PhoneTest.setup_job(self)
-        self.perfherder_artifact = None
 
         if not self._resulturl:
             self._resultfile = open('autophone-results-%s.csv' %
@@ -151,7 +112,6 @@ class PerfTest(PhoneTest):
             self._resultfile = None
 
         PhoneTest.teardown_job(self)
-        self.perfherder_artifact = None
 
     def report_results(self, starttime=0, tstrt=0, tstop=0,
                        testname='', cache_enabled=True,
