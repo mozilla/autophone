@@ -476,7 +476,7 @@ class WebappStartupTest(PerfTest):
         webapp_prefix = '..GeckoConsole.*WEBAPP STARTUP COMPLETE'
         re_base_time = re.compile('%s' % logcat_prefix)
         re_start_time = re.compile(
-            '%s .*(Gecko|Start proc %s for activity %s)' % (
+            '%s .*([Gg]ecko|Start proc %s for activity %s)' % (
                 logcat_prefix, self.webappstartup_name, self.webappstartup_name))
         re_chrome_time = re.compile('%s %s' %
                                     (logcat_prefix, chrome_prefix))
@@ -500,12 +500,22 @@ class WebappStartupTest(PerfTest):
                 match = re_base_time.match(line)
                 if match and not base_time:
                     base_time = match.group(1)
-                    self.loggerdeco.debug('analyze_logcat: base_time: %s' % base_time)
+                    self.loggerdeco.info('analyze_logcat: base_time: %s' %
+                                         base_time)
+                # We want the Start proc message or if that is not
+                # available, the first gecko related message in order
+                # to determine the start_time which will be used to
+                # convert the absolute time values into values
+                # relative to the start of fennec.
                 match = re_start_time.match(line)
-                if match and not start_time:
+                if match and (not start_time or
+                              match.group(2).startswith('Start proc')):
                     start_time = match.group(1)
-                    self.loggerdeco.debug('analyze_logcat: start_time: %s' % start_time)
+                    self.loggerdeco.info('analyze_logcat: start_time: %s %s' %
+                                         (start_time, match.group(2)))
                     continue
+                # We want the first chrome time and WEBAPP STARTUP
+                # COMPLETE after the start_time.
                 match = re_chrome_time.match(line)
                 if match:
                     if chrome_time:
@@ -514,12 +524,14 @@ class WebappStartupTest(PerfTest):
                             'missing startup_time. Resetting '
                             'throbber_start_time.' % chrome_time)
                     chrome_time = match.group(1)
-                    self.loggerdeco.debug('analyze_logcat: chrome_time: %s' % chrome_time)
+                    self.loggerdeco.info('analyze_logcat: chrome_time: %s' %
+                                         chrome_time)
                     continue
                 match = re_startup_time.match(line)
                 if match and not startup_time:
                     startup_time = match.group(1)
-                    self.loggerdeco.debug('analyze_logcat: startup_time: %s' % startup_time)
+                    self.loggerdeco.info('analyze_logcat: startup_time: %s' %
+                                         startup_time)
                     continue
                 if start_time and startup_time:
                     break

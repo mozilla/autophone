@@ -270,7 +270,7 @@ class S1S2Test(PerfTest):
         throbber_prefix = '..GeckoToolbarDisplayLayout.*zerdatime (\d+) - Throbber'
         re_base_time = re.compile('%s' % logcat_prefix)
         re_start_time = re.compile(
-            '%s .*(Gecko|Start proc %s for activity %s/.App)' % (
+            '%s .*([Gg]ecko|Start proc %s for activity %s/.App)' % (
                 logcat_prefix, self.build.app_name, self.build.app_name))
         re_throbber_start_time = re.compile('%s %s start' %
                                             (logcat_prefix, throbber_prefix))
@@ -295,13 +295,22 @@ class S1S2Test(PerfTest):
                 match = re_base_time.match(line)
                 if match and not base_time:
                     base_time = match.group(1)
-                    self.loggerdeco.debug('analyze_logcat: base_time: %s' % base_time)
-                # we want the first throbberstart and throbberstop.
+                    self.loggerdeco.info('analyze_logcat: base_time: %s' %
+                                         base_time)
+                # We want the Start proc message or if that is not
+                # available, the first gecko related message in order
+                # to determine the start_time which will be used to
+                # convert the absolute time values into values
+                # relative to the start of fennec.
                 match = re_start_time.match(line)
-                if match and not start_time:
+                if match and (not start_time or
+                              match.group(2).startswith('Start proc')):
                     start_time = match.group(1)
-                    self.loggerdeco.debug('analyze_logcat: start_time: %s' % start_time)
+                    self.loggerdeco.info('analyze_logcat: start_time: %s %s' %
+                                          (start_time, match.group(2)))
                     continue
+                # We want the first throbberstart and throbberstop
+                # after the start_time.
                 match = re_throbber_start_time.match(line)
                 if match:
                     if throbber_start_time:
@@ -310,12 +319,16 @@ class S1S2Test(PerfTest):
                             'missing throbber_stop. Resetting '
                             'throbber_start_time.' % throbber_start_time)
                     throbber_start_time = match.group(1)
-                    self.loggerdeco.debug('analyze_logcat: throbber_start_time: %s' % throbber_start_time)
+                    self.loggerdeco.info(
+                        'analyze_logcat: throbber_start_time: %s' %
+                        throbber_start_time)
                     continue
                 match = re_throbber_stop_time.match(line)
                 if match and not throbber_stop_time:
                     throbber_stop_time = match.group(1)
-                    self.loggerdeco.debug('analyze_logcat: throbber_stop_time: %s' % throbber_stop_time)
+                    self.loggerdeco.info(
+                        'analyze_logcat: throbber_stop_time: %s' %
+                        throbber_stop_time)
                     continue
                 if start_time and throbber_start_time and throbber_stop_time:
                     break
