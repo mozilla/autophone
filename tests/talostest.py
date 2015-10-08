@@ -8,7 +8,7 @@ import os
 import re
 from time import sleep
 
-from perftest import PerfTest
+from perftest import PerfTest, PerfherderArtifact, PerfherderSuite
 from phonetest import PhoneTestResult
 from utils import median, geometric_mean
 
@@ -120,14 +120,7 @@ class TalosTest(PerfTest):
 
             if self.fennec_crashed:
                 break
-            # dataset is a list of the measurements made for the
-            # iterations for this test.
-            #
-            # An empty item in the dataset list represents a
-            # failure to obtain any measurement for that
-            # iteration.
 
-            dataset = []
             for iteration in range(1, self._iterations+1):
                 command = self.worker_subprocess.process_autophone_cmd(
                     test=self, require_ip_address=testname.startswith('remote'))
@@ -143,8 +136,6 @@ class TalosTest(PerfTest):
                                    'run %d, for test_args %s' %
                                    (testnum, testcount, iteration, test_args))
 
-                dataset.append({})
-
                 if not self.create_profile(custom_addons=custom_addons):
                     self.test_failure(test_args,
                                       'TEST_UNEXPECTED_FAIL',
@@ -154,6 +145,11 @@ class TalosTest(PerfTest):
 
                 measurement = self.runtest(test_args)
                 if measurement:
+                    if not self.perfherder_artifact:
+                        self.perfherder_artifact = PerfherderArtifact()
+                    suite = self.create_suite(measurement['pageload_metric'],
+                                             testname)
+                    self.perfherder_artifact.add_suite(suite)
                     self.test_pass(test_args)
                 else:
                     self.test_failure(
@@ -162,7 +158,6 @@ class TalosTest(PerfTest):
                         'Failed to get measurement.',
                         PhoneTestResult.TESTFAILED)
                     continue
-                dataset[-1] = measurement
                 success = True
 
             if not success:
@@ -193,12 +188,6 @@ class TalosTest(PerfTest):
                                   PhoneTestResult.BUSTED)
 
                 self.loggerdeco.debug('publishing results')
-
-                for datapoint in dataset:
-                    for cachekey in datapoint:
-                        pass
-                        #TODO: figure out results reporting
-#                        self.report_results(results)
 
             if command and command['interrupt']:
                 break
@@ -289,6 +278,14 @@ I/GeckoDump( 2284): __startTimestamp1433438438092__endTimestamp
                 sleep(wait_time)
                 attempt += 1
         if pageload_metric['summary'] == 0:
-            self.loggerdeco.info('Unable to find pageload metric')
+            self.loggerdeco.warning('Unable to find pageload metric')
 
         return pageload_metric
+
+    def create_suite(self, metric, testname):
+        phsuite = PerfherderSuite(name=testname,
+                                  value=metric['summary'])
+        for p in metric:
+            if p != 'summary':
+                phsuite.add_subtest(p, metric[p])
+        return phsuite

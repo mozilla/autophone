@@ -534,8 +534,13 @@ class AutophoneTreeherder(object):
                 'build_url': build_url,
                 'config_file': t.config_file,
                 'chunk': t.chunk})
-            tjc.add(tj)
 
+            if hasattr(t, 'perfherder_artifact') and t.perfherder_artifact:
+                jsondata = json.dumps(t.perfherder_artifact)
+                logger.debug("AutophoneTreeherder.submit_complete: perfherder_artifact: %s" % jsondata)
+                tj.add_artifact('performance_data', 'json', jsondata)
+
+            tjc.add(tj)
             message = 'TestResult: %s %s %s' % (t.test_result.status, t.name, build_url)
             if t.message:
                 message += ', %s' % t.message
