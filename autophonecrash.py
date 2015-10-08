@@ -60,6 +60,8 @@ class AutophoneCrashProcessor(object):
     @property
     def remote_dump_dir(self):
         """Minidump directory in Firefox profile."""
+        if not self.remote_profile_dir:
+            return None
         return os.path.join(self.remote_profile_dir, 'minidumps')
 
     @property
@@ -290,7 +292,8 @@ class AutophoneCrashProcessor(object):
         self.check_for_tombstones()
 
         crashes = []
-        if not self.adb.is_dir(self.remote_dump_dir, root=root):
+        if (not self.remote_dump_dir or
+            not self.adb.is_dir(self.remote_dump_dir, root=root)):
             # If crash reporting is enabled (MOZ_CRASHREPORTER=1), the
             # minidumps directory is automatically created when Fennec
             # (first) starts, so its lack of presence is a hint that

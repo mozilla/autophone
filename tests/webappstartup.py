@@ -114,6 +114,7 @@ class WebappStartupTest(PerfTest):
             self.loggerdeco.debug('create_profile: '
                                   'Attempt %d parsing %s' %
                                   (attempt, remote_profiles_ini_path))
+            self.dm.chmod(remote_profiles_ini_path, root=root)
             self.dm.pull(remote_profiles_ini_path, local_profiles_ini_file.name)
 
             cfg = ConfigParser.RawConfigParser()
@@ -135,13 +136,17 @@ class WebappStartupTest(PerfTest):
                 except ConfigParser.NoOptionError:
                     pass
 
-        os.unlink(local_profiles_ini_file.name)
+        if os.path.exists(local_profiles_ini_file.name):
+            os.unlink(local_profiles_ini_file.name)
+
+        if not self.profile_path:
+            self.loggerdeco.warning('create_profile: %s Failed' %
+                                    remote_profiles_ini_path)
+            self.kill_webappstartup()
+            return False
 
         self.loggerdeco.info('create_profile: profile_path: %s' %
                              self.profile_path)
-        if not self.profile_path:
-            self.kill_webappstartup()
-            return False
 
         # Sleep for 10 seconds to allow initialization to complete.
         # Other approaches such as checking for changing directory
