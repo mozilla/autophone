@@ -365,6 +365,9 @@ class PhoneWorkerSubProcess(object):
         self.loggerdeco.debug('PhoneWorkerSubProcess:reboot')
         self.update_status(phone_status=PhoneStatus.REBOOTING)
         self.dm.reboot()
+        # Setting svc power stayon true after rebooting is necessary
+        # since the setting does not survice reboots.
+        self.dm.power_on()
         self.ping()
 
     def disable_phone(self, errmsg, send_email=True):

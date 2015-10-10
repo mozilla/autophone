@@ -118,6 +118,10 @@ class S1S2Test(PerfTest):
 
                 dataset = []
                 for iteration in range(1, self._iterations+1):
+                    # Calling svc power stayon true will turn on the
+                    # display for at least some devices if it has
+                    # turned off.
+                    self.dm.power_on()
                     command = self.worker_subprocess.process_autophone_cmd(
                         test=self, require_ip_address=url.startswith('http'))
                     if command['interrupt']:
