@@ -990,8 +990,12 @@ class PhoneTest(object):
         for attempt in range(1, self.options.phone_retry_limit+1):
             try:
                 self.loggerdeco.debug('Attempt %d installing profile' % attempt)
-                self.dm.rm(self.profile_path, recursive=True,
-                           force=True, root=root)
+                if self.dm.exists(self.profile_path):
+                    # If the profile already exists, chmod it to make sure
+                    # we have permission to delete it.
+                    self.dm.chmod(self.profile_path, recursive=True, root=root)
+                    self.dm.rm(self.profile_path, recursive=True,
+                               force=True, root=root)
                 self.dm.chmod(profile_path_parent, root=root)
                 self.dm.mkdir(self.profile_path, root=root)
                 self.dm.chmod(self.profile_path, root=root)
