@@ -120,6 +120,9 @@ class UnitTest(PhoneTest):
 
     def teardown_job(self):
         PhoneTest.teardown_job(self)
+        roboexampletest = 'org.mozilla.roboexample.test'
+        if self.dm.is_app_installed(roboexampletest):
+            self.dm.uninstall_app(roboexampletest)
 
     def run_job(self):
         self.loggerdeco.debug('runtestsremote.py run_job start')
@@ -323,9 +326,11 @@ class UnitTest(PhoneTest):
 
         is_test_completed = False
 
-        if self.parms['test_name'] == 'robocoptest':
+        if self.parms['test_name'].startswith('robocoptest'):
             try:
-                self.dm.uninstall_app('org.mozilla.roboexample.test')
+                roboexampletest = 'org.mozilla.roboexample.test'
+                if self.dm.is_app_installed(roboexampletest):
+                    self.dm.uninstall_app(roboexampletest)
                 robocop_apk_path = os.path.join(self.parms['build_dir'], 'robocop.apk')
                 self.dm.install_app(robocop_apk_path)
             except Exception, e:
