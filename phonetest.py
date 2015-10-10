@@ -831,8 +831,14 @@ class PhoneTest(object):
         # Clear the Treeherder job details.
         self.job_details = []
         self.loggerdeco.debug('phonetest.setup_job: full logcat before job:')
-        self.loggerdeco.debug('\n'.join(self.logcat.get(full=True)))
-        self.logcat.reset()
+        try:
+            self.loggerdeco.debug('\n'.join(self.logcat.get(full=True)))
+        except:
+            self.loggerdeco.exception('Exception getting logcat')
+        try:
+            self.logcat.reset()
+        except:
+            self.loggerdeco.exception('Exception resetting logcat')
         self.worker_subprocess.treeherder.submit_running(
             self.phone.id,
             self.build.url,
