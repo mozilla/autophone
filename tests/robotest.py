@@ -8,7 +8,7 @@ import os
 import re
 from time import sleep
 
-from perftest import PerfTest
+from perftest import PerfTest, PerfherderArtifact, PerfherderSuite
 from phonetest import PhoneTestResult
 from utils import median, geometric_mean
 
@@ -73,8 +73,10 @@ class RoboTest(PerfTest):
             env_vars = {'MOZ_CRASHREPORTER_SHUTDOWN': 1,
                         'NO_EM_RESTART': 1,
                         'MOZ_CRASHREPORTER_NO_REPORT': 1,
-                        'MOZ_CRASHREPORTER': 1,
-                        'MOZ_DISABLE_NONLOCAL_CONNECTIONS': 1}
+                        'MOZ_CRASHREPORTER': 1}
+#TODO: disabled until we have a single device and we can tweak the test for
+#      network access
+#                        'MOZ_DISABLE_NONLOCAL_CONNECTIONS': 1}
             for item in env_vars:
                 envstr += "%s%s=%s" % (delim, item, env_vars[item])
                 delim = ","
@@ -155,6 +157,11 @@ class RoboTest(PerfTest):
 
                 measurement = self.runtest(test_args)
                 if measurement:
+                    if not self.perfherder_artifact:
+                        self.perfherder_artifact = PerfherderArtifact()
+                    suite = self.create_suite(measurement['pageload_metric'],
+                                             testname)
+                    self.perfherder_artifact.add_suite(suite)
                     self.test_pass(test_args)
                 else:
                     self.test_failure(
@@ -265,23 +272,32 @@ class RoboTest(PerfTest):
                     if numbers:
                         results["tcheck3"].append(float(numbers))
 
-            # calculate score
-            data = []
-            if results["tcheck3"] == []:
-                continue
-            data.append(median(results["tcheck3"]))
-            pageload_metric["tcheck3"] = median(results["tcheck3"])
-            pageload_metric['summary'] = geometric_mean(data)
-
             if self.fennec_crashed:
                 # If fennec crashed, don't bother looking for pageload metric
                 break
             if pageload_metric['summary'] == 0:
                 sleep(wait_time)
                 attempt += 1
+
+            if not results["tcheck3"]:
+                continue
+
+            # calculate score
+            data = results["tcheck3"]
+            pageload_metric["tcheck3"] = median(data)
+            pageload_metric['summary'] = geometric_mean(data)
+
         if pageload_metric['summary'] == 0:
             self.loggerdeco.info('Unable to find pageload metric')
 
         self.loggerdeco.info("returning from logcat analyze with: %s" %
                              pageload_metric)
         return pageload_metric
+
+    def create_suite(self, metric, testname):
+        phsuite = PerfherderSuite(name=testname,
+                                  value=metric['summary'])
+        for p in metric:
+            if p != 'summary':
+                phsuite.add_subtest(p, metric[p])
+        return phsuite
