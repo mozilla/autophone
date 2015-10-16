@@ -30,7 +30,7 @@ from phonetest import PhoneTest, PhoneTestResult
 """
 class PerfherderArtifact(dict):
     def __init__(self, suites=None):
-        self.framework = 'autophone'
+        self["framework"] = {'name': 'autophone'}
         if suites is None:
             suites = []
         self["suites"] = suites
