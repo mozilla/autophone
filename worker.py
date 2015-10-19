@@ -462,7 +462,12 @@ class PhoneWorkerSubProcess(object):
             if self.is_ok() and phone_status == PhoneStatus.ERROR:
                 # Only reboot if the previous state was ok.
                 self.loggerdeco.warning('Rebooting due to ping failure.')
-                self.dm.reboot()
+                try:
+                    self.dm.reboot()
+                except (ADBError, ADBTimeoutError):
+                    msg2 = 'Exception rebooting device: %s' % traceback.format_exc()
+                    self.loggerdeco.warning(msg2)
+                    msg += '\n\n' + msg2
 
         if test:
             test_msg = 'during %s %s\n' % (test.name, os.path.basename(test.config_file))
