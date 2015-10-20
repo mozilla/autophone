@@ -990,7 +990,7 @@ class PhoneTest(object):
         for attempt in range(1, self.options.phone_retry_limit+1):
             try:
                 self.loggerdeco.debug('Attempt %d installing profile' % attempt)
-                if self.dm.exists(self.profile_path):
+                if self.dm.exists(self.profile_path, root=root):
                     # If the profile already exists, chmod it to make sure
                     # we have permission to delete it.
                     self.dm.chmod(self.profile_path, recursive=True, root=root)
@@ -1052,9 +1052,9 @@ class PhoneTest(object):
                           root=root):
             self.loggerdeco.info('fennec crashed')
             return True
-        if self.dm.exists(os.path.join(
-                '/data/data/%s/files/mozilla/Crash\\ Reports/pending/' % self.build.app_name,
-                '*.dmp')):
+        if self.dm.exists(
+                '/data/data/%s/files/mozilla/Crash\\ Reports/pending/*.dmp' % self.build.app_name,
+                root=root):
             self.loggerdeco.info('fennec crashed, but minidumps are in Pending Crash Reports.')
             return True
         return False

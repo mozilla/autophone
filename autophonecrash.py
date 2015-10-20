@@ -78,7 +78,7 @@ class AutophoneCrashProcessor(object):
         except ADBError, e:
             logger.warning("Could not initialize ANR traces %s, %s" % (traces, e))
 
-    def check_for_anr_traces(self):
+    def check_for_anr_traces(self, root=True):
         """Reports the ANR traces file from the device.
 
         Outputs the contents of the ANR traces file to the log and
@@ -86,9 +86,9 @@ class AutophoneCrashProcessor(object):
         host before truncating the contents of the ANR traces file on
         the device.
         """
-        if self.adb.exists(traces):
+        if self.adb.exists(traces, root=root):
             try:
-                t = self.adb.shell_output("cat %s" % traces)
+                t = self.adb.shell_output("cat %s" % traces, root=root)
                 logger.info("Contents of %s:" % traces)
                 logger.info(t)
                 f = open(os.path.join(self.upload_dir, 'traces.txt', 'wb'))
@@ -125,7 +125,7 @@ class AutophoneCrashProcessor(object):
         Each copied tombstone filename will be renamed to have a
         unique integer suffix with a .txt extension.
         """
-        if self.adb.exists(tombstones):
+        if self.adb.exists(tombstones, root=root):
             self.adb.chmod(tombstones, root=root)
             self.adb.chmod(os.path.join(tombstones, '*'), mask='666', root=root)
             self.adb.pull(tombstones, self.upload_dir)
@@ -307,6 +307,8 @@ class AutophoneCrashProcessor(object):
         self.adb.chmod(self.remote_dump_dir, recursive=True, root=root)
         self.adb.pull(self.remote_dump_dir, self.upload_dir)
         if self.adb.is_dir(self.remote_pending_crashreports_dir, root=root):
+            self.adb.chmod(self.remote_pending_crashreports_dir, recursive=True,
+                           root=root)
             self.adb.pull(self.remote_pending_crashreports_dir, self.upload_dir)
         dump_files = [(path, os.path.splitext(path)[0] + '.extra') for path in
                       glob.glob(os.path.join(self.upload_dir, '*.dmp'))]
