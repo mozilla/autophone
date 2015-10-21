@@ -30,6 +30,11 @@ class TalosTest(PerfTest):
         except ConfigParser.NoSectionError:
             location_items = [('local', None)]
 
+        try:
+            self.perfherder_signature = self.cfg.get('treeherder', 'perfherder_signature')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            self.perfherder_signature = ''
+
         # Finialize test configuration
         for test_location, test_path in location_items:
             if test_location in config_vars:
@@ -62,9 +67,12 @@ class TalosTest(PerfTest):
                             for line in lines:
                                 fHandle.write(line.replace('%webserver%',
                                                            manifest_root))
-                        self._pushes[manifest] = "%s.develop" % self._pushes[fname]
+                        relative_fname = os.path.relpath(fname, self.autophone_directory)
+                        self._pushes[manifest] = "%s.develop" % self._pushes[relative_fname]
 
                 except Exception:
+                    self.loggerdeco.exception("exception generating manifest file: %s" %
+                                              self._pushes[fname])
                     pass
 
                 self.loggerdeco.debug(
@@ -108,41 +116,33 @@ class TalosTest(PerfTest):
                            'testname': testname},
                 extraformat='%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
-            self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
-                                 (testnum, testcount, self._iterations))
+            self.loggerdeco.info('Running test (%d/%d)' %
+                                 (testnum, testcount))
 
             # success == False indicates that none of the attempts
             # were successful in getting any measurement. This is
             # typically due to a regression in the brower which should
             # be reported.
             success = False
-            command = None
 
-            if self.fennec_crashed:
+            command = self.worker_subprocess.process_autophone_cmd(
+                test=self, require_ip_address=testname.startswith('remote'))
+
+            if command['interrupt']:
+                is_test_completed = False
+                self.handle_test_interrupt(command['reason'],
+                                           command['test_result'])
                 break
 
-            for iteration in range(1, self._iterations+1):
-                command = self.worker_subprocess.process_autophone_cmd(
-                    test=self, require_ip_address=testname.startswith('remote'))
-                if command['interrupt']:
-                    is_test_completed = False
-                    self.handle_test_interrupt(command['reason'],
-                                               command['test_result'])
-                    break
-                if self.fennec_crashed:
-                    break
+            self.update_status(message='Test %d/%d, for test_args %s' %
+                               (testnum, testcount, test_args))
 
-                self.update_status(message='Test %d/%d, '
-                                   'run %d, for test_args %s' %
-                                   (testnum, testcount, iteration, test_args))
-
-                if not self.create_profile(custom_addons=custom_addons):
-                    self.test_failure(test_args,
-                                      'TEST_UNEXPECTED_FAIL',
-                                      'Failed to create profile',
-                                      PhoneTestResult.TESTFAILED)
-                    continue
-
+            if not self.create_profile(custom_addons=custom_addons):
+                self.test_failure(test_args,
+                                  'TEST_UNEXPECTED_FAIL',
+                                  'Failed to create profile',
+                                  PhoneTestResult.TESTFAILED)
+            else:
                 measurement = self.runtest(test_args)
                 if measurement:
                     if not self.perfherder_artifact:
@@ -151,22 +151,20 @@ class TalosTest(PerfTest):
                                              testname)
                     self.perfherder_artifact.add_suite(suite)
                     self.test_pass(test_args)
+                    success = True
                 else:
                     self.test_failure(
                         test_args,
                         'TEST_UNEXPECTED_FAIL',
                         'Failed to get measurement.',
                         PhoneTestResult.TESTFAILED)
-                    continue
-                success = True
 
             if not success:
                 # If we have not gotten a single measurement at this point,
                 # just bail and report the failure rather than wasting time
                 # continuing more attempts.
                 self.loggerdeco.info(
-                    'Failed to get measurements for test %s after '
-                    '%d iterations' % (testname, self._iterations))
+                    'Failed to get measurements for test %s' % (testname))
                 self.worker_subprocess.mailer.send(
                     '%s %s failed for Build %s %s on Phone %s' %
                     (self.__class__.__name__, testname, self.build.tree, self.build.id,
@@ -243,7 +241,7 @@ I/GeckoDump( 2284): __startTimestamp1433438438092__endTimestamp
         re_end_report = re.compile('.*__end_tp_report.*')
 
         attempt = 1
-        max_time = 90  # maximum time to wait for completeness score
+        max_time = 180  # maximum time to wait for tp report
         wait_time = 3  # time to wait between attempts
         max_attempts = max_time / wait_time
 
@@ -258,7 +256,8 @@ I/GeckoDump( 2284): __startTimestamp1433438438092__endTimestamp
                     data = []
                     for page in results:
                         data.append(median(results[page]))
-                        pageload_metric[page] = median(results[page])
+                        # median of each page, ignoring the first run
+                        pageload_metric[page] = median(results[page][1:])
                     pageload_metric['summary'] = geometric_mean(data)
                     break
 
