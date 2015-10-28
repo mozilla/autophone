@@ -536,7 +536,7 @@ class AutophoneTreeherder(object):
                 'chunk': t.chunk})
 
             if hasattr(t, 'perfherder_artifact') and t.perfherder_artifact:
-                jsondata = json.dumps(t.perfherder_artifact)
+                jsondata = json.dumps({'performance_data': t.perfherder_artifact})
                 logger.debug("AutophoneTreeherder.submit_complete: perfherder_artifact: %s" % jsondata)
                 tj.add_artifact('performance_data', 'json', jsondata)
 
