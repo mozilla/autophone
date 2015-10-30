@@ -12,7 +12,7 @@ import tempfile
 import time
 import urlparse
 
-from thclient import (TreeherderAuth, TreeherderClient, TreeherderJobCollection)
+from thclient import (TreeherderClient, TreeherderJobCollection)
 
 from s3 import S3Error
 
@@ -81,10 +81,10 @@ class AutophoneTreeherder(object):
         logger.debug('AutophoneTreeherder shared_lock.acquire')
         self.shared_lock.acquire()
         try:
-            auth = TreeherderAuth(self.credentials[project]['consumer_key'],
-                                  self.credentials[project]['consumer_secret'],
-                                  project)
-            client = TreeherderClient(protocol=self.protocol, host=self.server, auth=auth)
+            client = TreeherderClient(protocol=self.protocol,
+                                      host=self.server,
+                                      client_id=self.credentials['client_id'],
+                                      secret=self.credentials['secret'])
 
             for attempt in range(1, self.retries+1):
                 try:
