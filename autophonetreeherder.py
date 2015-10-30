@@ -170,7 +170,6 @@ class AutophoneTreeherder(object):
             tj.add_end_timestamp(t.submit_timestamp)
             #
             tj.add_machine(machine)
-            tj.add_build_url(build_url)
             tj.add_build_info('android', t.phone.platform, t.phone.architecture)
             tj.add_machine_info('android',t.phone.platform, t.phone.architecture)
             tj.add_option_collection({'opt': True})
@@ -231,7 +230,6 @@ class AutophoneTreeherder(object):
             tj.add_end_timestamp(t.start_timestamp)
             #
             tj.add_machine(machine)
-            tj.add_build_url(build_url)
             tj.add_build_info('android', t.phone.platform, t.phone.architecture)
             tj.add_machine_info('android',t.phone.platform, t.phone.architecture)
             tj.add_option_collection({'opt': True})
@@ -485,7 +483,6 @@ class AutophoneTreeherder(object):
             tj.add_start_timestamp(t.start_timestamp)
             tj.add_end_timestamp(t.end_timestamp)
             tj.add_machine(machine)
-            tj.add_build_url(build_url)
             tj.add_build_info('android', t.phone.platform, t.phone.architecture)
             tj.add_machine_info('android',t.phone.platform, t.phone.architecture)
             tj.add_option_collection({'opt': True})
