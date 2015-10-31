@@ -308,7 +308,8 @@ class AutophoneTreeherder(object):
 
             if (hasattr(t, 'perfherder_artifact') and
                 hasattr(t, 'perfherder_signature')):
-                perfherder_url = 'https://treeherder.allizom.org/perf.html#/graphs?series'
+                perfherder_url = ('https://%s/perf.html#/graphs?series' %
+                                  self.server)
                 url = "%s=[%s,%s,1]" % (perfherder_url, project, t.perfherder_signature)
                 t.job_details.append({
                     'url': url,
