@@ -55,7 +55,8 @@ class AutophoneTreeherder(object):
         self.server = self.options.treeherder_server
         self.protocol = self.options.treeherder_protocol
         self.host = self.options.treeherder_server
-        self.credentials = self.options.treeherder_credentials
+        self.client_id = self.options.treeherder_client_id
+        self.secret = self.options.treeherder_secret
         self.retries = self.options.treeherder_retries
         self.retry_wait = self.options.treeherder_retry_wait
         self.bugscache_uri = '%s/api/bugscache/' % self.url
@@ -83,8 +84,8 @@ class AutophoneTreeherder(object):
         try:
             client = TreeherderClient(protocol=self.protocol,
                                       host=self.server,
-                                      client_id=self.credentials['client_id'],
-                                      secret=self.credentials['secret'])
+                                      client_id=self.client_id,
+                                      secret=self.secret)
 
             for attempt in range(1, self.retries+1):
                 try:

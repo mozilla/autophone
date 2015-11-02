@@ -37,7 +37,8 @@ class AutophoneOptions(object):
         self.build_cache_port = -1
         self.verbose = False
         self.treeherder_url = ''
-        self.treeherder_credentials_path = ''
+        self.treeherder_client_id = ''
+        self.treeherder_secret = ''
         self.treeherder_tier = 0
         self.treeherder_retries = 0
         self.treeherder_retry_wait = 0
@@ -53,7 +54,6 @@ class AutophoneOptions(object):
         self.s3_upload_bucket = ''
         self.aws_access_key_id = ''
         self.aws_access_key = ''
-        #self.treeherder_credentials = {} # computed
 
         # ini options
         self.build_cache_size = BuildCache.MAX_NUM_BUILDS

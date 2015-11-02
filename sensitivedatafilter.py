@@ -12,6 +12,6 @@ class SensitiveDataFilter(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
         for data in self.sensitive_data:
-            if data in msg:
+            if data and data in msg:
                 return False
         return True

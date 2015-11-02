@@ -533,9 +533,9 @@ password.
                                 /usr/local/bin/minidump_stackwalk.
           --emailcfg=EMAILCFG   config file for email settings; defaults to none
           --phonedash-url=PHONEDASH_URL
-                                Url to Phonedash server. If not set, results for
-                                each device will be written to comma delimited files in
-                                the form: autophone-results-<deviceid>.csv.
+                                Url to Phonedash server. If not set, results for each
+                                device will be written to comma delimited files in the
+                                form: autophone-results-<deviceid>.csv.
           --phonedash-user=PHONEDASH_USER
                                 user id for connecting to Phonedash server
           --phonedash-password=PHONEDASH_PASSWORD
@@ -573,62 +573,65 @@ password.
                                 The build types to test. One of opt or debug. To
                                 specify multiple build types, specify them with
                                 additional --buildtype options. Defaults to opt.
-          --lifo                Process jobs in LIFO order. Default of False
-                                implies FIFO order.
+          --lifo                Process jobs in LIFO order. Default of False implies
+                                FIFO order.
           --build-cache-port=BUILD_CACHE_PORT
                                 Port for build-cache server. If you are running
                                 multiple instances of autophone, this will have to be
                                 different in each. Defaults to 28008.
-          --devices=DEVICESCFG  Devices configuration ini file.
-                                Each device is listed by name in the sections of the
-                                ini file.
+          --devices=DEVICESCFG  Devices configuration ini file. Each device is listed
+                                by name in the sections of the ini file.
           --config=AUTOPHONECFG
-                                Optional autophone.py configuration ini file.
-                                The values of the settings in the ini file override
-                                any settings set on the command line.
+                                Optional autophone.py configuration ini file. The
+                                values of the settings in the ini file override any
+                                settings set on the command line.
                                 autophone.ini.example contains all of the currently
                                 available settings.
           --credentials-file=CREDENTIALS_FILE
-                                Optional autophone.py configuration ini file
-                                which is to be loaded in addition to that specified
-                                by the --config option. It is intended to contain
-                                sensitive options such as credentials which should not
-                                be checked into the source repository.
-                                The values of the settings in the ini file override
-                                any settings set on the command line.
-                                autophone.ini.example contains all of the currently
-                                available settings.
+                                Optional autophone.py configuration ini file which is
+                                to be loaded in addition to that specified by the
+                                --config option. It is intended to contain sensitive
+                                options such as credentials which should not be
+                                checked into the source repository. The values of the
+                                settings in the ini file override any settings set on
+                                the command line. autophone.ini.example contains all
+                                of the currently available settings.
           --verbose             Include output from ADBDevice command_output and
                                 shell_output commands when loglevel is DEBUG. Defaults
                                 to False.
           --treeherder-url=TREEHERDER_URL
                                 Url of the treeherder server where test results are
-                                reported.                       Defaults to None.
-          --treeherder-credentials-path=TREEHERDER_CREDENTIALS_PATH
-                                Path to credentials.json file containing OAuth
-                                credentials for contacting the Treeherder server.
-                                Defaults to None. If specified, --treeherder-url
-                                must also be specified.
+                                reported. If specified, --treeherder-client-id and
+                                --treeherder-secret must also be specified. Defaults
+                                to None.
+          --treeherder-client-id=TREEHERDER_CLIENT_ID
+                                Treeherder client id. If specified, --treeherder-url
+                                and --treeherder-secret must also be specified.
+                                Defaults to None.
+          --treeherder-secret=TREEHERDER_SECRET
+                                Treeherder secret. If specified, --treeherder-url and
+                                --treeherder-client-id must also be specified.
+                                Defaults to None.
           --treeherder-tier=TREEHERDER_TIER
                                 Integer specifying Treeherder Job Tier. Defaults to 3.
           --treeherder-retries=TREEHERDER_RETRIES
-                                Number of attempts for sending data to
-                                Treeherder. Defaults to 3.
+                                Number of attempts for sending data to Treeherder.
+                                Defaults to 3.
           --treeherder-retry-wait=TREEHERDER_RETRY_WAIT
-                                Number of seconds to wait between attempts
-                                to send data to Treeherder. Defaults to 300.
+                                Number of seconds to wait between attempts to send
+                                data to Treeherder. Defaults to 300.
           --s3-upload-bucket=S3_UPLOAD_BUCKET
-                                AWS S3 bucket name used to store logs.
-                                Defaults to None. If specified, --aws-access-key-id
-                                and --aws-secret-access-key must also be specified.
+                                AWS S3 bucket name used to store logs. Defaults to
+                                None. If specified, --aws-access-key-id and --aws-
+                                secret-access-key must also be specified.
           --aws-access-key-id=AWS_ACCESS_KEY_ID
-                                AWS Access Key ID used to access AWS S3.
-                                Defaults to None. If specified, --s3-upload-bucket
-                                and --aws-secret-access-key must also be specified.
+                                AWS Access Key ID used to access AWS S3. Defaults to
+                                None. If specified, --s3-upload-bucket and --aws-
+                                secret-access-key must also be specified.
           --aws-access-key=AWS_ACCESS_KEY
-                                AWS Access Key used to access AWS S3.
-                                Defaults to None. If specified, --s3-upload-bucket
-                                and --aws-secret-access-key-id must also be specified.
+                                AWS Access Key used to access AWS S3. Defaults to
+                                None. If specified, --s3-upload-bucket and --aws-
+                                secret-access-key-id must also be specified.
           --reboot-on-error     Reboot host in the event of an unrecoverable
                                 error.Defaults to False.
           --maximum-heartbeat=MAXIMUM_HEARTBEAT

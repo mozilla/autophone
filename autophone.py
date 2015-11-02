@@ -1012,20 +1012,14 @@ def load_autophone_options(cmd_options):
             except ConfigParser.NoOptionError:
                 pass
 
-    if options.treeherder_url and options.treeherder_credentials_path:
-        with open(options.treeherder_credentials_path) as credentials_file:
-            setattr(options, 'treeherder_credentials', json.loads(credentials_file.read()))
-
     # record sensitive data that should be filtered from logs.
     options.sensitive_data = []
     options.sensitive_data.append(options.phonedash_password)
     options.sensitive_data.append(options.pulse_password)
     options.sensitive_data.append(options.aws_access_key_id)
     options.sensitive_data.append(options.aws_access_key)
-    if hasattr(options, 'treeherder_credentials'):
-        for repo in options.repos:
-            options.sensitive_data.append(options.treeherder_credentials[repo]['consumer_key'])
-            options.sensitive_data.append(options.treeherder_credentials[repo]['consumer_secret'])
+    options.sensitive_data.append(options.treeherder_client_id)
+    options.sensitive_data.append(options.treeherder_secret)
     return options
 
 
@@ -1271,8 +1265,8 @@ if __name__ == '__main__':
                       dest='lifo',
                       action='store_true',
                       default=False,
-                      help="""Process jobs in LIFO order. Default of False
-                      implies FIFO order.""")
+                      help='Process jobs in LIFO order. Default of False '
+                      'implies FIFO order.')
     parser.add_option('--build-cache-port',
                       dest='build_cache_port',
                       action='store',
@@ -1287,32 +1281,32 @@ if __name__ == '__main__':
                       action='store',
                       type='string',
                       default='devices.ini',
-                      help="""Devices configuration ini file.
-                      Each device is listed by name in the sections of the ini file.""")
+                      help='Devices configuration ini file. '
+                      'Each device is listed by name in the sections of the ini file.')
     parser.add_option('--config',
                       dest='autophonecfg',
                       action='store',
                       type='string',
                       default=None,
-                      help="""Optional autophone.py configuration ini file.
-                      The values of the settings in the ini file override
-                      any settings set on the command line.
-                      autophone.ini.example contains all of the currently
-                      available settings.""")
+                      help='Optional autophone.py configuration ini file. '
+                      'The values of the settings in the ini file override '
+                      'any settings set on the command line. '
+                      'autophone.ini.example contains all of the currently '
+                      'available settings.')
     parser.add_option('--credentials-file',
                       dest='credentials_file',
                       action='store',
                       type='string',
                       default=None,
-                      help="""Optional autophone.py configuration ini file
-                      which is to be loaded in addition to that specified
-                      by the --config option. It is intended to contain
-                      sensitive options such as credentials which should not
-                      be checked into the source repository.
-                      The values of the settings in the ini file override
-                      any settings set on the command line.
-                      autophone.ini.example contains all of the currently
-                      available settings.""")
+                      help='Optional autophone.py configuration ini file '
+                      'which is to be loaded in addition to that specified '
+                      'by the --config option. It is intended to contain '
+                      'sensitive options such as credentials which should not '
+                      'be checked into the source repository. '
+                      'The values of the settings in the ini file override '
+                      'any settings set on the command line. '
+                      'autophone.ini.example contains all of the currently '
+                      'available settings.')
     parser.add_option('--verbose', action='store_true',
                       dest='verbose', default=False,
                       help='Include output from ADBDevice command_output and '
@@ -1323,64 +1317,71 @@ if __name__ == '__main__':
                       action='store',
                       type='string',
                       default=None,
-                      help="""Url of the treeherder server where test results are reported.
-                      Defaults to None.""")
-    parser.add_option('--treeherder-credentials-path',
-                      dest='treeherder_credentials_path',
+                      help='Url of the treeherder server where test results '
+                      'are reported. If specified, --treeherder-client-id and '
+                      '--treeherder-secret must also be specified. '
+                      'Defaults to None.')
+    parser.add_option('--treeherder-client-id',
+                      dest='treeherder_client_id',
                       action='store',
                       type='string',
                       default=None,
-                      help="""Path to credentials.json file containing OAuth
-                      credentials for contacting the Treeherder server.
-                      Defaults to None. If specified, --treeherder-url
-                      must also be specified.""")
+                      help='Treeherder client id. If specified, '
+                      '--treeherder-url and --treeherder-secret must also '
+                      'be specified. Defaults to None.')
+    parser.add_option('--treeherder-secret',
+                      dest='treeherder_secret',
+                      action='store',
+                      type='string',
+                      default=None,
+                      help='Treeherder secret. If specified, --treeherder-url '
+                      'and --treeherder-client-id must also be specified. '
+                      'Defaults to None.')
     parser.add_option('--treeherder-tier',
                       dest='treeherder_tier',
                       action='store',
                       type='int',
                       default=3,
-                      help="""Integer specifying Treeherder Job Tier. Defaults to 3.""")
+                      help='Integer specifying Treeherder Job Tier. '
+                      'Defaults to 3.')
     parser.add_option('--treeherder-retries',
                       dest='treeherder_retries',
                       action='store',
                       type='int',
                       default=3,
-                      help="""Number of attempts for sending data to
-                      Treeherder. Defaults to 3.""")
+                      help='Number of attempts for sending data to '
+                      'Treeherder. Defaults to 3.')
     parser.add_option('--treeherder-retry-wait',
                       dest='treeherder_retry_wait',
                       action='store',
                       type='int',
                       default=300,
-                      help="""Number of seconds to wait between attempts
-                      to send data to Treeherder. Defaults to 300.""")
+                      help='Number of seconds to wait between attempts '
+                      'to send data to Treeherder. Defaults to 300.')
     parser.add_option('--s3-upload-bucket',
                       dest='s3_upload_bucket',
                       action='store',
                       type='string',
                       default=None,
-                      help="""AWS S3 bucket name used to store logs.
-                      Defaults to None. If specified, --aws-access-key-id
-                      and --aws-secret-access-key must also be specified.
-                      """)
+                      help='AWS S3 bucket name used to store logs. '
+                      'Defaults to None. If specified, --aws-access-key-id '
+                      'and --aws-secret-access-key must also be specified.')
     parser.add_option('--aws-access-key-id',
                       dest='aws_access_key_id',
                       action='store',
                       type='string',
                       default=None,
-                      help="""AWS Access Key ID used to access AWS S3.
-                      Defaults to None. If specified, --s3-upload-bucket
-                      and --aws-secret-access-key must also be specified.
-                      """)
+                      help='AWS Access Key ID used to access AWS S3. '
+                      'Defaults to None. If specified, --s3-upload-bucket '
+                      'and --aws-secret-access-key must also be specified.')
     parser.add_option('--aws-access-key',
                       dest='aws_access_key',
                       action='store',
                       type='string',
                       default=None,
-                      help="""AWS Access Key used to access AWS S3.
-                      Defaults to None. If specified, --s3-upload-bucket
-                      and --aws-secret-access-key-id must also be specified.
-                      """)
+                      help='AWS Access Key used to access AWS S3. '
+                      'Defaults to None. If specified, --s3-upload-bucket '
+                      'and --aws-secret-access-key-id must also be specified.')
     parser.add_option('--reboot-on-error', action='store_true',
                       dest='verbose', default=False,
                       help='Reboot host in the event of an unrecoverable error.'
@@ -1394,21 +1395,22 @@ if __name__ == '__main__':
                       'considered to be hung. Defaults to 900.')
 
     (cmd_options, args) = parser.parse_args()
-    if cmd_options.treeherder_url and not cmd_options.treeherder_credentials_path:
-        raise Exception('--treeherder-url specified without '
-                        '--treeherder-credentials_path')
-    elif not cmd_options.treeherder_url and cmd_options.treeherder_credentials_path:
-        raise Exception('--treeherder-credentials_path specified without '
-                        '--treeherder-url')
-    if ((cmd_options.s3_upload_bucket or
-         cmd_options.aws_access_key_id or
-         cmd_options.aws_access_key) and (
-             not cmd_options.s3_upload_bucket or
-             not cmd_options.aws_access_key_id or
-             not cmd_options.aws_access_key)):
+    options = load_autophone_options(cmd_options)
+    if (options.treeherder_url or
+        options.treeherder_client_id or
+        options.treeherder_secret):
+        if (not options.treeherder_url or
+            not options.treeherder_client_id or
+            not options.treeherder_secret):
+            raise Exception('Inconsistent treeherder options')
+    if ((options.s3_upload_bucket or
+         options.aws_access_key_id or
+         options.aws_access_key) and (
+             not options.s3_upload_bucket or
+             not options.aws_access_key_id or
+             not options.aws_access_key)):
         raise Exception('--s3-upload-bucket, --aws-access-key-id, '
                         '--aws-access-key must be specified together')
-    options = load_autophone_options(cmd_options)
 
     exit_code = main(options)
 
