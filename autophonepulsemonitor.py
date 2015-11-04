@@ -6,6 +6,7 @@ import json
 import logging
 import socket
 import threading
+import time
 
 from kombu import Connection, Exchange, Queue
 
@@ -177,6 +178,10 @@ class AutophonePulseMonitor(object):
         assert buildtypes, "buildtypes is required."
         assert shared_lock, "shared_lock is required."
 
+        self.hostname = hostname
+        self.userid = userid
+        self.password = password
+        self.virtual_host = virtual_host
         self.treeherder_url = treeherder_url
         self.build_callback = build_callback
         self.jobaction_callback = jobaction_callback
@@ -191,15 +196,6 @@ class AutophonePulseMonitor(object):
         self.verbose = verbose
         self._stopping = threading.Event()
         self.listen_thread = None
-        # connection does not connect to the server until either the
-        # connection.connect() method is called explicitly or until
-        # kombu calls it implicitly as needed.
-        self.connection = Connection(hostname=hostname,
-                                     userid=userid,
-                                     password=password,
-                                     virtual_host=virtual_host,
-                                     port=DEFAULT_SSL_PORT,
-                                     ssl=True)
         build_exchange = Exchange(name=build_exchange_name, type='topic')
         self.queues = [Queue(name='queue/%s/build' % userid,
                              exchange=build_exchange,
@@ -237,35 +233,54 @@ class AutophonePulseMonitor(object):
 
     def listen(self):
         logger.debug('AutophonePulseMonitor: start shared_lock.acquire')
-        self.shared_lock.acquire()
-        try:
-            consumer = self.connection.Consumer(self.queues,
-                                                callbacks=[self.handle_message],
-                                                accept=['json'],
-                                                auto_declare=False)
-            for queue in self.queues:
-                queue(self.connection).queue_declare(passive=False)
-                queue(self.connection).queue_bind()
-            with consumer:
-                while not self._stopping.is_set():
-                    try:
-                        logger.debug('AutophonePulseMonitor shared_lock.release')
-                        self.shared_lock.release()
-                        self.connection.drain_events(timeout=self.timeout)
-                    except socket.timeout:
-                        pass
-                    except KeyboardInterrupt:
-                        raise
-                    finally:
-                        logger.debug('AutophonePulseMonitor shared_lock.acquire')
-                        self.shared_lock.acquire()
-            logger.debug('AutophonePulseMonitor.listen: stopping')
-        except:
-            logger.exception('AutophonePulseMonitor Exception')
-        finally:
-            logger.debug('AutophonePulseMonitor exit shared_lock.release')
-            self.shared_lock.release()
-            self.connection.release()
+        connection = None
+        restart = True
+        while restart:
+            restart = False
+            self.shared_lock.acquire()
+            try:
+                # connection does not connect to the server until
+                # either the connection.connect() method is called
+                # explicitly or until kombu calls it implicitly as
+                # needed.
+                connection = Connection(hostname=self.hostname,
+                                        userid=self.userid,
+                                        password=self.password,
+                                        virtual_host=self.virtual_host,
+                                        port=DEFAULT_SSL_PORT,
+                                        ssl=True)
+                consumer = connection.Consumer(self.queues,
+                                               callbacks=[self.handle_message],
+                                               accept=['json'],
+                                               auto_declare=False)
+                for queue in self.queues:
+                    queue(connection).queue_declare(passive=False)
+                    queue(connection).queue_bind()
+                with consumer:
+                    while not self._stopping.is_set():
+                        try:
+                            logger.debug('AutophonePulseMonitor shared_lock.release')
+                            self.shared_lock.release()
+                            connection.drain_events(timeout=self.timeout)
+                        except socket.timeout:
+                            pass
+                        except KeyboardInterrupt:
+                            raise
+                        finally:
+                            logger.debug('AutophonePulseMonitor shared_lock.acquire')
+                            self.shared_lock.acquire()
+                logger.debug('AutophonePulseMonitor.listen: stopping')
+            except:
+                logger.exception('AutophonePulseMonitor Exception')
+                if connection:
+                    connection.release()
+                restart = True
+                time.sleep(1)
+            finally:
+                logger.debug('AutophonePulseMonitor exit shared_lock.release')
+                if connection and not restart:
+                    connection.release()
+                self.shared_lock.release()
 
     def handle_message(self, data, message):
         if self._stopping.is_set():
@@ -429,7 +444,6 @@ class AutophonePulseMonitor(object):
 
 
 if __name__ == "__main__":
-    import time
     from optparse import OptionParser
 
     parser = OptionParser()
