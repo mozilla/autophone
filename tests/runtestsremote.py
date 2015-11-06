@@ -27,6 +27,9 @@ class UnitTest(PhoneTest):
                  config_file=None, chunk=1, repos=[]):
         PhoneTest.__init__(self, dm=dm, phone=phone, options=options,
                            config_file=config_file, chunk=chunk, repos=repos)
+        # Set the profile relative to the base_device_path. This will
+        # match the profile used by the Unit Test runner.
+        self.profile_path = '%s/profile' % self.base_device_path
         self.enable_unittests = True
         self.unittest_cfg = ConfigParser.RawConfigParser()
 
@@ -76,6 +79,9 @@ class UnitTest(PhoneTest):
 
     def setup_job(self):
         PhoneTest.setup_job(self)
+        # Remove the AutophoneCrashProcessor set in PhoneTest.setup_job
+        # since the Unit Test runner will handle crash processing.
+        self.crash_processor = None
         build_dir = self.build.dir
         symbols_path = self.build.symbols
         if symbols_path and not os.path.exists(symbols_path):
@@ -239,6 +245,7 @@ class UnitTest(PhoneTest):
         common_args = [
             '--dm_trans=adb',
             '--deviceSerial=%s' % self.phone.serial,
+            '--remoteTestRoot=%s' % self.base_device_path,
             '--app=%s' % self.parms['app_name'],
             '--xre-path=%s' % self.parms['xre_path'],
             '--utility-path=%s' % self.parms['utility_path'],
