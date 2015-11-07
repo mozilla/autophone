@@ -434,8 +434,12 @@ class UnitTest(PhoneTest):
                 if command and command['interrupt']:
                     break
                 elif proc.returncode != 0:
-                    self.test_result.status = PhoneTestResult.EXCEPTION
-                    self.message = 'Test exited with return code %d' % proc.returncode
+                    self.message = ('Test exited with return code %d' %
+                                    proc.returncode)
+                    self.test_failure(
+                        self.name, 'TEST_UNEXPECTED_FAIL',
+                        self.message,
+                        PhoneTestResult.EXCEPTION)
 
                 self.loggerdeco.info('runtestsremote.py return code %d' %
                                      proc.returncode)
@@ -458,14 +462,13 @@ class UnitTest(PhoneTest):
         except:
             if logfilehandle:
                 logfilehandle.close()
-            error_message = ('Exception during test %s chunk %d of %d: %s' %
-                             (self.parms['test_name'],
-                              self.chunk, self.chunks,
-                              traceback.format_exc()))
-            self.update_status(message=error_message)
-            self.loggerdeco.error(error_message)
+            self.message = ('Exception during test %s chunk %d of %d: %s' %
+                            (self.parms['test_name'],
+                             self.chunk, self.chunks,
+                             traceback.format_exc()))
+            self.update_status(message=self.message)
+            self.loggerdeco.error(self.message)
             self.test_result.status = PhoneTestResult.EXCEPTION
-            self.message = error_message
         finally:
             if logfilehandle:
                 self.process_test_log(logfilehandle)
