@@ -358,10 +358,12 @@ class UnitTest(PhoneTest):
         env['MINIDUMP_SAVE_PATH'] = self.upload_dir
         env['MOZ_UPLOAD_DIR'] = self.upload_dir
 
-        # Create PYTHONPATH to point the test runner to the test's mozbase packages.
+        # Create PYTHONPATH to point the test runner to the test's
+        # mozbase packages.  Be certain this contains absolute paths.
+        build_path = os.path.abspath(self.parms['build_dir'])
         python_path =  ':'.join(
             [pkg for pkg in
-             glob.glob('%s/tests/mozbase/*' % self.parms['build_dir'])
+             glob.glob('%s/tests/mozbase/*' % build_path)
              if os.path.isdir(pkg)])
         env['PYTHONPATH'] = python_path
         try:
