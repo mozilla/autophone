@@ -255,6 +255,7 @@ class UnitTest(PhoneTest):
             '--total-chunks=%d' % self.chunks,
             '--this-chunk=%d' % self.chunk,
             '--pidfile=%s-%s-%s.pid' % (self.parms['test_name'], self.chunk, self.parms['phoneid']),
+            '--remote-logfile=remote-%s-%s-%s.log' % (self.parms['test_name'], self.chunk, self.parms['phoneid']),
         ]
         for pref_name in self.preferences:
             pref_value = self.preferences[pref_name]
