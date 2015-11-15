@@ -58,6 +58,8 @@ class PhoneData(object):
         abi = self.abi
         if 'armeabi-v7a' in abi:
             abi = 'armv7'
+        elif 'arm64-v8a' in abi:
+            abi = 'armv8'
         return abi
 
     @property
