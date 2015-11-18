@@ -10,6 +10,7 @@ import os
 import re
 import socket
 import subprocess
+import tempfile
 import time
 import traceback
 
@@ -178,7 +179,6 @@ class UnitTest(PhoneTest):
                     '--robocop-ini=%s' % self.parms['test_manifest'],
                     '--certificate-path=certs',
                     '--console-level=%s' % self.parms['console_level'],
-                    '--log-raw=%s' % 'raw-log-' + os.path.basename(self.unittest_logpath),
                 ]
             else:
                 test_args = [
@@ -187,21 +187,25 @@ class UnitTest(PhoneTest):
                     '--robocop-ids=%s/fennec_ids.txt' % self.parms['build_dir'],
                     '--certificate-path=certs',
                     '--console-level=%s' % self.parms['console_level'],
-                    '--log-raw=%s' % 'raw-log-' + os.path.basename(self.unittest_logpath),
                 ]
 
         elif test_name_lower.startswith('mochitest'):
             self.parms['harness_type'] = 'mochitest'
 
+            # Create a short version of the testrun manifest file.
+            fh, temppath = tempfile.mkstemp(
+                suffix='.json',
+                dir='%s/tests' % self.parms['build_dir'])
+            os.close(fh)
+            os.unlink(temppath)
+            self.parms['testrun_manifest_file'] = temppath
+            temppath = os.path.basename(temppath)
             test_args = [
                 'mochitest/runtestsremote.py',
                 '--manifest=%s' % self.parms['test_manifest'],
-                '--testrun-manifest-file=%s-%s-%s-tests.json' % (self.parms['test_name'],
-                                                                 self.chunk,
-                                                                 self.parms['phoneid']),
+                '--testrun-manifest-file=%s' % temppath,
                 '--certificate-path=certs',
                 '--console-level=%s' % self.parms['console_level'],
-                '--log-raw=%s' % 'raw-log-' + os.path.basename(self.unittest_logpath),
             ]
         elif test_name_lower.startswith('reftest'):
             self.parms['harness_type'] = 'reftest'
@@ -241,6 +245,25 @@ class UnitTest(PhoneTest):
         self.parms['http_port'] = self.parms['port_manager'].reserve()
         self.parms['ssl_port'] = self.parms['port_manager'].reserve()
 
+        # Create a short version of the remote logfile name.
+        fh, temppath = tempfile.mkstemp(
+            suffix='.log',
+            dir='%s/tests' % self.parms['build_dir'])
+        os.close(fh)
+        os.unlink(temppath)
+        self.parms['remote_logfile'] = temppath
+        remote_logfile = os.path.basename(temppath)
+
+        # Create a short version of the pid file name.
+        # We don't need to save this to self.parms since it will be
+        # deleted after the test completes.
+        fh, temppath = tempfile.mkstemp(
+            suffix='.pid',
+            dir='%s/tests' % self.parms['build_dir'])
+        os.close(fh)
+        os.unlink(temppath)
+        pid_file = os.path.basename(temppath)
+
         common_args = [
             '--dm_trans=adb',
             '--deviceSerial=%s' % self.phone.serial,
@@ -254,8 +277,8 @@ class UnitTest(PhoneTest):
             '--ssl-port=%s' % self.parms['port_manager'].use(self.parms['ssl_port']),
             '--total-chunks=%d' % self.chunks,
             '--this-chunk=%d' % self.chunk,
-            '--pidfile=%s-%s-%s.pid' % (self.parms['test_name'], self.chunk, self.parms['phoneid']),
-            '--remote-logfile=remote-%s-%s-%s.log' % (self.parms['test_name'], self.chunk, self.parms['phoneid']),
+            '--pidfile=%s' % pid_file,
+            '--remote-logfile=%s' % remote_logfile,
         ]
         for pref_name in self.preferences:
             pref_value = self.preferences[pref_name]
@@ -474,7 +497,19 @@ class UnitTest(PhoneTest):
         finally:
             if logfilehandle:
                 self.process_test_log(logfilehandle)
-
+            tests_dir = '%s/tests' % self.build.dir
+            test_classifier = '%s-%s-%s' % (self.parms['test_name'],
+                                            self.chunk,
+                                            self.parms['phoneid'])
+            # Rename the short versions of the files to more readable versions.
+            old_file = self.parms.get('testrun_manifest_file', None)
+            if old_file and os.path.exists(old_file):
+                new_file = os.path.join(tests_dir, '%s.json' % test_classifier)
+                os.rename(old_file, new_file)
+            old_file = self.parms.get('remote_logfile', None)
+            if old_file and os.path.exists(old_file):
+                new_file = os.path.join(tests_dir, 'remote-%s.log' % test_classifier)
+                os.rename(old_file, new_file)
         self.loggerdeco.debug('runtestsremote.py runtest exit')
 
         return is_test_completed
