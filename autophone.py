@@ -546,36 +546,8 @@ class AutoPhone(object):
                 response = 'device %s already exists' % phoneid
                 console_logger.warning(response)
             else:
-                try:
-                    dm = ADBAndroid(
-                        device=serialno,
-                        device_ready_retry_wait=self.options.device_ready_retry_wait,
-                        device_ready_retry_attempts=self.options.device_ready_retry_attempts,
-                        verbose=self.options.verbose)
-
-                    dm.power_on()
-                    device = {"device_name": phoneid,
-                              "serialno": serialno,
-                              "dm" : dm}
-                    device['osver'] = dm.get_prop('ro.build.version.release')
-                    device['hardware'] = dm.get_prop('ro.product.model')
-                    device['abi'] = dm.get_prop('ro.product.cpu.abi')
-                    try:
-                        sdk = int(dm.get_prop('ro.build.version.sdk'))
-                        device['sdk'] = 'api-9' if sdk <= 10 else 'api-11'
-                    except ValueError:
-                        device['sdk'] = 'api-9'
-                    self._devices[phoneid] = device
-                    # We must reload the test manifest again to pick up the
-                    # new device's test configuration.
-                    console_logger.info('Adding device %s %s' % (phoneid, serialno))
-                    self.read_tests()
-                    self.register_cmd(device)
-                    self.phone_workers[phoneid].start()
-                except Exception, e:
-                    self.purge_worker(phoneid)
-                    response = '%s: Unable to add device due to %s.' % (data, e)
-                    console_logger.error(response)
+                self.read_devices(new_device_name=phoneid)
+                self.phone_workers[phoneid].start()
         elif cmd == 'autophone-restart':
             self.state = ProcessStates.RESTARTING
             console_logger.info('Restarting Autophone...')
@@ -759,20 +731,44 @@ ok
                 self.purge_worker(phoneid)
                 raise
 
-    def read_devices(self):
+    def read_devices(self, new_device_name=None):
+        """Read the devices.ini file and create a corresponding ADBAndroid dm
+        instance to manage each of the devices listed.
+
+        When called without a new_device_name argument, read_devices()
+        will register all devices currently specified in the
+        devices.ini file.
+
+        When called with a new_device_name argument specifying the
+        name of a device, read_devices(new_device_name="devicename")
+        will register only that device and will reload the tests from
+        the test manifest in order to pick up the tests for the newly
+        added device.
+        """
         cfg = ConfigParser.RawConfigParser()
         cfg.read(self.options.devicescfg)
 
-        for device_name in cfg.sections():
+        if new_device_name:
+            devices = [new_device_name]
+        else:
+            devices = cfg.sections()
+
+        for device_name in devices:
             # failure for a device to have a serialno option is fatal.
             serialno = cfg.get(device_name, 'serialno')
+            if cfg.has_option(device_name, 'test_root'):
+                test_root = cfg.get(device_name, 'test_root')
+            else:
+                test_root = self.options.device_test_root
+
             console_logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
             try:
                 dm = ADBAndroid(
                     device=serialno,
                     device_ready_retry_wait=self.options.device_ready_retry_wait,
                     device_ready_retry_attempts=self.options.device_ready_retry_attempts,
-                    verbose=self.options.verbose)
+                    verbose=self.options.verbose,
+                    test_root=test_root)
                 dm.power_on()
                 device = {"device_name": device_name,
                           "serialno": serialno,
@@ -786,6 +782,8 @@ ok
                 except ValueError:
                     device['sdk'] = 'api-9'
                 self._devices[device_name] = device
+                if new_device_name:
+                    self.read_tests()
                 self.register_cmd(device)
             except Exception, e:
                 console_logger.error('Unable to initialize device %s due to %s.' %
@@ -1394,6 +1392,16 @@ if __name__ == '__main__':
                       default=900,
                       help='Maximum heartbeat in seconds before worker is '
                       'considered to be hung. Defaults to 900.')
+    parser.add_option('--device-test-root',
+                      dest='device_test_root',
+                      action='store',
+                      type='string',
+                      default='',
+                      help='Device directory to be used as the test root. '
+                      'Defaults to an empty string which will defer selection '
+                      'of the test root to ADBAndroid. Can be overridden '
+                      'via a test_root option for a device in the devices.ini '
+                      'file.')
 
     (cmd_options, args) = parser.parse_args()
     options = load_autophone_options(cmd_options)

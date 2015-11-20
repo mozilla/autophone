@@ -348,14 +348,14 @@ class PhoneWorkerSubProcess(object):
         success = True
         try:
             d = posixpath.join(path, 'autophone_check_path')
-            self.dm.rm(d, recursive=True, force=True)
-            self.dm.mkdir(d, parents=True)
+            self.dm.rm(d, recursive=True, force=True, root=True)
+            self.dm.mkdir(d, parents=True, root=True)
             with tempfile.NamedTemporaryFile() as tmp:
                 tmp.write('autophone test\n')
                 tmp.flush()
                 self.dm.push(tmp.name,
                              posixpath.join(d, 'path_check'))
-            self.dm.rm(d, recursive=True)
+            self.dm.rm(d, recursive=True, root=True)
         except (ADBError, ADBTimeoutError):
             self.loggerdeco.exception('Exception while checking path %s' % path)
             success = False

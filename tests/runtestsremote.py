@@ -29,7 +29,6 @@ class UnitTest(PhoneTest):
                            config_file=config_file, chunk=chunk, repos=repos)
         # Set the profile relative to the base_device_path. This will
         # match the profile used by the Unit Test runner.
-        self.profile_path = '%s/profile' % self.base_device_path
         self.enable_unittests = True
         self.unittest_cfg = ConfigParser.RawConfigParser()
 

@@ -308,7 +308,10 @@ class PhoneTest(object):
         # beginning of each test independently of the worker's log.
         self.test_logfilehandler = None
         self._base_device_path = ''
-        self.profile_path = '/data/local/tmp/profile'
+        if self.dm:
+            self.profile_path = '%s/profile' % self.base_device_path
+        else:
+            self.profile_path = '/data/local/tests/autophone/profile'
         self.repos = repos
         self.test_logfile = None
         self.unittest_logpath = None
@@ -599,8 +602,9 @@ class PhoneTest(object):
             self.loggerdeco.debug('Attempt %d creating base device path %s' % (
                 attempt, self._base_device_path))
             try:
-                if not self.dm.is_dir(self._base_device_path):
-                    self.dm.mkdir(self._base_device_path, parents=True)
+                if not self.dm.is_dir(self._base_device_path, root=True):
+                    self.dm.mkdir(self._base_device_path, parents=True, root=True)
+                    self.dm.chmod(self._base_device_path, recursive=True, root=True)
                 success = True
                 break
             except ADBError:
@@ -793,8 +797,8 @@ class PhoneTest(object):
         for attempt in range(1, self.options.phone_retry_limit+1):
             self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
             try:
-                self.dm.rm(self._paths['dest'], recursive=True, force=True)
-                self.dm.mkdir(self._paths['dest'], parents=True)
+                self.dm.rm(self._paths['dest'], recursive=True, force=True, root=True)
+                self.dm.mkdir(self._paths['dest'], parents=True, root=True)
                 for push_source in self._pushes:
                     push_dest = self._pushes[push_source]
                     if os.path.isdir(push_source):

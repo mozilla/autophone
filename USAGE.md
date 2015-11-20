@@ -637,6 +637,11 @@ password.
           --maximum-heartbeat=MAXIMUM_HEARTBEAT
                                 Maximum heartbeat in seconds before worker is
                                 considered to be hung. Defaults to 900.
+          --device-test-root=DEVICE_TEST_ROOT
+                                Device directory to be used as the test root. Defaults
+                                to an empty string which will defer selection of the
+                                test root to ADBAndroid. Can be overridden via a
+                                test_root option for a device in the devices.ini file.
 
 ##### Configuring Email notifications
 
