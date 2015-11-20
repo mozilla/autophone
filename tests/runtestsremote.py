@@ -280,20 +280,6 @@ class UnitTest(PhoneTest):
             '--pidfile=%s' % pid_file,
             '--remote-logfile=%s' % remote_logfile,
         ]
-        for pref_name in self.preferences:
-            pref_value = self.preferences[pref_name]
-            if pref_value == True:
-                pref_value = 'true'
-            elif pref_value == False:
-                pref_value = 'false'
-            common_args.append('--setpref=%s=%s' % (pref_name, pref_value))
-        for env_name in self.environment:
-            env_value = self.environment[env_name]
-            if env_value == True:
-                env_value = 'true'
-            elif env_value == False:
-                env_value = 'false'
-            common_args.append('--setenv=%s=%s' % (env_name, env_value))
 
         args.extend(test_args)
         args.extend(common_args)
