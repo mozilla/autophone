@@ -29,7 +29,7 @@ import jobs
 import utils
 
 from adb import ADBHost
-from adb_android import ADBAndroid as ADBDevice
+from adb_android import ADBAndroid
 from autophonepulsemonitor import AutophonePulseMonitor
 from autophonetreeherder import AutophoneTreeherder
 from mailer import Mailer
@@ -547,7 +547,7 @@ class AutoPhone(object):
                 console_logger.warning(response)
             else:
                 try:
-                    dm = ADBDevice(
+                    dm = ADBAndroid(
                         device=serialno,
                         device_ready_retry_wait=self.options.device_ready_retry_wait,
                         device_ready_retry_attempts=self.options.device_ready_retry_attempts,
@@ -768,10 +768,11 @@ ok
             serialno = cfg.get(device_name, 'serialno')
             console_logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
             try:
-                dm = ADBDevice(device=serialno,
-                               device_ready_retry_wait=self.options.device_ready_retry_wait,
-                               device_ready_retry_attempts=self.options.device_ready_retry_attempts,
-                               verbose=self.options.verbose)
+                dm = ADBAndroid(
+                    device=serialno,
+                    device_ready_retry_wait=self.options.device_ready_retry_wait,
+                    device_ready_retry_attempts=self.options.device_ready_retry_attempts,
+                    verbose=self.options.verbose)
                 dm.power_on()
                 device = {"device_name": device_name,
                           "serialno": serialno,
@@ -1309,7 +1310,7 @@ if __name__ == '__main__':
                       'available settings.')
     parser.add_option('--verbose', action='store_true',
                       dest='verbose', default=False,
-                      help='Include output from ADBDevice command_output and '
+                      help='Include output from ADBAndroid command_output and '
                       'shell_output commands when loglevel is DEBUG. '
                       'Defaults to False.')
     parser.add_option('--treeherder-url',
