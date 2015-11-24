@@ -406,54 +406,58 @@ class PhoneWorkerSubProcess(object):
                 if state != 'device':
                     msg = 'Attempt: %d, ping state: %s' % (attempt, state)
                     phone_status = PhoneStatus.DISCONNECTED
+                elif (self.dm.selinux and
+                      self.dm.shell_output('getenforce') != 'Permissive'):
+                    msg = 'Attempt: %d, SELinux is not permissive' % attempt
+                    phone_status = PhoneStatus.ERROR
+                    self.dm.shell_output("setenforce Permissive", root=True)
                 elif not self._check_path('/data/local/tmp'):
                     msg = 'Attempt: %d, ping path: %s' % (attempt, '/data/local/tmp')
                     phone_status = PhoneStatus.ERROR
                 elif not self._check_path(self.dm.test_root):
                     msg = 'Attempt: %d, ping path: %s' % (attempt, self.dm.test_root)
                     phone_status = PhoneStatus.ERROR
-                else:
-                    if require_ip_address:
-                        try:
-                            ip_address = self.dm.get_ip_address()
-                        except (ADBError, ADBTimeoutError):
-                            ip_address = None
-                        if not ip_address:
-                            msg = 'Device network offline'
-                            phone_status = PhoneStatus.ERROR
-                            # If a backup wpa_supplicant.conf is available
-                            # in /data/local/tmp/, attempt to recover by
-                            # turning off wifi, copying the backup
-                            # wpa_supplicant.conf to /data/misc/wifi/,
-                            # then turning wifi back on.
-                            source_wpa = '/data/local/tmp/wpa_supplicant.conf'
-                            dest_wpa = '/data/misc/wifi/wpa_supplicant.conf'
-                            if self.dm.exists(source_wpa):
-                                self.loggerdeco.info('Resetting wpa_supplicant')
-                                self.dm.shell_output('svc wifi disable', root=True)
-                                self.dm.shell_output('dd if=%s of=%s' % (
-                                    source_wpa, dest_wpa), root=True)
-                                try:
-                                    # First, attempt to use older chown syntax
-                                    # chown user.group FILE.
-                                    self.loggerdeco.debug('attempting chown wifi.wifi')
-                                    self.dm.shell_output(
-                                        'chown wifi.wifi %s' % dest_wpa, root=True)
-                                except ADBError, e1:
-                                    if 'No such user' not in e1.message:
-                                        # The error is not a chown syntax
-                                        # compatibility issue.
-                                        raise
-                                    self.loggerdeco.debug('attempting chown wifi:wifi')
-                                    # The error was due to a chown
-                                    # user.group syntax compatibilty
-                                    # issue, re-attempt to use the newer
-                                    # chown syntax chown user:group FILE.
-                                    self.dm.shell_output('chown wifi:wifi %s' %
-                                                         dest_wpa, root=True)
-                                self.dm.shell_output('svc wifi enable', root=True)
-                    if phone_status == PhoneStatus.OK:
-                        break
+                elif require_ip_address:
+                    try:
+                        ip_address = self.dm.get_ip_address()
+                    except (ADBError, ADBTimeoutError):
+                        ip_address = None
+                    if not ip_address:
+                        msg = 'Device network offline'
+                        phone_status = PhoneStatus.ERROR
+                        # If a backup wpa_supplicant.conf is available
+                        # in /data/local/tmp/, attempt to recover by
+                        # turning off wifi, copying the backup
+                        # wpa_supplicant.conf to /data/misc/wifi/,
+                        # then turning wifi back on.
+                        source_wpa = '/data/local/tmp/wpa_supplicant.conf'
+                        dest_wpa = '/data/misc/wifi/wpa_supplicant.conf'
+                        if self.dm.exists(source_wpa):
+                            self.loggerdeco.info('Resetting wpa_supplicant')
+                            self.dm.shell_output('svc wifi disable', root=True)
+                            self.dm.shell_output('dd if=%s of=%s' % (
+                                source_wpa, dest_wpa), root=True)
+                            try:
+                                # First, attempt to use older chown syntax
+                                # chown user.group FILE.
+                                self.loggerdeco.debug('attempting chown wifi.wifi')
+                                self.dm.shell_output(
+                                    'chown wifi.wifi %s' % dest_wpa, root=True)
+                            except ADBError, e1:
+                                if 'No such user' not in e1.message:
+                                    # The error is not a chown syntax
+                                    # compatibility issue.
+                                    raise
+                                self.loggerdeco.debug('attempting chown wifi:wifi')
+                                # The error was due to a chown
+                                # user.group syntax compatibilty
+                                # issue, re-attempt to use the newer
+                                # chown syntax chown user:group FILE.
+                                self.dm.shell_output('chown wifi:wifi %s' %
+                                                     dest_wpa, root=True)
+                            self.dm.shell_output('svc wifi enable', root=True)
+                if phone_status == PhoneStatus.OK:
+                    break
             except (ADBError, ADBTimeoutError):
                 msg = 'Exception pinging device: %s' % traceback.format_exc()
                 phone_status = PhoneStatus.ERROR
