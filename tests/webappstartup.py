@@ -480,8 +480,11 @@ class WebappStartupTest(PerfTest):
         chrome_prefix = '..GeckoBrowser.*: zerdatime .* - browser chrome startup finished.'
         webapp_prefix = '..GeckoConsole.*WEBAPP STARTUP COMPLETE'
         re_base_time = re.compile('%s' % logcat_prefix)
+        re_gecko_time = re.compile('%s .*([Gg]ecko)' % logcat_prefix)
         re_start_time = re.compile(
-            '%s .*([Gg]ecko|Start proc %s for activity %s)' % (
+            '%s .*('
+            'Start proc .*%s.* for activity %s|'
+            'Fennec application start)' % (
                 logcat_prefix, self.webappstartup_name, self.webappstartup_name))
         re_chrome_time = re.compile('%s %s' %
                                     (logcat_prefix, chrome_prefix))
@@ -492,6 +495,8 @@ class WebappStartupTest(PerfTest):
         start_time = 0
         chrome_time = 0
         startup_time = 0
+        start_time_reason = ''
+        fennec_start = 'Fennec application start'
 
         attempt = 1
         max_time = 90 # maximum time to wait for WEBAPP STARTUP COMPLETE
@@ -507,17 +512,50 @@ class WebappStartupTest(PerfTest):
                     base_time = match.group(1)
                     self.loggerdeco.info('analyze_logcat: base_time: %s' %
                                          base_time)
-                # We want the Start proc message or if that is not
-                # available, the first gecko related message in order
-                # to determine the start_time which will be used to
-                # convert the absolute time values into values
-                # relative to the start of fennec.
+                # We want the Fennec application start message, or the
+                # Start proc message or the first gecko related
+                # message in order to determine the start_time which
+                # will be used to convert the absolute time values
+                # into values relative to the start of fennec.  See
+                # https://bugzilla.mozilla.org/show_bug.cgi?id=1214810
+                if not start_time:
+                    match = re_gecko_time.match(line)
+                    if match:
+                        start_time = match.group(1)
+                        start_time_reason = match.group(2)
+                        self.loggerdeco.info(
+                            'analyze_logcat: new start_time: %s %s' %
+                            (start_time, start_time_reason))
                 match = re_start_time.match(line)
-                if match and (not start_time or
-                              match.group(2).startswith('Start proc')):
-                    start_time = match.group(1)
-                    self.loggerdeco.info('analyze_logcat: start_time: %s %s' %
-                                         (start_time, match.group(2)))
+                if match:
+                    group1 = match.group(1)
+                    group2 = match.group(2)
+                    if not start_time:
+                        start_time = group1
+                        start_time_reason = group2
+                        self.loggerdeco.info(
+                            'analyze_logcat: new start_time: %s %s' %
+                            (start_time, start_time_reason))
+                    elif (fennec_start in group2 and
+                          fennec_start not in start_time_reason):
+                        # Webapps emit two fennec_start messages. Only
+                        # use the first.
+                        start_time = group1
+                        start_time_reason = group2
+                        self.loggerdeco.info(
+                            'analyze_logcat: updated start_time: %s %s' %
+                            (start_time, start_time_reason))
+                    elif (fennec_start not in start_time_reason and
+                          group2.startswith('Start proc')):
+                        start_time = group1
+                        start_time_reason = group2
+                        self.loggerdeco.info(
+                            'analyze_logcat: updated start_time: %s %s' %
+                            (start_time, start_time_reason))
+                    else:
+                        self.loggerdeco.info(
+                            'analyze_logcat: ignoring start_time: %s %s' %
+                            (group1, group2))
                     continue
                 # We want the first chrome time and WEBAPP STARTUP
                 # COMPLETE after the start_time.
