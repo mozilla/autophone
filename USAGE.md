@@ -455,6 +455,13 @@ to run all of the unit tests specified in the tests/unittests-manifest.ini file:
 
    python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/unittests-manifest.ini
 
+Note that if you are planning to run the Autophone Robocop Autophone
+test in configs/robocoptests-autophone-settings.ini, you will need to
+obtain the apk [installer files for
+Flash](https://helpx.adobe.com/flash-player/kb/archived-flash-player-versions.html)
+(install_flash_player_ics.apk, install_flash_player_pre_ics.apk) and
+copy them into the apk directory.
+
 #### Configuring Multiple tests simultaneously
 
 It is possible to combine multiple tests into a single Test manifest

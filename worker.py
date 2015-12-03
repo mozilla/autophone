@@ -32,7 +32,7 @@ from autophonetreeherder import AutophoneTreeherder
 from builds import BuildMetadata
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
-from phonetest import PhoneTest, PhoneTestResult
+from phonetest import PhoneTest, PhoneTestResult, FLASH_PACKAGE
 from process_states import ProcessStates
 from s3 import S3Bucket
 from sensitivedatafilter import SensitiveDataFilter
@@ -582,6 +582,8 @@ class PhoneWorkerSubProcess(object):
                     if re.match('package:.*(fennec|firefox)', p)]
                 for p in mozilla_packages:
                     self.dm.uninstall_app(p)
+                if self.dm.is_app_installed(FLASH_PACKAGE):
+                    self.dm.uninstall_app(FLASH_PACKAGE)
                 self.reboot()
                 uninstalled = True
                 break

@@ -28,6 +28,8 @@ from sensitivedatafilter import SensitiveDataFilter
 # used in a child process.
 logger = logging.getLogger()
 
+# Define the Adobe Flash Player package name as a constant for reuse.
+FLASH_PACKAGE = 'com.adobe.flashplayer'
 
 class Logcat(object):
     def __init__(self, phonetest, logger):

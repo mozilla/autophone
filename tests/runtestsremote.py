@@ -16,7 +16,7 @@ import traceback
 
 from logparser import LogParser
 
-from phonetest import PhoneTest, PhoneTestResult
+from phonetest import PhoneTest, PhoneTestResult, FLASH_PACKAGE
 
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
@@ -124,11 +124,29 @@ class UnitTest(PhoneTest):
             self.chunk,
             self.parms['phoneid'])
 
+        if self.parms['test_name'] == 'robocoptest-autophone':
+            if self.dm.is_app_installed(FLASH_PACKAGE):
+                self.dm.uninstall_app(FLASH_PACKAGE)
+            try:
+                sdk = int(self.dm.get_prop('ro.build.version.sdk'))
+            except ValueError:
+                sdk = 9
+            if sdk < 14:
+                flash_apk = 'apk/install_flash_player_pre_ics.apk'
+            else:
+                flash_apk = 'apk/install_flash_player_ics.apk'
+            if os.path.exists(flash_apk):
+                self.dm.install_app(flash_apk)
+            else:
+                raise Exception('%s does not exist' % flash_apk)
+
     def teardown_job(self):
         PhoneTest.teardown_job(self)
         roboexampletest = 'org.mozilla.roboexample.test'
         if self.dm.is_app_installed(roboexampletest):
             self.dm.uninstall_app(roboexampletest)
+        if self.dm.is_app_installed(FLASH_PACKAGE):
+            self.dm.uninstall_app(FLASH_PACKAGE)
 
     def run_job(self):
         self.loggerdeco.debug('runtestsremote.py run_job start')
