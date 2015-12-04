@@ -429,7 +429,7 @@ class AutophonePulseMonitor(object):
         self.jobaction_callback(jobaction_data)
 
     def get_treeherder_job(self, project, job_id):
-        url = '%s/api/project/%s/jobs/%s' % (
+        url = '%s/api/project/%s/jobs/%s/' % (
             self.treeherder_url, project, job_id)
         return utils.get_remote_json(url)
 
