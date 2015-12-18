@@ -280,7 +280,6 @@ configuration file which defines the test's Treeherder display.
 
           --treeherder-url=TREEHERDER_URL
           --treeherder-credentials-path=TREEHERDER_CREDENTIALS_PATH
-          --treeherder-retries=TREEHERDER_RETRIES
           --treeherder-retry-wait=TREEHERDER_RETRY_WAIT
 
 See the Treeherder-related options in
@@ -621,9 +620,6 @@ password.
                                 Defaults to None.
           --treeherder-tier=TREEHERDER_TIER
                                 Integer specifying Treeherder Job Tier. Defaults to 3.
-          --treeherder-retries=TREEHERDER_RETRIES
-                                Number of attempts for sending data to Treeherder.
-                                Defaults to 3.
           --treeherder-retry-wait=TREEHERDER_RETRY_WAIT
                                 Number of seconds to wait between attempts to send
                                 data to Treeherder. Defaults to 300.

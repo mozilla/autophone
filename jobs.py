@@ -49,6 +49,13 @@ class Jobs(object):
                          'guid text, '
                          'repos text, '
                          'jobid integer)')
+            conn.execute('create table treeherder ('
+                         'id integer primary key, '
+                         'attempts int, '
+                         'last_attempt text, '
+                         'machine text,'
+                         'project text,'
+                         'job_collection text)')
             conn.commit()
             conn.close()
 
@@ -131,6 +138,7 @@ class Jobs(object):
         conn = self._conn()
         self._execute_sql(conn, 'delete from tests')
         self._execute_sql(conn, 'delete from jobs')
+        self._execute_sql(conn, 'delete from treeherder')
         self._commit_connection(conn)
         self._close_connection(conn)
 
@@ -359,6 +367,58 @@ class Jobs(object):
                 conn,
                 'delete from jobs where id=?',
                 values=(job_id,))
+        self._commit_connection(conn)
+        self._close_connection(conn)
+
+    def new_treeherder_job(self, machine, project, job_collection):
+        logger.debug('jobs.new_treeherder_job: %s %s %s' % (machine, project, job_collection.__dict__))
+        attempts = 0
+        now = datetime.datetime.now().isoformat()
+        conn = self._conn()
+        job_cursor = self._execute_sql(
+            conn,
+            'insert into treeherder values (?, ?, ?, ?, ?, ?)',
+            values=(None, attempts, now, machine, project, job_collection.to_json()))
+        job_cursor.close()
+        self._commit_connection(conn)
+        self._close_connection(conn)
+
+    def get_next_treeherder_job(self):
+        conn = self._conn()
+
+        job_cursor = self._execute_sql(
+            conn,
+            'select id,attempts,last_attempt,machine,project,job_collection from treeherder')
+
+        job_row = job_cursor.fetchone()
+        job_cursor.close()
+        if not job_row:
+            self._close_connection(conn)
+            return None
+
+        job = {'id': job_row[0],
+               'attempts': job_row[1],
+               'last_attempt': job_row[2],
+               'machine': job_row[3],
+               'project': job_row[4],
+               'job_collection': json.loads(job_row[5])}
+        job['attempts'] += 1
+        job['last_attempt'] = datetime.datetime.now().isoformat()
+        self._execute_sql(
+            conn,
+            'update treeherder set attempts=?, last_attempt=? where id=?',
+            values=(job['attempts'], job['last_attempt'],
+                    job['id']))
+
+        logger.debug('jobs.get_next_treeherder_job: %s' % job)
+        self._commit_connection(conn)
+        self._close_connection(conn)
+        return job
+
+    def treeherder_job_completed(self, id):
+        logger.debug('jobs.treeherder_job_completed: %s' % id)
+        conn = self._conn()
+        self._execute_sql(conn, 'delete from treeherder where id=?', values=(id,))
         self._commit_connection(conn)
         self._close_connection(conn)
 

@@ -130,10 +130,13 @@ class AutoPhone(object):
         self._devices = {} # dict indexed by device names found in devices ini file
         self.server = None
         self.server_thread = None
+        self.treeherder_thread = None
         self.pulse_monitor = None
         self.restart_workers = {}
         self.treeherder = AutophoneTreeherder(None,
                                               self.options,
+                                              self.jobs,
+                                              mailer=self.mailer,
                                               shared_lock=self.shared_lock)
 
         console_logger.info('Starting autophone.')
@@ -223,6 +226,14 @@ class AutoPhone(object):
                                               name='CmdTCPThread')
         self.server_thread.daemon = True
         self.server_thread.start()
+
+        if self.options.treeherder_url:
+            self.treeherder_thread = threading.Thread(
+                target=self.treeherder.serve_forever,
+                name='TreeherderThread')
+            self.treeherder_thread.daemon = True
+            self.treeherder_thread.start()
+
         self.worker_msg_loop()
 
     def check_for_dead_workers(self):
@@ -396,6 +407,10 @@ class AutoPhone(object):
                 self.server.shutdown()
             if self.server_thread:
                 self.server_thread.join()
+            if self.options.treeherder_url:
+                self.treeherder.shutdown()
+                if self.treeherder_thread:
+                    self.treeherder_thread.join()
             for p in self.phone_workers.values():
                 p.stop()
             self.lock_release()
@@ -1345,13 +1360,6 @@ if __name__ == '__main__':
                       default=3,
                       help='Integer specifying Treeherder Job Tier. '
                       'Defaults to 3.')
-    parser.add_option('--treeherder-retries',
-                      dest='treeherder_retries',
-                      action='store',
-                      type='int',
-                      default=3,
-                      help='Number of attempts for sending data to '
-                      'Treeherder. Defaults to 3.')
     parser.add_option('--treeherder-retry-wait',
                       dest='treeherder_retry_wait',
                       action='store',

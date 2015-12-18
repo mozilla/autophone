@@ -40,7 +40,6 @@ class AutophoneOptions(object):
         self.treeherder_client_id = ''
         self.treeherder_secret = ''
         self.treeherder_tier = 0
-        self.treeherder_retries = 0
         self.treeherder_retry_wait = 0
         self._treeherder_protocol = ''
         self._treeherder_server = ''
@@ -115,7 +114,6 @@ class AutophoneOptions(object):
                      'verbose',
                      'treeherder_url',
                      'treeherder_tier',
-                     'treeherder_retries',
                      'treeherder_retry_wait',
                      '_treeherder_protocol',
                      '_treeherder_server',

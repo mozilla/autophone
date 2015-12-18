@@ -1050,6 +1050,7 @@ class PhoneWorkerSubProcess(object):
                                       self.options.aws_access_key)
         self.treeherder = AutophoneTreeherder(self,
                                               self.options,
+                                              self.jobs,
                                               s3_bucket=self.s3_bucket,
                                               mailer=self.mailer,
                                               shared_lock=self.shared_lock)
