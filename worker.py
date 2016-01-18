@@ -350,6 +350,7 @@ class PhoneWorkerSubProcess(object):
             d = posixpath.join(path, 'autophone_check_path')
             self.dm.rm(d, recursive=True, force=True, root=True)
             self.dm.mkdir(d, parents=True, root=True)
+            self.dm.chmod(d, recursive=True, root=True)
             with tempfile.NamedTemporaryFile() as tmp:
                 tmp.write('autophone test\n')
                 tmp.flush()

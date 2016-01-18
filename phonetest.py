@@ -807,6 +807,7 @@ class PhoneTest(object):
                         self.dm.push(push_source, push_dest)
                     else:
                         self.dm.push(push_source, push_dest)
+                self.dm.chmod(self._paths['dest'], recursive=True, root=True)
                 success = True
                 break
             except ADBError:
