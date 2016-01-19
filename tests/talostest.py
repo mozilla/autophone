@@ -36,6 +36,7 @@ class TalosTest(PerfTest):
             self.perfherder_signature = ''
 
         # Finialize test configuration
+        tpargs = self.cfg.get('settings', 'tpargs')
         for test_location, test_path in location_items:
             if test_location in config_vars:
                 # Ignore the pseudo-options which result from passing
@@ -43,44 +44,56 @@ class TalosTest(PerfTest):
                 continue
 
             for test_name in self._tests:
-                tpname = self._tests[test_name]
-                tpargs = self.cfg.get('settings', 'tpargs')
-                manifest_root = "file:%s" % self._paths['dest']
-                tppath = os.path.join(manifest_root, tpname)
-                extra_args = "-tp %s.develop %s" % (tppath, tpargs)
-
                 try:
-                    for source in self._paths['sources']:
-                        fname = os.path.join(self.autophone_directory,
-                                             source, tpname)
-                        if not os.path.exists(fname):
-                            continue
+                    manifest = self._tests[test_name]
 
-                        with open(fname, 'r') as fHandle:
-                            lines = fHandle.readlines()
+                    if not os.path.exists(manifest):
+                        self.loggerdeco.debug('ignoring manifest for %s' % manifest)
+                        continue
 
-                        if test_location == 'remote':
-                            manifest_root = options.webserver_url
+                    with open(manifest, 'r') as fHandle:
+                        lines = fHandle.readlines()
 
-                        manifest = "%s.develop" % fname
-                        with open(manifest, 'w') as fHandle:
-                            for line in lines:
-                                fHandle.write(line.replace('%webserver%',
-                                                           manifest_root))
-                        relative_fname = os.path.relpath(fname, self.autophone_directory)
-                        self._pushes[manifest] = "%s.develop" % self._pushes[relative_fname]
+                    manifest_path = os.path.dirname(manifest)
+                    manifest_file = os.path.basename(manifest)
+                    test_manifest_path = os.path.join(manifest_path, 'manifest')
+                    test_manifest_file = "%s.%s" % (manifest_file, test_location)
+                    test_manifest = os.path.join(test_manifest_path, test_manifest_file)
+
+                    if not os.path.isdir(test_manifest_path):
+                        os.mkdir(test_manifest_path)
+
+                    if test_location == 'remote':
+                        url_root = test_path
+                    else:
+                        url_root = self._paths['dest']
+
+                    with open(test_manifest, 'w') as fHandle:
+                        for line in lines:
+                            fHandle.write(line.replace('%webserver%',
+                                                       url_root))
+                    dest_manifest = os.path.join(self._paths['dest'],
+                                                 test_manifest_path,
+                                                 test_manifest_file)
+                    self._pushes[test_manifest] = dest_manifest
+
+                    extra_args = "-tp file:%s %s" % (dest_manifest, tpargs)
+
+                    self._test_args["%s-%s" % (test_location, test_name)] = extra_args
+
+                    self.loggerdeco.debug(
+                        'generating manifest: test_location: %s, test_path: %s, '
+                        'test_name: %s, manifest: %s, extra_args: %s' %
+                        (test_location, test_name, test_path, manifest,
+                         extra_args))
 
                 except Exception:
-                    self.loggerdeco.exception("exception generating manifest file: %s" %
-                                              self._pushes[fname])
-                    pass
+                    self.loggerdeco.exception(
+                        'generating manifest: test_location: %s, test_path: %s, '
+                        'test_name: %s, manifest: %s' %
+                        (test_location, test_name, test_path, manifest))
+                    raise
 
-                self.loggerdeco.debug(
-                    'test_location: %s, test_name: %s, test_path: %s, '
-                    'test: %s, extra_args: %s' %
-                    (test_location, test_name, test_path,
-                     self._tests[test_name], extra_args))
-                self._test_args["%s-%s" % (test_location, test_name)] = extra_args
 
     @property
     def name(self):

@@ -386,11 +386,13 @@ class PhoneTest(object):
             for push in glob.glob(source + '*'):
                 if push.endswith('~') or push.endswith('.bak'):
                     continue
+                push_file_name = os.path.basename(push)
                 push_dest = posixpath.join(self._paths['dest'],
-                                           os.path.basename(push))
+                                           source,
+                                           push_file_name)
                 self._pushes[push] = push_dest
-        self._initialize_url = os.path.join('file://', self._paths['dest'],
-                                            'initialize_profile.html')
+                if push_file_name == 'initialize_profile.html':
+                    self._initialize_url = push_dest
         # [tests]
         self._tests = {}
         try:
