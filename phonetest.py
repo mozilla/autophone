@@ -628,7 +628,10 @@ class PhoneTest(object):
     def job_url(self):
         if not self.options.treeherder_url:
             return None
-        job_url = '%s/#/jobs?filter-searchStr=autophone&exclusion_profile=false&repo=%s&revision=%s'
+        job_url = ('%s/#/jobs?filter-searchStr=autophone&' +
+                   'exclusion_profile=false&' +
+                   'filter-tier=1&filter-tier=2&filter-tier=3&' +
+                   'repo=%s&revision=%s')
         return job_url % (self.options.treeherder_url,
                           self.build.tree,
                           os.path.basename(self.build.revision)[:12])
