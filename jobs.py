@@ -10,6 +10,8 @@ import sqlite3
 import time
 import traceback
 
+import utils
+
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
 logger = logging.getLogger()
@@ -64,7 +66,7 @@ class Jobs(object):
         logger.exception(message)
         if attempt > self.SQL_MAX_RETRIES and not email_sent:
             email_sent = True
-            email_subject = 'jobs SQL Error'
+            email_subject = '%s jobs SQL Error' % utils.host()
             email_body = (
                 'Attempt %d to execute %s failed.\n'
                 '%s'

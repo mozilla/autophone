@@ -12,6 +12,8 @@ from time import sleep
 
 from mozprofile import FirefoxProfile
 
+import utils
+
 from adb import ADBError
 from perftest import PerfTest
 from phonetest import PhoneTestResult
@@ -279,15 +281,17 @@ class WebappStartupTest(PerfTest):
                                           self.stderrp_attempts,
                                           self._iterations))
                 self.worker_subprocess.mailer.send(
-                    'Webappstartup test failed for Build %s %s on Phone %s' %
-                    (self.build.tree, self.build.id, self.phone.id),
+                    'Webappstartup test failed for Build %s %s on %s %s' %
+                    (self.build.tree, self.build.id, utils.host(), self.phone.id),
                     'No measurements were detected for test webappstartup.\n\n'
                     'Job        %s\n'
+                    'Host       %s\n'
                     'Phone      %s\n'
                     'Repository %s\n'
                     'Build      %s\n'
                     'Revision   %s\n' %
                     (self.job_url,
+                     utils.host(),
                      self.phone.id,
                      self.build.tree,
                      self.build.id,

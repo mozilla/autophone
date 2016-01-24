@@ -184,7 +184,7 @@ class AutoPhone(object):
 
         console_logger.info('Autophone started.')
         if self.options.reboot_on_error:
-            msg_subj = 'Starting'
+            msg_subj = 'Starting %s' % utils.host()
             msg_body = ('Hello, this is Autophone. '
                         'Just to let you know, I have started running. '
                         'Wish me luck and check on me from time to time. '
@@ -255,7 +255,7 @@ class AutoPhone(object):
                     initial_state = PhoneStatus.IDLE
                 else:
                     console_logger.error('Worker %s died!' % phoneid)
-                    msg_subj = 'Worker for phone %s died' % phoneid
+                    msg_subj = '%s worker %s died' % (utils.host(), phoneid)
                     msg_body = ('Hello, this is Autophone. '
                                 'Just to let you know, '
                                 'the worker process '
@@ -317,8 +317,8 @@ class AutoPhone(object):
                     except Exception, e:
                         console_logger.info('Worker %s failed to restart' %
                                             phoneid)
-                        msg_subj = ('Worker for phone %s failed to restart' %
-                                    phoneid)
+                        msg_subj = ('%s worker %s failed to restart' %
+                                    (utils.host(), phoneid))
                         msg_body = ('Hello, this is Autophone. '
                                     'Just to let you know, '
                                     'the worker process '
@@ -417,7 +417,7 @@ class AutoPhone(object):
 
         if self.unrecoverable_error and self.options.reboot_on_error:
             console_logger.info('Rebooting due to unrecoverable errors')
-            msg_subj = 'Rebooting host due to unrecoverable errors'
+            msg_subj = 'Rebooting %s due to unrecoverable errors' % utils.host()
             msg_body = ('Hello, this is Autophone. '
                         'Just to let you know, I have experienced '
                         'unrecoverable device errors and am rebooting in '
@@ -805,7 +805,8 @@ ok
             except Exception, e:
                 console_logger.error('Unable to initialize device %s due to %s.' %
                                      (device_name, e))
-                msg_subj = 'Unable to initialize device %s' % device_name
+                msg_subj = '%s unable to initialize device %s' % (utils.host(),
+                                                                  device_name)
                 msg_body = ('Hello, this is Autophone. '
                             'Just to let you know, '
                             'phone %s '

@@ -377,7 +377,8 @@ class PhoneWorkerSubProcess(object):
         self.loggerdeco.info('Disabling phone: %s.' % errmsg)
         if errmsg and send_email:
             self.loggerdeco.info('Sending notification...')
-            self.mailer.send('Phone %s was disabled' % self.phone.id,
+            self.mailer.send('%s %s was disabled' % (utils.host(),
+                                                     self.phone.id),
                              'Phone %s has been disabled:\n'
                              '\n'
                              '%s\n'
@@ -487,8 +488,8 @@ class PhoneWorkerSubProcess(object):
             self.loggerdeco.warning('Phone is in an error state %s %s.' %
                                     (phone_status, msg))
             if self.is_ok():
-                msg_subject = ('Phone %s is in an error state %s' %
-                               (self.phone.id, phone_status))
+                msg_subject = ('%s %s is in an error state %s' %
+                               (utils.host(), self.phone.id, phone_status))
                 msg_body = ("Phone %s requires intervention:\n\n%s\n\n%s\n" %
                             (self.phone.id, msg, test_msg))
                 msg_body += ("I'll keep trying to ping it periodically "
@@ -501,8 +502,8 @@ class PhoneWorkerSubProcess(object):
             self.loggerdeco.warning('Phone is in an error state %s %s.' %
                                     (phone_status, msg))
             if self.is_ok():
-                msg_subject = ('Phone %s is in an error state %s' %
-                               (self.phone.id, phone_status))
+                msg_subject = ('%s %s is in an error state %s' %
+                               (utils.host(), self.phone.id, phone_status))
                 msg_body = ("Phone %s is unusable:\n\n%s\n\n%s\n" %
                             (self.phone.id, msg, test_msg))
                 if self.options.reboot_on_error:
@@ -516,7 +517,8 @@ class PhoneWorkerSubProcess(object):
         elif not self.is_ok():
             # The phone has recovered and is usable again.
             self.loggerdeco.warning('Phone has recovered.')
-            self.mailer.send('Phone %s has recovered' % self.phone.id,
+            self.mailer.send('%s %s has recovered' % (utils.host(),
+                                                      self.phone.id),
                              'Phone %s is now usable.' % self.phone.id)
             self.update_status(phone_status=PhoneStatus.OK)
 

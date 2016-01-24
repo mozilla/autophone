@@ -228,12 +228,13 @@ class PerfTest(PhoneTest):
                     continue
                 self.loggerdeco.exception('Error sending results to server')
                 self.worker_subprocess.mailer.send(
-                    'Attempt %s/%s Error sending %s results for phone %s, '
-                    'build %s' % (attempt, max_attempts, self.name,
-                                  self.phone.id, self.build.id),
+                    '%s attempt %s/%s Error sending %s results for phone %s, '
+                    'build %s' % (utils.host(), attempt, max_attempts,
+                                  self.name, self.phone.id, self.build.id),
                     'There was an error attempting to send test results '
                     'to the result server %s.\n'
                     '\n'
+                    'Host       %s\n'
                     'Job        %s\n'
                     'Test       %s\n'
                     'Phone      %s\n'
@@ -243,6 +244,7 @@ class PerfTest(PhoneTest):
                     'Exception  %s\n'
                     'Result     %s\n' %
                     (self.result_server,
+                     utils.host(),
                      self.job_url,
                      self.name,
                      self.phone.id,

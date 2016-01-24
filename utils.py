@@ -177,3 +177,7 @@ def geometric_mean(series):
     for i in series:
         total += math.log(i+1)
     return math.exp(total / len(series)) - 1
+
+
+def host():
+    return os.uname()[1]

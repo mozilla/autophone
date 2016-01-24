@@ -10,7 +10,7 @@ from time import sleep
 
 from perftest import PerfTest, PerfherderArtifact, PerfherderSuite
 from phonetest import PhoneTestResult
-from utils import geometric_mean
+from utils import geometric_mean, host
 
 logger = logging.getLogger()
 
@@ -170,20 +170,23 @@ class RoboTest(PerfTest):
                         'No measurements for test %s after '
                         '%d iterations' % (testname, self._iterations))
                     self.worker_subprocess.mailer.send(
-                        '%s %s failed for Build %s %s on Phone %s' %
+                        '%s %s failed for Build %s %s on %s %s' %
                         (self.__class__.__name__,
                          testname,
                          self.build.tree,
                          self.build.id,
+                         host(),
                          self.phone.id),
                         'No measurements were detected for test %s.\n\n'
                         'Job        %s\n'
+                        'Host       %s\n'
                         'Phone      %s\n'
                         'Repository %s\n'
                         'Build      %s\n'
                         'Revision   %s\n' %
                         (testname,
                          self.job_url,
+                         host(),
                          self.phone.id,
                          self.build.tree,
                          self.build.id,

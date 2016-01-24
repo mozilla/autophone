@@ -14,6 +14,8 @@ import urlparse
 
 from thclient import (TreeherderClient, TreeherderJobCollection, TreeherderJob)
 
+import utils
+
 from s3 import S3Error
 
 LEAK_RE = re.compile('\d+ bytes leaked \((.+)\)$')
@@ -98,8 +100,8 @@ class AutophoneTreeherder(object):
                 else:
                     response_json = None
                 self.mailer.send(
-                    'Attempt %d Error submitting request to Treeherder' %
-                    attempts,
+                    '%s attempt %d Error submitting request to Treeherder' %
+                    (utils.host(), attempts),
                     'Phone: %s\n'
                     'TreeherderClientError: %s\n'
                     'Last attempt: %s\n'
@@ -275,6 +277,10 @@ class AutophoneTreeherder(object):
                 'value': os.path.basename(build_url),
                 'content_type': 'link',
                 'title': 'Build'})
+            t.job_details.append({
+                'value': utils.host(),
+                'content_type': 'text',
+                'title': 'Host'})
 
             t.end_timestamp = timestamp_now()
             # A usercancelled job may not have a start_timestamp

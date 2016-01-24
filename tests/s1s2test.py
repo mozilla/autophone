@@ -11,6 +11,8 @@ import urlparse
 
 from time import sleep
 
+import utils
+
 from perftest import PerfTest
 from phonetest import PhoneTestResult
 
@@ -192,17 +194,19 @@ class S1S2Test(PerfTest):
                                               self.stderrp_attempts,
                                               self._iterations))
                     self.worker_subprocess.mailer.send(
-                        '%s %s failed for Build %s %s on Phone %s' %
-                        (self.__class__.__name__, testname, self.build.tree, self.build.id,
-                         self.phone.id),
+                        '%s %s failed for Build %s %s on %s %s' %
+                        (self.__class__.__name__, testname, self.build.tree,
+                         self.build.id, utils.host(),  self.phone.id),
                         'No measurements were detected for test %s.\n\n'
                         'Job        %s\n'
+                        'Host       %s\n'
                         'Phone      %s\n'
                         'Repository %s\n'
                         'Build      %s\n'
                         'Revision   %s\n' %
                         (testname,
                          self.job_url,
+                         utils.host(),
                          self.phone.id,
                          self.build.tree,
                          self.build.id,
