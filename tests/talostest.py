@@ -66,7 +66,7 @@ class TalosTest(PerfTest):
                     if test_location == 'remote':
                         url_root = test_path
                     else:
-                        url_root = self._paths['dest']
+                        url_root = 'file://' + self._paths['dest']
 
                     with open(test_manifest, 'w') as fHandle:
                         for line in lines:
@@ -77,7 +77,7 @@ class TalosTest(PerfTest):
                                                  test_manifest_file)
                     self._pushes[test_manifest] = dest_manifest
 
-                    extra_args = "-tp file:%s %s" % (dest_manifest, tpargs)
+                    extra_args = "-tp file://%s %s" % (dest_manifest, tpargs)
 
                     self._test_args["%s-%s" % (test_location, test_name)] = extra_args
 

@@ -47,8 +47,8 @@ class S1S2Test(PerfTest):
                 if test_path:
                     test_url = urlparse.urljoin(test_path, self._tests[test_name])
                 else:
-                    test_url = os.path.join('file://', self._paths['dest'],
-                                            self._tests[test_name])
+                    test_url = 'file://' + os.path.join(self._paths['dest'],
+                                                        self._tests[test_name])
                 self.loggerdeco.debug(
                     'test_location: %s, test_name: %s, test_path: %s, '
                     'test: %s, test_url: %s' %

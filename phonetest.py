@@ -400,7 +400,7 @@ class PhoneTest(object):
                                            push_file_name)
                 self._pushes[push] = push_dest
                 if push_file_name == 'initialize_profile.html':
-                    self._initialize_url = push_dest
+                    self._initialize_url = 'file://' + push_dest
         # [tests]
         self._tests = {}
         try:
