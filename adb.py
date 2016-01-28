@@ -1353,7 +1353,7 @@ class ADBDevice(ADBCommand):
         try:
             output = self.shell_output('netcfg', timeout=timeout)
         except ADBError:
-            output = []
+            output = ''
         for line in output.split("\n"):
             match = re3_netcfg.search(line)
             if match:
