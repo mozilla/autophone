@@ -242,12 +242,20 @@ class PhoneTest(object):
                         incompatible_job = True
                 # If the build_url does not contain an sdk level, then
                 # assume this is an build from before the split sdk
-                # builds were first created. Otherwise the build_url
-                # must match this device's supported sdk levels.
-                if ('api-9' not in build_url and 'api-10' not in build_url and
-                    'api-11' not in build_url):
+                # builds were first created.
+                re_api = re.compile(r'api-(9|10|11|15)')
+                match = re_api.search(build_url)
+                if not match:
+                    pass
+                elif sdk == 'api-15' and 'api-11' in build_url:
+                    # The change to a build api level of 15 in build
+                    # urls means that we must adjust the match in the
+                    # event we are attempting to test older builds for
+                    # api-11.
                     pass
                 elif sdk not in build_url:
+                    # Otherwise the device's sdk must match the
+                    # build's sdk.
                     incompatible_job  = True
 
                 if incompatible_job:

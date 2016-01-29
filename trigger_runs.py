@@ -68,6 +68,7 @@ def main(args, options):
                        'android-api-9',
                        'android-api-10',
                        'android-api-11',
+                       'android-api-15',
                        'android-x86']
     buildfile_ext = '.apk'
 

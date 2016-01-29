@@ -90,8 +90,8 @@ class AutophonePulseMonitor(object):
     :param trees: Required list of repository names to be matched.
     :param platforms: Required list of platforms to be
         matched. Currently, the possible values are 'android',
-        'android-api-9', 'android-api-10', 'android-api-11', and
-        'android-x86'.
+        'android-api-9', 'android-api-10', 'android-api-11',
+        'android-api-15' and 'android-x86'.
     :param buildtypes: Required list of build types to
         process. Possible values are 'opt', 'debug'
     :param timeout: Timeout in seconds for the kombu connection
@@ -142,7 +142,7 @@ class AutophonePulseMonitor(object):
         build_callback=build_callback,
         jobaction_callback=jobaction_callback,
         trees=['try', 'mozilla-inbound'],
-        platforms=['android-api-9', 'android-api-11'],
+        platforms=['android-api-9', 'android-api-11', 'android-api-15'],
         buildtypes=['opt'],
         shared_lock=shared_lock)
 
@@ -480,7 +480,7 @@ if __name__ == "__main__":
         build_callback=build_callback,
         jobaction_callback=jobaction_callback,
         trees=['try', 'mozilla-inbound'],
-        platforms=['android-api-9', 'android-api-11'],
+        platforms=['android-api-9', 'android-api-11', 'android-api-15'],
         buildtypes=['opt'],
         shared_lock=shared_lock)
 

@@ -173,6 +173,7 @@ class AutoPhone(object):
                            'android-api-9',
                            'android-api-10',
                            'android-api-11',
+                           'android-api-15',
                            'android-x86'],
                 buildtypes=options.buildtypes,
                 durable_queues=self.options.pulse_durable_queue,
@@ -795,7 +796,12 @@ ok
                 device['abi'] = dm.get_prop('ro.product.cpu.abi')
                 try:
                     sdk = int(dm.get_prop('ro.build.version.sdk'))
-                    device['sdk'] = 'api-9' if sdk <= 10 else 'api-11'
+                    if sdk <= 10:
+                        device['sdk'] = 'api-9'
+                    elif sdk < 15:
+                        device['sdk'] = 'api-11'
+                    else:
+                        device['sdk'] = 'api-15'
                 except ValueError:
                     device['sdk'] = 'api-9'
                 self._devices[device_name] = device
@@ -921,7 +927,7 @@ ok
                 tests = PhoneTest.match(build_url=build_url)
             else:
                 # Autophone try builds will have a comment of the form:
-                # try: -b o -p android-api-9,android-api-11 -u autophone-smoke,autophone-s1s2 -t none
+                # try: -b o -p android-api-9,android-api-15 -u autophone-smoke,autophone-s1s2 -t none
                 # Do not allow global selection of tests
                 # since Autophone can not handle the load.
                 tests = []
@@ -1111,6 +1117,7 @@ def main(options):
                        'android-api-9',
                        'android-api-10',
                        'android-api-11',
+                       'android-api-15',
                        'android-x86']
     buildfile_ext = '.apk'
     try:
