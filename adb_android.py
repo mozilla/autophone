@@ -398,9 +398,10 @@ class ADBAndroid(ADBDevice):
         if extra_args:
             extras['args'] = " ".join(extra_args)
 
-        self.launch_application(app_name, ".App", intent, url=url, extras=extras,
-                               wait=wait, fail_if_running=fail_if_running,
-                               timeout=timeout)
+        self.launch_application(app_name, "org.mozilla.gecko.BrowserApp",
+                                intent, url=url, extras=extras,
+                                wait=wait, fail_if_running=fail_if_running,
+                                timeout=timeout)
 
     def stop_application(self, app_name, timeout=None, root=False):
         """Stops the specified application
