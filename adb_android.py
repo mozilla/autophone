@@ -184,14 +184,11 @@ class ADBAndroid(ADBDevice):
         # 'wait-for-device' since that would add duplicate
         # 'wait-for-device' arguments which is an error in newer
         # versions of adb.
-        self._logger.debug('is_device_ready: start')
         self.command_output([], timeout=timeout)
+        pm_error_string = "Error: Could not access the Package Manager"
+        pm_list_commands = ["packages", "permission-groups", "permissions",
+                            "instrumentation", "features", "libraries"]
         ready_path = os.path.join(self.test_root, "ready")
-        dev_boot_complete = None
-        sys_boot_complete = None
-        boot_anim_complete = None
-        boot_completed = False
-        se_linux = None
         for attempt in range(self._device_ready_retry_attempts):
             failure = 'Unknown failure'
             success = True
@@ -200,60 +197,34 @@ class ADBAndroid(ADBDevice):
                 if state != 'device':
                     failure = "Device state: %s" % state
                     success = False
-                    dev_boot_complete = None
-                    sys_boot_complete = None
-                    boot_anim_complete = None
-                    boot_completed = False
-                    se_linux = None
                 else:
-                    if not dev_boot_complete:
-                        dev_boot_complete = self.shell_output(
-                            'getprop dev.bootcomplete', timeout=timeout)
-                    if not sys_boot_complete:
-                        sys_boot_complete = self.shell_output(
-                            'getprop sys.boot_completed', timeout=timeout)
-                    if not boot_anim_complete or boot_anim_complete != 'stopped':
-                        boot_anim_complete = self.shell_output(
-                            'getprop init.svc.bootanim', timeout=timeout)
-                    if dev_boot_complete == '1' and sys_boot_complete == '1':
-                        if not boot_anim_complete or boot_anim_complete == 'stopped':
-                            boot_completed = True
-                    self._logger.debug(
-                        'is_device_ready: sys.boot_completed: %s, dev.bootcomplete: %s, '
-                        'init.svc.bootanim: %s, boot_completed: %s' %
-                        (sys_boot_complete, dev_boot_complete,
-                         boot_anim_complete, boot_completed))
-                    if not boot_completed:
-                        success = False
-                        failure = 'Still booting'
-                    else:
-                        if self.selinux and not se_linux:
-                            se_linux = self.shell_output('getenforce',
-                                                         timeout=timeout)
-                        if self.selinux and se_linux != 'Permissive':
-                            self._logger.info('is_device_ready: Setting SELinux Permissive Mode')
-                            self.shell_output("setenforce Permissive", timeout=timeout, root=True)
-                            se_linux = 'Permissive'
-                        if self.is_dir(ready_path, timeout=timeout, root=True):
-                            self.rmdir(ready_path, timeout=timeout, root=True)
-                        self.mkdir(ready_path, timeout=timeout, root=True)
+                    if (self.selinux and
+                        self.shell_output('getenforce',
+                                          timeout=timeout) != 'Permissive'):
+                        self._logger.info('Setting SELinux Permissive Mode')
+                        self.shell_output("setenforce Permissive", timeout=timeout, root=True)
+                    if self.is_dir(ready_path, timeout=timeout, root=True):
                         self.rmdir(ready_path, timeout=timeout, root=True)
-                        break
+                    self.mkdir(ready_path, timeout=timeout, root=True)
+                    self.rmdir(ready_path, timeout=timeout, root=True)
+                    # Invoke the pm list commands to see if it is up and
+                    # running.
+                    for pm_list_cmd in pm_list_commands:
+                        data = self.shell_output("pm list %s" % pm_list_cmd,
+                                                 timeout=timeout)
+                        if pm_error_string in data:
+                            failure = data
+                            success = False
+                            break
             except ADBError, e:
                 success = False
                 failure = e.message
 
             if not success:
-                self._logger.debug('is_device_ready: Attempt %s of %s device not ready: %s' % (
+                self._logger.debug('Attempt %s of %s device not ready: %s' % (
                     attempt+1, self._device_ready_retry_attempts,
                     failure))
                 time.sleep(self._device_ready_retry_wait)
-
-        self._logger.debug(
-            'is_device_ready: %s, sys.boot_completed: %s, dev.bootcomplete: %s, '
-            'init.svc.bootanim: %s, boot_completed: %s' %
-            (success, sys_boot_complete, dev_boot_complete,
-             boot_anim_complete, boot_completed))
 
         return success
 
