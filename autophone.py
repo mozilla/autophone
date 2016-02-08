@@ -778,23 +778,13 @@ ok
                 test_root = cfg.get(device_name, 'test_root')
             else:
                 test_root = self.options.device_test_root
-            if cfg.has_option(device_name, 'device_ready_retry_attempts'):
-                device_ready_retry_attempts = cfg.getint(device_name,
-                                                         'device_ready_retry_attempts')
-            else:
-                device_ready_retry_attempts = self.options.device_ready_retry_attempts
-            if cfg.has_option(device_name, 'device_ready_retry_wait'):
-                device_ready_retry_wait = cfg.getint(device_name,
-                                                     'device_ready_retry_wait')
-            else:
-                device_ready_retry_wait = self.options.device_ready_retry_wait
 
-            console_logger.info("Initializing device %s %s" % (device_name, serialno))
+            console_logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
             try:
                 dm = ADBAndroid(
                     device=serialno,
-                    device_ready_retry_wait=device_ready_retry_wait,
-                    device_ready_retry_attempts=device_ready_retry_attempts,
+                    device_ready_retry_wait=self.options.device_ready_retry_wait,
+                    device_ready_retry_attempts=self.options.device_ready_retry_attempts,
                     verbose=self.options.verbose,
                     test_root=test_root)
                 dm.power_on()
@@ -1430,22 +1420,6 @@ if __name__ == '__main__':
                       'of the test root to ADBAndroid. Can be overridden '
                       'via a test_root option for a device in the devices.ini '
                       'file.')
-    parser.add_option('--device-ready-retry-attempts',
-                      dest='device_ready_retry_attempts',
-                      action='store',
-                      type='int',
-                      default=PhoneWorker.DEVICE_READY_RETRY_ATTEMPTS,
-                      help='Number of attempts to check if the device is ready. '
-                      'Defaults to %s.' %
-                      PhoneWorker.DEVICE_READY_RETRY_ATTEMPTS)
-    parser.add_option('--device-ready-retry-wait',
-                      dest='device_ready_retry_wait',
-                      action='store',
-                      type='int',
-                      default=PhoneWorker.DEVICE_READY_RETRY_WAIT,
-                      help='Interval in seconds between checks to see if the '
-                      'device is ready. Defaults to %s.' %
-                      PhoneWorker.DEVICE_READY_RETRY_WAIT)
 
     (cmd_options, args) = parser.parse_args()
     options = load_autophone_options(cmd_options)

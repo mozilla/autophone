@@ -177,10 +177,6 @@ each device in the form:
 
     [devicename]
     serialno=deviceserialnumber
-    # You may over-ride the device_ready_retry_attempts
-    # and device_ready_retry_wait options using the following:
-    device_ready_retry_attempts = 10
-    device_ready_retry_wait = 18
 
 You can determine the adb serial number for a device by connecting
 each device to your computer one at a time, then executing `adb
@@ -649,12 +645,6 @@ password.
                                 to an empty string which will defer selection of the
                                 test root to ADBAndroid. Can be overridden via a
                                 test_root option for a device in the devices.ini file.
-          --device-ready-retry-attempts=DEVICE_READY_RETRY_ATTEMPTS
-                                Number of attempts to check if the device is ready.
-                                Defaults to 3.
-          --device-ready-retry-wait=DEVICE_READY_RETRY_WAIT
-                                Interval in seconds between checks to see if the
-                                device is ready. Defaults to 20.
 
 ##### Configuring Email notifications
 
