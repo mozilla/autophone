@@ -38,7 +38,9 @@ def get_remote_text(url):
             return conn.read()
 
         while True:
-            conn = urllib2.urlopen(url)
+            req = urllib2.Request(url)
+            req.add_header('User-Agent', 'autophone')
+            conn = urllib2.urlopen(req)
             code = conn.getcode()
             if code == 200:
                 content = conn.read()
