@@ -94,7 +94,7 @@ class AutophoneTreeherder(object):
             logger.exception('Error submitting request to Treeherder, attempt=%d, last=%s' %
                              (attempts, last_attempt))
             if self.mailer:
-                if e.response:
+                if hasattr(e, 'response') and e.response:
                     response_json = json.dumps(e.response.json(),
                                                indent=2, sort_keys=True)
                 else:
@@ -103,13 +103,13 @@ class AutophoneTreeherder(object):
                     '%s attempt %d Error submitting request to Treeherder' %
                     (utils.host(), attempts),
                     'Phone: %s\n'
-                    'TreeherderClientError: %s\n'
+                    'Exception: %s\n'
                     'Last attempt: %s\n'
                     'Response: %s\n' % (
                         machine,
                         e,
-                        response_json,
-                        last_attempt))
+                        last_attempt,
+                        response_json))
         return False
 
     def queue_request(self, machine, project, job_collection):
