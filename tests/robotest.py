@@ -74,10 +74,13 @@ class RoboTest(PerfTest):
             delim = ""
             # This is not foolproof and the ideal solution would be to have
             # one env/line instead of a single string
-            env_vars = {'MOZ_CRASHREPORTER_SHUTDOWN': 1,
-                        'NO_EM_RESTART': 1,
-                        'MOZ_CRASHREPORTER_NO_REPORT': 1,
-                        'MOZ_CRASHREPORTER': 1}
+            env_vars = {
+                'MOZ_CRASHREPORTER': 1,
+                'MOZ_CRASHREPORTER_NO_REPORT': 1,
+                'MOZ_CRASHREPORTER_SHUTDOWN': 1,
+                'NO_EM_RESTART': 1,
+                'MOZ_DISABLE_SWITCHBOARD': '1'
+            }
 #TODO: disabled until we have a single device and we can tweak the test for
 #      network access
 #                        'MOZ_DISABLE_NONLOCAL_CONNECTIONS': 1}

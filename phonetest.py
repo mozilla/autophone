@@ -589,6 +589,7 @@ class PhoneTest(object):
                 'MOZ_CRASHREPORTER_SHUTDOWN': '1',
                 'MOZ_DISABLE_NONLOCAL_CONNECTIONS': '1',
                 'NO_EM_RESTART': '1',
+                'MOZ_DISABLE_SWITCHBOARD': '1',
                 #'NSPR_LOG_MODULES': 'all:5',
             }
             if self.cfg.has_section('environment'):
