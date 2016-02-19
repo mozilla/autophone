@@ -4,6 +4,7 @@ beautifulsoup4
 boto>=2.32.1
 httplib2
 jot
+manifestparser
 mozautolog
 mozdevice
 mozprofile
