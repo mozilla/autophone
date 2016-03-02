@@ -704,8 +704,8 @@ class BuildCache(object):
                     logger.exception(err)
                     return {'success': False, 'error': err}
                 shutil.move(tmpf.name, fennec_ids_path)
-            test_packages = utils.get_remote_json(
-                urlparse.urljoin(buildurl, 'test_packages.json'))
+            test_packages_url = re.sub('.apk$', '.test_packages.json', buildurl)
+            test_packages = utils.get_remote_json(test_packages_url)
             # The test_packages.json file contains keys for each
             # test category but they all point to the same tests
             # zip file. This will change when
@@ -720,19 +720,21 @@ class BuildCache(object):
                     test_package_files.update(set(test_packages[test_package_name]))
             else:
                 # XXX: assumes fixed buildurl-> tests_url mapping
-                logger.debug('default test package')
+                logger.warning('Using the default test package')
                 if not test_packages:
                     # Only use the old style tests zip file if
                     # the split test_packages.json was not found.
                     tests_url = re.sub('.apk$', '.tests.zip', buildurl)
                     test_package_files = set([os.path.basename(tests_url)])
             for test_package_file in test_package_files:
-                logger.debug('test_package_file: %s' % test_package_file)
                 test_package_path = os.path.join(cache_build_dir,
                                                  test_package_file)
-                if not force and os.path.exists(test_package_path):
-                    continue
                 test_package_url = urlparse.urljoin(buildurl, test_package_file)
+                if not force and os.path.exists(test_package_path):
+                    logger.info('skipping already downloaded '
+                                'test package %s' % test_package_url)
+                    continue
+                logger.info('downloading test package %s' % test_package_url)
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
                 tmpf.close()
                 try:
