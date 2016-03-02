@@ -705,7 +705,17 @@ class BuildCache(object):
                     return {'success': False, 'error': err}
                 shutil.move(tmpf.name, fennec_ids_path)
             test_packages_url = re.sub('.apk$', '.test_packages.json', buildurl)
+            logger.info('downloading test package json %s' % test_packages_url)
             test_packages = utils.get_remote_json(test_packages_url)
+            if not test_packages:
+                logger.warning('test package json %s not found' %
+                               test_packages_url)
+                test_packages_url = urlparse.urljoin(buildurl,
+                                                     'test_packages.json')
+                logger.info('falling back to test package json %s' %
+                            test_packages_url)
+                test_packages = utils.get_remote_json(test_packages_url)
+
             # The test_packages.json file contains keys for each
             # test category but they all point to the same tests
             # zip file. This will change when
@@ -720,12 +730,16 @@ class BuildCache(object):
                     test_package_files.update(set(test_packages[test_package_name]))
             else:
                 # XXX: assumes fixed buildurl-> tests_url mapping
-                logger.warning('Using the default test package')
                 if not test_packages:
                     # Only use the old style tests zip file if
                     # the split test_packages.json was not found.
+                    logger.warning('Using the default test package')
                     tests_url = re.sub('.apk$', '.tests.zip', buildurl)
                     test_package_files = set([os.path.basename(tests_url)])
+                else:
+                    err = 'No test packages specified for build %s' % buildurl
+                    logger.exception(err)
+                    return {'success': False, 'error': err}
             for test_package_file in test_package_files:
                 test_package_path = os.path.join(cache_build_dir,
                                                  test_package_file)
