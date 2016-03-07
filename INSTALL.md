@@ -81,6 +81,13 @@ device should have USB Debugging and Unknown sources enabled.
 
 Check that "adb devices" shows each desired device.
 
+#### Installing USBWatchdog ####
+
+Autophone supports the optional use of the USBWatchdog service to
+detect when a device is no longer reachable via USB. See [USBWatchdog
+on github](https://github.com/bclary/USBWatchdog) for instructions on
+how to install USBWatchdog.
+
 ### Using an emulator ###
 
 If desired, the Android emulator can be used in place of a physical device.

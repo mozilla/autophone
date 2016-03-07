@@ -640,6 +640,12 @@ password.
           --maximum-heartbeat=MAXIMUM_HEARTBEAT
                                 Maximum heartbeat in seconds before worker is
                                 considered to be hung. Defaults to 900.
+          --usbwatchdog-appname=USBWATCHDOG_APPNAME
+                                Name of USBWatchdog. Defaults to
+                                com.mozilla.autophone.usbwatchdog.
+          --usbwatchdog-poll-interval=USBWATCHDOG_POLL_INTERVAL
+                                USBWatchdog poll interval in seconds. Defaults to
+                                1800.
           --device-test-root=DEVICE_TEST_ROOT
                                 Device directory to be used as the test root. Defaults
                                 to an empty string which will defer selection of the

@@ -45,6 +45,8 @@ class AutophoneOptions(object):
         self._treeherder_server = ''
         self.reboot_on_error = False
         self.maximum_heartbeat = 0
+        self.usbwatchdog_appname = ''
+        self.usbwatchdog_poll_interval = 0
         self.device_test_root = ''
         # Sensitive options should not be output to the logs
         self.phonedash_user = ''

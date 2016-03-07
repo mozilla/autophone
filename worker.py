@@ -362,13 +362,31 @@ class PhoneWorkerSubProcess(object):
             success = False
         return success
 
+    def start_usbwatchdog(self):
+        if not self.dm.is_app_installed(self.options.usbwatchdog_appname):
+            return
+        try:
+            debugarg = '--esn debug' if self.options.loglevel == 'DEBUG' else ''
+
+            self.dm.shell_output(
+                'am startservice '
+                '-n %s/.USBService '
+                '--ei poll_interval %s %s' %
+                (self.options.usbwatchdog_appname,
+                 self.options.usbwatchdog_poll_interval,
+                 debugarg))
+        except (ADBError, ADBTimeoutError):
+            logger.exception('Ignoring Exception starting USBWatchdog')
+
     def reboot(self):
         self.loggerdeco.debug('PhoneWorkerSubProcess:reboot')
         self.update_status(phone_status=PhoneStatus.REBOOTING)
         self.dm.reboot()
         # Setting svc power stayon true after rebooting is necessary
-        # since the setting does not survice reboots.
+        # since the setting does not survive reboots. This is also the
+        # case for the optional usbwatchdog service.
         self.dm.power_on()
+        self.start_usbwatchdog()
         self.ping()
 
     def disable_phone(self, errmsg, send_email=True):
@@ -459,6 +477,10 @@ class PhoneWorkerSubProcess(object):
                                                      dest_wpa, root=True)
                             self.dm.shell_output('svc wifi enable', root=True)
                 if phone_status == PhoneStatus.OK:
+                    self.dm.shell_output("setprop usbwatchdog.heartbeat %s" % time.time(),
+                                         root=True)
+                    if not self.dm.process_exist(self.options.usbwatchdog_appname):
+                        self.start_usbwatchdog()
                     break
             except (ADBError, ADBTimeoutError):
                 msg = 'Exception pinging device: %s' % traceback.format_exc()
@@ -469,7 +491,7 @@ class PhoneWorkerSubProcess(object):
                 # Only reboot if the previous state was ok.
                 self.loggerdeco.warning('Rebooting due to ping failure.')
                 try:
-                    self.dm.reboot()
+                    self.reboot()
                 except (ADBError, ADBTimeoutError):
                     msg2 = 'Exception rebooting device: %s' % traceback.format_exc()
                     self.loggerdeco.warning(msg2)
@@ -1058,6 +1080,8 @@ class PhoneWorkerSubProcess(object):
                                               mailer=self.mailer,
                                               shared_lock=self.shared_lock)
         self.update_status(phone_status=PhoneStatus.IDLE)
+        self.dm.power_on()
+        self.start_usbwatchdog()
         self.ping()
         self.main_loop()
 

@@ -787,7 +787,6 @@ ok
                     device_ready_retry_attempts=self.options.device_ready_retry_attempts,
                     verbose=self.options.verbose,
                     test_root=test_root)
-                dm.power_on()
                 device = {"device_name": device_name,
                           "serialno": serialno,
                           "dm" : dm}
@@ -1410,6 +1409,20 @@ if __name__ == '__main__':
                       default=900,
                       help='Maximum heartbeat in seconds before worker is '
                       'considered to be hung. Defaults to 900.')
+    parser.add_option('--usbwatchdog-appname',
+                      dest='usbwatchdog_appname',
+                      action='store',
+                      type='string',
+                      default='com.mozilla.autophone.usbwatchdog',
+                      help='Name of USBWatchdog. Defaults to '
+                      'com.mozilla.autophone.usbwatchdog.')
+    parser.add_option('--usbwatchdog-poll-interval',
+                      dest='usbwatchdog_poll_interval',
+                      action='store',
+                      type='int',
+                      default=1800,
+                      help='USBWatchdog poll interval in seconds. '
+                      'Defaults to 1800.')
     parser.add_option('--device-test-root',
                       dest='device_test_root',
                       action='store',
