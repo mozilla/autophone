@@ -689,21 +689,6 @@ class BuildCache(object):
                     logger.exception(err)
                     return {'success': False, 'error': err}
                 shutil.move(tmpf.name, robocop_path)
-            # XXX: assumes fixed buildurl-> fennec_ids.txt mapping
-            fennec_ids_url = urlparse.urljoin(buildurl, 'fennec_ids.txt')
-            fennec_ids_path = os.path.join(cache_build_dir, 'fennec_ids.txt')
-            if force or not os.path.exists(fennec_ids_path):
-                tmpf = tempfile.NamedTemporaryFile(delete=False)
-                tmpf.close()
-                try:
-                    urllib.urlretrieve(fennec_ids_url, tmpf.name)
-                except IOError:
-                    os.unlink(tmpf.name)
-                    err = 'IO Error retrieving fennec_ids.txt: %s.' % \
-                        fennec_ids_url
-                    logger.exception(err)
-                    return {'success': False, 'error': err}
-                shutil.move(tmpf.name, fennec_ids_path)
             test_packages_url = re.sub('.apk$', '.test_packages.json', buildurl)
             logger.info('downloading test package json %s' % test_packages_url)
             test_packages = utils.get_remote_json(test_packages_url)

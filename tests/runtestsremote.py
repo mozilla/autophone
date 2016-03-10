@@ -191,21 +191,17 @@ class UnitTest(PhoneTest):
                                self.parms['build_dir'])
             self.loggerdeco.debug('create_test_args: runrobocop_path: %s' %
                                   runrobocop_path)
+
+            harness_script = 'mochitest/runtestsremote.py'
             if os.path.exists(runrobocop_path):
-                test_args = [
-                    'mochitest/runrobocop.py',
-                    '--robocop-ini=%s' % self.parms['test_manifest'],
-                    '--certificate-path=certs',
-                    '--console-level=%s' % self.parms['console_level'],
-                ]
-            else:
-                test_args = [
-                    'mochitest/runtestsremote.py',
-                    '--robocop-ini=%s' % self.parms['test_manifest'],
-                    '--robocop-ids=%s/fennec_ids.txt' % self.parms['build_dir'],
-                    '--certificate-path=certs',
-                    '--console-level=%s' % self.parms['console_level'],
-                ]
+                harness_script = 'mochitest/runrobocop.py'
+
+            test_args = [
+                harness_script,
+                '--robocop-ini=%s' % self.parms['test_manifest'],
+                '--certificate-path=certs',
+                '--console-level=%s' % self.parms['console_level'],
+            ]
 
         elif test_name_lower.startswith('mochitest'):
             self.parms['harness_type'] = 'mochitest'
