@@ -31,11 +31,6 @@ class RoboTest(PerfTest):
         except ConfigParser.NoSectionError:
             location_items = [('local', None)]
 
-        try:
-            self.perfherder_signature = self.cfg.get('treeherder', 'perfherder_signature')
-        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self.perfherder_signature = ''
-
         # Finialize test configuration
         for test_location, test_path in location_items:
             if test_location in config_vars:

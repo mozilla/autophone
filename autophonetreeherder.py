@@ -307,18 +307,6 @@ class AutophoneTreeherder(object):
                     'title': 'phonedash'
                     })
 
-            if (hasattr(t, 'perfherder_artifact') and
-                hasattr(t, 'perfherder_signature')):
-                perfherder_url = ('https://%s/perf.html#/graphs?series' %
-                                  self.server)
-                url = "%s=[%s,%s,1]" % (perfherder_url, project, t.perfherder_signature)
-                t.job_details.append({
-                    'url': url,
-                    'value': 'graph',
-                    'content_type': 'link',
-                    'title': 'perfherder'
-                    })
-
             tj = tjc.get_job()
 
             # Attach logs, ANRs, tombstones, etc.
