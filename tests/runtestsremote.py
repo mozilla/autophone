@@ -221,6 +221,23 @@ class UnitTest(PhoneTest):
                 '--certificate-path=certs',
                 '--console-level=%s' % self.parms['console_level'],
             ]
+            # Check if the test manifest defines a subsuite which
+            # should be specified. Although we normally parse these
+            # manifests with manifestparser, that is overkill for our
+            # needs. Using the normal ConfigParser we can determine
+            # the subsuite value if it is defined and add the subsuite
+            # command line argument. Missing section or option errors
+            # simply mean no subsuite is defined.
+            try:
+                manifest_cfg = ConfigParser.RawConfigParser()
+                manifest_cfg.read("%s/tests/%s" % (
+                    self.parms['build_dir'], self.parms['test_manifest']))
+                test_subsuite = manifest_cfg.get('DEFAULT', 'subsuite')
+                test_args.append('--subsuite=%s' % test_subsuite)
+            except (ConfigParser.NoOptionError,
+                    ConfigParser.MissingSectionHeaderError):
+                pass
+
         elif test_name_lower.startswith('reftest'):
             self.parms['harness_type'] = 'reftest'
 
