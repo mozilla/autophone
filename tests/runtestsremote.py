@@ -244,7 +244,6 @@ class UnitTest(PhoneTest):
             test_args = [
                 'reftest/remotereftest.py',
                 '--ignore-window-size',
-                '--bootstrap',
                 '%s' % self.parms['test_manifest'],
                 ]
         elif test_name_lower.startswith('jsreftest'):
@@ -253,7 +252,6 @@ class UnitTest(PhoneTest):
             test_args = [
                 'reftest/remotereftest.py',
                 '--ignore-window-size',
-                '--bootstrap',
                 '--extra-profile-file=jsreftest/tests/user.js',
                 '%s' % self.parms['test_manifest'],
                 ]
@@ -263,7 +261,6 @@ class UnitTest(PhoneTest):
             test_args = [
                 'reftest/remotereftest.py',
                 '--ignore-window-size',
-                '--bootstrap',
                 '%s' % self.parms['test_manifest'],
                 ]
         else:
