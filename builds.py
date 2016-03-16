@@ -96,7 +96,7 @@ class BuildLocation(object):
             if platform.startswith('android-x86'):
                 buildfile_pattern += 'android-i386|'
             elif platform.startswith('android'):
-                buildfile_pattern += 'android-arm|'
+                buildfile_pattern += 'android-arm|androideabi-arm|'
             else:
                 raise Exception('Unsupported platform: %s' % platform)
 
