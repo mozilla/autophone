@@ -14,17 +14,17 @@ devices can be found in the files autophone-*devicename*.log
 
 * [Run Smoketest with default options](#configuring-smoketest)
 
-        python autophone.py --devices devices.ini --test-path tests/smoketest-manifest.ini
+        python autophone.py --devices devices.ini --test-path tests/smoketest.ini
 
 * [Run WebappStartupTest with default options](#configuring-webappstartuptest)
 
-        python autophone.py --devices devices.ini --test-path tests/webappstartup-manifest.ini
+        python autophone.py --devices devices.ini --test-path tests/webappstartup.ini
 
 * [Run S1S2Test with default options](#configuring-s1s2test)
 
         python autophone.py --devices devices.ini
 
-        python autophone.py --devices devices.ini --test-path tests/manifest.ini
+        python autophone.py --devices devices.ini --test-path tests/s1s2-blank-local.ini
 
 If you have a more complicated use case, read the rest of this
 document, select your tests and command line options in
@@ -293,7 +293,7 @@ logcat output. It is implemented by
 [tests/smoketest.py](tests/smoketest.py).
 
 The smoketest manifest file
-[tests/smoketest-manifest.ini](tests/smoketest-manifest.ini) is the
+[tests/smoketest.ini](tests/smoketest.ini) is the
 simplest example which we can use to illustrate the different
 components of a test manifest file. The Smoketest manifest file is
 `tests/smoketest-settings.ini` which consists of a single section for
@@ -428,7 +428,7 @@ options. To create your `configs/s1s2-settings.ini` file, start by
 copying
 [`configs/s1s2-settings.ini.example`](configs/s1s2-settings.ini.example)
 to `configs/s1s2-settings.ini` then customize the settings to fit your
-needs.
+needs (or use one of the existing `configs/s1s2-*.ini` files).
 
 Note that it is possible to also add per device options to the s1s2test.py section in the
 same fashion as we did for the Smoketest.
@@ -448,7 +448,7 @@ For example,
 
 to run only the robocop tests:
 
-   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/robocoptests-manifest.ini
+   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/robocoptests.ini
 
 to run all of the unit tests specified in the tests/unittests-manifest.ini file:
 
@@ -481,7 +481,7 @@ test. For example:
         samsung-gs3-2=mozilla-inbound
 
         [s1s2test.py]
-        config = ../configs/s1s2-settings.ini
+        config = ../configs/s1s2-blank-local.ini
         nexus-one-1=mozilla-inbound
         nexus-one-2=mozilla-central
         nexus-one-3=fx-team
