@@ -448,11 +448,7 @@ For example,
 
 to run only the robocop tests:
 
-   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/robocoptests.ini
-
-to run all of the unit tests specified in the tests/unittests-manifest.ini file:
-
-   python autophone.py --devices=devices.ini --enable-unittests --test-path=./tests/unittests-manifest.ini
+   python autophone.py --devices=devices.ini --test-path=./tests/robocoptests.ini
 
 Note that if you are planning to run the Autophone Robocop Autophone
 test in configs/robocoptests-autophone-settings.ini, you will need to
