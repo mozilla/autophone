@@ -11,6 +11,7 @@ import os
 import random
 import re
 import time
+import urllib
 import urllib2
 import urlparse
 import uuid
@@ -183,3 +184,25 @@ def geometric_mean(series):
 
 def host():
     return os.uname()[1]
+
+
+def urlretrieve(url, dest, max_attempts=3):
+    """Wrapper around urllib.urlretrieve which downloads the contents of
+    url to the path dest while handling partial downloads by retrying
+    the download up to max_attempts times.
+
+    :param url: url to be downloaded.
+    :param dest: path where to save downloaded content.
+    :param max_attempts: maximum number of attempts to retry partial
+        downloads. Defaults to 3.
+    """
+
+    for attempt in range(max_attempts):
+        try:
+            urllib.urlretrieve(url, dest)
+            break
+        except urllib.ContentTooShortError, e:
+            logger.warning("utils.urlretrieve: %s: Attempt %s: %s" % (
+                url, attempt, e))
+            if attempt == max_attempts - 1:
+                raise

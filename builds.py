@@ -14,7 +14,6 @@ import re
 import shutil
 import tempfile
 import time
-import urllib
 import urllib2
 import urlparse
 import zipfile
@@ -631,7 +630,7 @@ class BuildCache(object):
             tmpf = tempfile.NamedTemporaryFile(delete=False)
             tmpf.close()
             try:
-                urllib.urlretrieve(buildurl, tmpf.name)
+                utils.urlretrieve(buildurl, tmpf.name)
             except IOError:
                 os.unlink(tmpf.name)
                 err = 'IO Error retrieving build: %s.' % buildurl
@@ -648,7 +647,7 @@ class BuildCache(object):
             # XXX: assumes fixed buildurl-> symbols_url mapping
             symbols_url = re.sub('.apk$', '.crashreporter-symbols.zip', buildurl)
             try:
-                urllib.urlretrieve(symbols_url, tmpf.name)
+                utils.urlretrieve(symbols_url, tmpf.name)
                 symbols_zipfile = zipfile.ZipFile(tmpf.name)
                 symbols_zipfile.extractall(symbols_path)
                 symbols_zipfile.close()
@@ -682,7 +681,7 @@ class BuildCache(object):
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
                 tmpf.close()
                 try:
-                    urllib.urlretrieve(robocop_url, tmpf.name)
+                    utils.urlretrieve(robocop_url, tmpf.name)
                 except IOError:
                     os.unlink(tmpf.name)
                     err = 'IO Error retrieving robocop.apk: %s.' % robocop_url
@@ -737,7 +736,7 @@ class BuildCache(object):
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
                 tmpf.close()
                 try:
-                    urllib.urlretrieve(test_package_url, tmpf.name)
+                    utils.urlretrieve(test_package_url, tmpf.name)
                 except IOError:
                     os.unlink(tmpf.name)
                     err = 'IO Error retrieving tests: %s.' % test_package_url
