@@ -199,29 +199,28 @@ class PhoneTest(object):
 
     @classmethod
     def match(cls, tests=None, test_name=None, phoneid=None,
-              config_file=None, chunk=None, job_guid=None,
+              config_file=None, job_guid=None,
               build_url=None):
 
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
-                     'config_file: %s, chunk: %s, job_guid: %s, '
+                     'config_file: %s, job_guid: %s, '
                      'build_url: %s' % (tests, test_name, phoneid,
-                                        config_file, chunk, job_guid,
+                                        config_file, job_guid,
                                         build_url))
         matches = []
         if not tests:
             tests = [PhoneTest.instances[key] for key in PhoneTest.instances.keys()]
 
         for test in tests:
-            if test_name and test_name != test.name:
+            if (test_name and
+                test_name != test.name and
+                "%s%s" % (test_name, test.name_suffix) != test.name):
                 continue
 
             if phoneid and phoneid != test.phone.id:
                 continue
 
             if config_file and config_file != test.config_file:
-                continue
-
-            if chunk and chunk != test.chunk:
                 continue
 
             if job_guid and job_guid != test.job_guid:
