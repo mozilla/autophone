@@ -16,4 +16,4 @@ utility_path = path-to-firefox-bin
 console_level = DEBUG
 log_level = DEBUG
 
-time_out = 2400
+time_out = 300
