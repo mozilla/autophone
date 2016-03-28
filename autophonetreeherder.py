@@ -381,7 +381,13 @@ class AutophoneTreeherder(object):
                     for f in glob.glob(os.path.join(t.upload_dir, '*')):
                         try:
                             lname = os.path.basename(f)
-                            fname = '%s-%s' % (log_identifier, lname)
+                            try:
+                                fname = '%s-%s' % (log_identifier, lname)
+                            except UnicodeDecodeError, e:
+                                logger.exception('Ignoring artifact %s' %
+                                                 lname.decode('utf-8',
+                                                              errors='replace'))
+                                continue
                             url = self.s3_bucket.upload(f, "%s/%s" % (
                                 key_prefix, fname))
                             t.job_details.append({
