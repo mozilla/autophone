@@ -63,3 +63,9 @@ job_name = Autophone Throbber
 job_symbol = t
 group_name = Autophone
 group_symbol = A
+
+[perfherder]
+alert_threshold = 2
+min_back_window = 12
+max_back_window = 24
+fore_window = 12

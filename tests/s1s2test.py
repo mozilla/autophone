@@ -13,7 +13,7 @@ from time import sleep
 
 import utils
 
-from perftest import PerfTest
+from perftest import PerfTest, PerfherderArtifact, PerfherderSuite, PerfherderOptions
 from phonetest import PhoneTestResult
 
 # Set the logger globally in the file, but this must be reset when
@@ -83,6 +83,8 @@ class S1S2Test(PerfTest):
                 PhoneTestResult.BUSTED)
             return is_test_completed
 
+        perfherder_options = PerfherderOptions(self.perfherder_options,
+                                               repo=self.build.tree)
         is_test_completed = True
         testcount = len(self._urls.keys())
         for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
@@ -230,15 +232,60 @@ class S1S2Test(PerfTest):
 
                 self.loggerdeco.debug('publishing results')
 
+                perfherder_values = {'geometric_mean': 0}
+                metric_keys = ['throbberstart', 'throbberstop', 'throbbertime']
+                cache_names = {'uncached': 'first', 'cached': 'second'}
+                cache_keys = cache_names.keys()
+
+                for metric_key in metric_keys:
+                    perfherder_values[metric_key] = {'geometric_mean': 0}
+                    for cache_key in cache_keys:
+                        perfherder_values[metric_key][cache_key] = {'median': 0, 'values': []}
+
                 for datapoint in dataset:
-                    for cachekey in datapoint:
+                    for cache_key in datapoint:
+                        starttime = datapoint[cache_key]['starttime']
+                        throbberstart = datapoint[cache_key]['throbberstart']
+                        throbberstop = datapoint[cache_key]['throbberstop']
                         self.report_results(
-                            starttime=datapoint[cachekey]['starttime'],
-                            tstrt=datapoint[cachekey]['throbberstart'],
-                            tstop=datapoint[cachekey]['throbberstop'],
+                            starttime=starttime,
+                            tstrt=throbberstart,
+                            tstop=throbberstop,
                             testname=testname,
-                            cache_enabled=(cachekey=='cached'),
+                            cache_enabled=(cache_key=='cached'),
                             rejected=rejected)
+                        perfherder_values['throbberstart'][cache_key]['values'].append(
+                            throbberstart - starttime)
+                        perfherder_values['throbberstop'][cache_key]['values'].append(
+                            throbberstop - starttime)
+                        perfherder_values['throbbertime'][cache_key]['values'].append(
+                            throbberstop - throbberstart)
+
+                test_values = []
+                for metric_key in metric_keys:
+                    for cache_key in cache_keys:
+                        perfherder_values[metric_key][cache_key]['median'] = utils.median(
+                            perfherder_values[metric_key][cache_key]['values'])
+                    perfherder_values[metric_key]['geometric_mean'] = utils.geometric_mean(
+                        [perfherder_values[metric_key]['uncached']['median'],
+                         perfherder_values[metric_key]['cached']['median']])
+                    test_values.append(perfherder_values[metric_key]['geometric_mean'])
+
+                perfherder_suite = PerfherderSuite(name=testname,
+                                                   value=utils.geometric_mean(test_values),
+                                                   options=perfherder_options)
+                for metric_key in metric_keys:
+                    for cache_key in cache_keys:
+                        cache_name = cache_names[cache_key]
+                        subtest_name = "%s %s" % (metric_key, cache_name)
+                        perfherder_suite.add_subtest(subtest_name,
+                                                     perfherder_values[metric_key][cache_key]['median'],
+                                                     options=perfherder_options)
+
+                self.perfherder_artifact = PerfherderArtifact()
+                self.perfherder_artifact.add_suite(perfherder_suite)
+                self.loggerdeco.debug("PerfherderArtifact: %s" % self.perfherder_artifact)
+
                 if not rejected:
                     break
 

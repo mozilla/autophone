@@ -8,7 +8,7 @@ import os
 import re
 from time import sleep
 
-from perftest import PerfTest, PerfherderArtifact, PerfherderSuite
+from perftest import PerfTest, PerfherderArtifact, PerfherderSuite, PerfherderOptions
 from phonetest import PhoneTestResult
 from utils import median, geometric_mean, host
 
@@ -112,6 +112,8 @@ class TalosTest(PerfTest):
                 PhoneTestResult.BUSTED)
             return is_test_completed
 
+        perfherder_options = PerfherderOptions(self.perfherder_options,
+                                               self.build.tree)
         is_test_completed = True
         testcount = len(self._test_args.keys())
         test_items = enumerate(self._test_args.iteritems(), 1)
@@ -156,7 +158,8 @@ class TalosTest(PerfTest):
                     if not self.perfherder_artifact:
                         self.perfherder_artifact = PerfherderArtifact()
                     suite = self.create_suite(measurement['pageload_metric'],
-                                             testname)
+                                              testname,
+                                              options=perfherder_options)
                     self.perfherder_artifact.add_suite(suite)
                     self.test_pass(test_args)
                     success = True
@@ -291,10 +294,11 @@ I/GeckoDump( 2284): __startTimestamp1433438438092__endTimestamp
 
         return pageload_metric
 
-    def create_suite(self, metric, testname):
+    def create_suite(self, metric, testname, options=None):
         phsuite = PerfherderSuite(name=testname,
-                                  value=metric['summary'])
+                                  value=metric['summary'],
+                                  options=options)
         for p in metric:
             if p != 'summary':
-                phsuite.add_subtest(p, metric[p])
+                phsuite.add_subtest(p, metric[p], options=options)
         return phsuite

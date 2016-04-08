@@ -156,6 +156,20 @@ def generate_guid():
 
 
 # These computational functions are taken from Talos:filter.py
+def mean(series):
+    """
+    mean of data needs at least one data point
+    """
+    if len(series) == 0:
+        return 0
+
+    total = 0
+    for v in series:
+        total += v
+
+    return total/len(series)
+
+
 def median(series):
     """
     median of data; needs at least one data point

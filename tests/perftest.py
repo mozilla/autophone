@@ -41,16 +41,38 @@ class PerfherderArtifact(dict):
 
 class PerfherderSuite(dict):
 
-    def __init__(self, name=None, value=0, subtests=None):
+    def __init__(self, name=None, value=0, subtests=None, options=None):
         if subtests is None:
             self['subtests'] = []
         else:
             self['subtests'] = subtests
         self['name'] = name
         self['value'] = value
+        if options:
+            self.update(options)
 
-    def add_subtest(self, name, value):
-        self['subtests'].append({'name': name, 'value': value})
+    def add_subtest(self, name, value, options=None):
+        subtest = {'name': name, 'value': value}
+        if options:
+            subtest.update(options)
+        self['subtests'].append(subtest)
+
+
+class PerfherderOptions(dict):
+
+    def __init__(self, options, repo=None):
+
+        self.update(options)
+        if repo and repo in 'mozilla-beta,mozilla-release':
+            # Adjust the windows to half of the normal size for
+            # mozilla-beta and mozilla-release which do not have as
+            # many builds as other repos.
+            if 'min_back_window' in self:
+                self['min_back_window'] = self['min_back_window'] / 2
+            if 'max_back_window' in self:
+                self['max_back_window'] = self['max_back_window'] / 2
+            if 'fore_window' in self:
+                self['fore_window'] = self['fore_window'] / 2
 
 
 class PerfTest(PhoneTest):
@@ -89,6 +111,23 @@ class PerfTest(PhoneTest):
             self.stderrp_attempts = self.cfg.getint('settings', 'stderrp_attempts')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.stderrp_attempts = 1
+        self.perfherder_options = {}
+        try:
+            self.perfherder_options['alert_threshold'] = self.cfg.getint('perfherder', 'alert_threshold')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            pass
+        try:
+            self.perfherder_options['min_back_window'] = self.cfg.getint('perfherder', 'min_back_window')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            pass
+        try:
+            self.perfherder_options['max_back_window'] = self.cfg.getint('perfherder', 'max_back_window')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            pass
+        try:
+            self.perfherder_options['fore_window'] = self.cfg.getint('perfherder', 'fore_window')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            pass
         self._resultfile = None
 
     def setup_job(self):
