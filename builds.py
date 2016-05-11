@@ -894,18 +894,7 @@ class BuildMetadata(object):
         self.revision = revision
         self.app_name = app_name
         self.version = version
-        self.revision_hash = None
 
-        if treeherder_url:
-            # TODO: Should be consistent with changeset and revision
-            # variable names in terms of the changeset url and the
-            # revision id.
-            changeset = os.path.basename(urlparse.urlparse(revision).path)
-            self.revision_hash = utils.get_treeherder_revision_hash(
-                treeherder_url, tree, changeset)
-            if not self.revision_hash:
-                logger.warning('Failed to get the revision_hash for %s' %
-                               self.revision)
         logger.debug('BuildMetadata: %s' % self.__dict__)
 
     @property
@@ -933,7 +922,6 @@ class BuildMetadata(object):
             'revision': self.revision,
             'app_name': self.app_name,
             'version': self.version,
-            'revision_hash': self.revision_hash,
         }
 
     def from_json(self, j):
@@ -948,5 +936,4 @@ class BuildMetadata(object):
         self.revision = j['revision']
         self.app_name = j['app_name']
         self.version = j['version']
-        self.revision_hash = j['revision_hash']
         return self

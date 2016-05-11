@@ -781,7 +781,6 @@ class PhoneWorkerSubProcess(object):
                                   changeset=job['changeset'],
                                   tree=job['tree'],
                                   revision=job['revision'],
-                                  revision_hash=job['revision_hash'],
                                   tests=[t],
                                   enable_unittests=job['enable_unittests'],
                                   device=self.phone.id,
@@ -789,7 +788,7 @@ class PhoneWorkerSubProcess(object):
                 self.treeherder.submit_pending(self.phone.id,
                                                job['build_url'],
                                                job['tree'],
-                                               job['revision_hash'],
+                                               job['revision'],
                                                tests=[t])
 
         try:
@@ -986,7 +985,7 @@ class PhoneWorkerSubProcess(object):
                                     t.phone.id,
                                     job['build_url'],
                                     job['tree'],
-                                    job['revision_hash'],
+                                    job['revision'],
                                     tests=[t])
                             self.jobs.job_completed(job['id'])
                     else:

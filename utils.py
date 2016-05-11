@@ -128,29 +128,6 @@ def get_build_data(build_url):
     return build_data
 
 
-def get_treeherder_revision_hash(treeherder_url, repo, revision):
-    """Return the Treeherder revision_hash.
-
-    :param treeherder_url: url to the treeherder server.
-    :param repo: repository name for the revision.
-    :param revision: revision id for the changeset.
-    """
-    if not treeherder_url or not repo or not revision:
-        return None
-
-    result_set_url = '%s/api/project/%s/resultset/?revision=%s' % (
-        treeherder_url, repo, revision[:12])
-    result_set = get_remote_json(result_set_url)
-    if not result_set:
-        return None
-
-    if ('results' not in result_set or len(result_set['results']) == 0 or
-        'revision_hash' not in result_set['results'][0]):
-        return None
-
-    return result_set['results'][0]['revision_hash']
-
-
 def generate_guid():
     return str(uuid.uuid4())
 

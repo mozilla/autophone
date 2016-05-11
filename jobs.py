@@ -145,11 +145,11 @@ class Jobs(object):
         self._close_connection(conn)
 
     def new_job(self, build_url, build_id=None, changeset=None, tree=None,
-                revision=None, revision_hash=None, tests=None,
+                revision=None, tests=None,
                 enable_unittests=False, device=None,
                 attempts=0):
-        logger.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s %s' % (
-            build_url, build_id, changeset, tree, revision, revision_hash,
+        logger.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s' % (
+            build_url, build_id, changeset, tree, revision,
             tests, enable_unittests, device, attempts))
         if not device:
             device = self.default_device
@@ -172,7 +172,7 @@ class Jobs(object):
                 conn,
                 'insert into jobs values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 values=(None, now, None, build_url, build_id, changeset, tree,
-                        revision, revision_hash, enable_unittests, attempts, device))
+                        revision, '', enable_unittests, attempts, device))
             job_id = job_cursor.lastrowid
             job_cursor.close()
 

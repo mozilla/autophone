@@ -468,13 +468,6 @@ class AutoPhone(object):
                                 build_url)
             return
 
-        revision_hash = utils.get_treeherder_revision_hash(
-            self.options.treeherder_url,
-            build_data['repo'],
-            build_data['revision'])
-
-        logger.debug('new_job: revision_hash %s' % revision_hash)
-
         phoneids = set([test.phone.id for test in tests])
         for phoneid in phoneids:
             p = self.phone_workers[phoneid]
@@ -494,7 +487,6 @@ class AutoPhone(object):
                                           changeset=build_data['changeset'],
                                           tree=build_data['repo'],
                                           revision=build_data['revision'],
-                                          revision_hash=revision_hash,
                                           tests=runnable_tests,
                                           enable_unittests=enable_unittests,
                                           device=phoneid)
@@ -502,7 +494,7 @@ class AutoPhone(object):
                 self.treeherder.submit_pending(phoneid,
                                                build_url,
                                                build_data['repo'],
-                                               revision_hash,
+                                               build_data['revision'],
                                                tests=new_tests)
                 logger.info('new_job: Notifying device %s of new job '
                                  '%s for tests %s, enable_unittests=%s.' %

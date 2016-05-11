@@ -122,19 +122,33 @@ class AutophoneTreeherder(object):
             logger.debug('AutophoneTreeherder shared_lock.release')
             self.shared_lock.release()
 
-    def submit_pending(self, machine, build_url, project, revision_hash, tests=[]):
+    def get_revision(self, revision):
+        # Extract the revision id from the changeset url.
+        re_revision = re.compile(r'http.*/rev/(.*)')
+        match = re_revision.match(revision)
+        if match:
+            revision = match.group(1)
+        else:
+            logger.info('AutophoneTreeherder did not find expected changeset url format')
+        if len(revision) != 40:
+            logger.warning('AutophoneTreeherder using revision with length %d: %s' % (len(revision), revision))
+        return revision
+
+    def submit_pending(self, machine, build_url, project, revision, tests=[]):
         """Submit tests pending notifications to Treeherder
 
         :param machine: machine id
         :param build_url: url to build being tested.
         :param project: repository of build.
-        :param revision_hash: Treeherder revision hash of build.
+        :param revision: Either a URL to the changeset or the revision id.
         :param tests: Lists of tests to be reported.
         """
         logger.debug('AutophoneTreeherder.submit_pending: %s' % tests)
-        if not self.url or not revision_hash:
-            logger.debug('AutophoneTreeherder.submit_pending: no url/revision hash')
+        if not self.url or not revision:
+            logger.debug('AutophoneTreeherder.submit_pending: no url/revision')
             return
+
+        revision = self.get_revision(revision)
 
         tjc = TreeherderJobCollection()
 
@@ -144,9 +158,9 @@ class AutophoneTreeherder(object):
             t.job_details = []
 
             logger.info('creating Treeherder job %s for %s %s, '
-                        'revision_hash: %s' % (
+                        'revision: %s' % (
                             t.job_guid, t.name, project,
-                            revision_hash))
+                            revision))
 
             logger.debug('AutophoneTreeherder.submit_pending: '
                          'test config_file=%s, config sections=%s' % (
@@ -154,7 +168,7 @@ class AutophoneTreeherder(object):
 
             tj = tjc.get_job()
             tj.add_tier(self.options.treeherder_tier)
-            tj.add_revision_hash(revision_hash)
+            tj.add_revision(revision)
             tj.add_project(project)
             tj.add_job_guid(t.job_guid)
             tj.add_job_name(t.job_name)
@@ -189,19 +203,21 @@ class AutophoneTreeherder(object):
 
         self.queue_request(machine, project, tjc)
 
-    def submit_running(self, machine, build_url, project, revision_hash, tests=[]):
+    def submit_running(self, machine, build_url, project, revision, tests=[]):
         """Submit tests running notifications to Treeherder
 
         :param machine: machine id
         :param build_url: url to build being tested.
         :param project: repository of build.
-        :param revision_hash: Treeherder revision hash of build.
+        :param revision: Either a URL to the changeset or the revision id.
         :param tests: Lists of tests to be reported.
         """
         logger.debug('AutophoneTreeherder.submit_running: %s' % tests)
-        if not self.url or not revision_hash:
-            logger.debug('AutophoneTreeherder.submit_running: no url/revision hash')
+        if not self.url or not revision:
+            logger.debug('AutophoneTreeherder.submit_running: no url/revision')
             return
+
+        revision = self.get_revision(revision)
 
         tjc = TreeherderJobCollection()
 
@@ -214,7 +230,7 @@ class AutophoneTreeherder(object):
 
             tj = tjc.get_job()
             tj.add_tier(self.options.treeherder_tier)
-            tj.add_revision_hash(revision_hash)
+            tj.add_revision(revision)
             tj.add_project(project)
             tj.add_job_guid(t.job_guid)
             tj.add_job_name(t.job_name)
@@ -246,21 +262,23 @@ class AutophoneTreeherder(object):
 
         self.queue_request(machine, project, tjc)
 
-    def submit_complete(self, machine, build_url, project, revision_hash,
+    def submit_complete(self, machine, build_url, project, revision,
                         tests=None):
         """Submit test results for the worker's current job to Treeherder.
 
         :param machine: machine id
         :param build_url: url to build being tested.
         :param project: repository of build.
-        :param revision_hash: Treeherder revision hash of build.
+        :param revision: Either a URL to the changeset or the revision id.
         :param tests: Lists of tests to be reported.
         """
         logger.debug('AutophoneTreeherder.submit_complete: %s' % tests)
 
-        if not self.url or not revision_hash:
-            logger.debug('AutophoneTreeherder.submit_complete: no url/revision hash')
+        if not self.url or not revision:
+            logger.debug('AutophoneTreeherder.submit_complete: no url/revision')
             return
+
+        revision = self.get_revision(revision)
 
         tjc = TreeherderJobCollection()
 
@@ -466,7 +484,7 @@ class AutophoneTreeherder(object):
                             'title': 'Error'})
 
             tj.add_tier(self.options.treeherder_tier)
-            tj.add_revision_hash(revision_hash)
+            tj.add_revision(revision)
             tj.add_project(project)
             tj.add_job_guid(t.job_guid)
             tj.add_job_name(t.job_name)
@@ -506,7 +524,7 @@ class AutophoneTreeherder(object):
             text_log_summary = {
                 'header': {
                     'slave': machine,
-                    'revision': revision_hash
+                    'revision': revision
                 },
                 'step_data': {
                     'all_errors': error_lines,

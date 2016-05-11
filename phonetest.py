@@ -872,7 +872,7 @@ class PhoneTest(object):
             self.phone.id,
             self.build.url,
             self.build.tree,
-            self.build.revision_hash,
+            self.build.revision,
             tests=[self])
 
         self.loggerdeco_original = self.loggerdeco
@@ -968,7 +968,7 @@ class PhoneTest(object):
                 self.phone.id,
                 self.build.url,
                 self.build.tree,
-                self.build.revision_hash,
+                self.build.revision,
                 tests=[self])
         except:
             self.loggerdeco.exception('Exception tearing down job')
