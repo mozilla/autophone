@@ -585,7 +585,7 @@ class AutophoneTreeherder(object):
 
     def serve_forever(self):
         while not self.shutdown_requested:
-            wait_seconds = 0
+            wait_seconds = 1    # avoid busy loop
             job = self.jobs.get_next_treeherder_job()
             if job:
                 tjc = TreeherderJobCollection()
@@ -594,11 +594,12 @@ class AutophoneTreeherder(object):
                     tjc.add(tj)
                 if self.post_request(job['machine'], job['project'], tjc, job['attempts'], job['last_attempt']):
                     self.jobs.treeherder_job_completed(job['id'])
+                    wait_seconds = 0
                 else:
                     attempts = int(job['attempts'])
                     wait_seconds = min(self.retry_wait * attempts, 3600)
+                    logger.debug('AutophoneTreeherder waiting for %d seconds after failed attempt %d' % (wait_seconds, attempts))
             if wait_seconds > 0:
-                logger.debug('AutophoneTreeherder waiting for %d seconds after failed attempt %d' % (wait_seconds, attempts))
                 for i in range(wait_seconds):
                     if self.shutdown_requested:
                         break
