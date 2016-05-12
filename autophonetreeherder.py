@@ -99,16 +99,19 @@ class AutophoneTreeherder(object):
                                                indent=2, sort_keys=True)
                 else:
                     response_json = None
+                request_len = len(job_collection.to_json())
                 self.mailer.send(
                     '%s attempt %d Error submitting request to Treeherder' %
                     (utils.host(), attempts),
                     'Phone: %s\n'
                     'Exception: %s\n'
                     'Last attempt: %s\n'
+                    'Request length: %d\n'
                     'Response: %s\n' % (
                         machine,
                         e,
                         last_attempt,
+                        request_len,
                         response_json))
         return False
 
@@ -503,6 +506,7 @@ class AutophoneTreeherder(object):
             tj.add_option_collection({'opt': True})
 
             error_lines = []
+            errors_truncated = False
             for failure in t.test_result.failures:
                 line = ''
                 status = failure['status']
@@ -520,6 +524,10 @@ class AutophoneTreeherder(object):
                 # numbers of the errors.
                 if line:
                     error_lines.append({"line": line, "linenumber": 1})
+                    if len(error_lines) >= 100:
+                        errors_truncated = True
+                        logger.warning('AutophoneTreeherder.submit_completed: too many errors - truncated')
+                        break
 
             text_log_summary = {
                 'header': {
@@ -541,7 +549,7 @@ class AutophoneTreeherder(object):
                             'result': t.test_result.status
                         },
                     ],
-                    'errors_truncated': False
+                    'errors_truncated': errors_truncated
                     },
                 'logurl': logurl,
                 'logname': logname
