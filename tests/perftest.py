@@ -5,6 +5,7 @@
 import ConfigParser
 import csv
 import json
+import re
 import time
 import urllib
 import urllib2
@@ -218,6 +219,12 @@ class PerfTest(PhoneTest):
                         testname='', cache_enabled=True,
                         rejected=False):
         # Create JSON to send to webserver
+        author = None
+        re_try = re.compile('.*/try-builds/([^-]*)-')
+        match = re_try.match(self.build.url)
+        if match:
+            author = match.group(1)
+
         resultdata = {
             'phoneid': self.phone.id,
             'testname': testname,
@@ -228,6 +235,7 @@ class PerfTest(PhoneTest):
             'cached': cache_enabled,
             'rejected': rejected,
             'revision': self.build.revision,
+            'author': author,
             'productname': self.build.app_name,
             'productversion': self.build.version,
             'osver': self.phone.osver,
