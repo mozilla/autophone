@@ -347,7 +347,7 @@ class AutophonePulseMonitor(object):
             return
         if build_data['branch'] not in self.trees:
             return
-        if build_data['platform'] not in self.platforms:
+        if build_data['platform'].replace('-debug', '') not in self.platforms:
             return
         if build_data['build_type'] not in self.buildtypes:
             return

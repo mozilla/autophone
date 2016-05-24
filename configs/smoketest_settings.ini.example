@@ -4,6 +4,16 @@
 #[environment]
 #envname=envvalue
 
+# buildtypes is a space separated list of build types
+# for this test. If buildtypes is not specified here,
+# the value specified by autophone.py will take precedence.
+# The buildtypes must also have been specified by autophone.py.
+# This section is useful when you wish to enable both opt and
+# debug builds but do not wish to run both build types on all
+# tests.
+#[builds]
+#buildtypes = opt debug
+
 [treeherder]
 job_name = Autophone Smoketest
 job_symbol = s

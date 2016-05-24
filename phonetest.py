@@ -274,6 +274,17 @@ class PhoneTest(object):
                     if incompatible_job:
                         continue
 
+                # The test may be configured for either opt, debug or both.
+                if build_url:
+                    incompatible_job = True
+                    for build_type in test.buildtypes:
+                        if build_type == 'opt' and 'debug' not in build_url:
+                            incompatible_job = False
+                        elif build_type == 'debug' and 'debug' in build_url:
+                            incompatible_job = False
+                    if incompatible_job:
+                        continue
+
             matches.append(test)
 
         logger.debug('PhoneTest.match = %s' % matches)
@@ -408,13 +419,22 @@ class PhoneTest(object):
         except ConfigParser.NoSectionError:
             self._tests['blank'] = 'blank.html'
 
+        # [builds]
+        self.buildtypes = []
+        try:
+            self.buildtypes = self.cfg.get('builds', 'buildtypes').split(' ')
+        except ConfigParser.NoSectionError:
+            self.buildtypes = list(self.options.buildtypes)
+
         self.loggerdeco.info('PhoneTest: Connected.')
 
     def __str__(self):
-        return '%s(%s, config_file=%s, chunk=%s)' % (type(self).__name__,
-                                                     self.phone,
-                                                     self.config_file,
-                                                     self.chunk)
+        return '%s(%s, config_file=%s, chunk=%s, buildtypes=%s)' % (
+            type(self).__name__,
+            self.phone,
+            self.config_file,
+            self.chunk,
+            self.buildtypes)
 
     def __repr__(self):
         return self.__str__()

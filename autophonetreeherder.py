@@ -35,6 +35,14 @@ class TestState(object):
     RUNNING = 'running'
 
 
+def build_type_from_url(url):
+    if not url:
+        return None
+    if 'debug' in url:
+        return 'debug'
+    return 'opt'
+
+
 class AutophoneTreeherder(object):
 
     def __init__(self, worker_subprocess, options, jobs, s3_bucket=None,
@@ -188,7 +196,7 @@ class AutophoneTreeherder(object):
             tj.add_machine(machine)
             tj.add_build_info('android', t.phone.platform, t.phone.architecture)
             tj.add_machine_info('android',t.phone.platform, t.phone.architecture)
-            tj.add_option_collection({'opt': True})
+            tj.add_option_collection({build_type_from_url(build_url): True})
 
             # Fake the buildername from buildbot...
             tj.add_artifact('buildapi', 'json', {
@@ -250,7 +258,7 @@ class AutophoneTreeherder(object):
             tj.add_machine(machine)
             tj.add_build_info('android', t.phone.platform, t.phone.architecture)
             tj.add_machine_info('android',t.phone.platform, t.phone.architecture)
-            tj.add_option_collection({'opt': True})
+            tj.add_option_collection({build_type_from_url(build_url): True})
 
             tj.add_artifact('buildapi', 'json', {
                 'buildername': t.get_buildername(project)})
@@ -503,7 +511,7 @@ class AutophoneTreeherder(object):
             tj.add_machine(machine)
             tj.add_build_info('android', t.phone.platform, t.phone.architecture)
             tj.add_machine_info('android',t.phone.platform, t.phone.architecture)
-            tj.add_option_collection({'opt': True})
+            tj.add_option_collection({build_type_from_url(build_url): True})
 
             error_lines = []
             errors_truncated = False

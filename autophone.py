@@ -474,7 +474,7 @@ class AutoPhone(object):
             logger.debug('new_job: worker phoneid %s' % phoneid)
             # Determine if we will test this build, which tests to run and if we
             # need to enable unittests.
-            runnable_tests = PhoneTest.match(tests=tests, phoneid=phoneid)
+            runnable_tests = PhoneTest.match(tests=tests, phoneid=phoneid, build_url=build_url)
             if not runnable_tests:
                 logger.debug('new_job: Ignoring build %s for phone %s' % (build_url, phoneid))
                 continue

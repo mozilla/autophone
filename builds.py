@@ -454,7 +454,12 @@ class Tinderbox(BuildLocation):
         # timestamp) regardless of repo (at least m-i vs m-c)?
         for platform in self.build_platforms:
             for repo in self.repos:
-                yield repo, '%s%s-%s/' % (self.main_http_url, repo, platform)
+                for buildtype in self.buildtypes:
+                    if buildtype == 'opt':
+                        buildtypestring = ''
+                    elif buildtype == 'debug':
+                        buildtypestring = '-debug'
+                    yield repo, '%s%s-%s%s/' % (self.main_http_url, repo, platform, buildtypestring)
 
     def build_time_from_directory_name(self, directory_name):
         logger.debug('Tinderbox:build_time_from_directory_name(%s)' % directory_name)
