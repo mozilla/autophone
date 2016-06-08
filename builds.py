@@ -102,9 +102,9 @@ class BuildLocation(object):
         buildfile_pattern = buildfile_pattern.rstrip('|')
         buildfile_pattern += ')'
         self.buildfile_regex = re.compile(buildfile_pattern)
-        self.build_regex = re.compile("(%s%s)" % (buildfile_pattern,
+        self.build_regex = re.compile("(%s%s)$" % (buildfile_pattern,
                                                   self.buildfile_ext))
-        self.buildtxt_regex = re.compile("(%s)\.txt" % buildfile_pattern)
+        self.buildtxt_regex = re.compile("(%s)\.txt$" % buildfile_pattern)
         logger.debug('BuildLocation: '
                      'repos: %s, '
                      'buildtypes: %s, '
