@@ -70,7 +70,6 @@ class AutophoneTreeherder(object):
         self.client_id = self.options.treeherder_client_id
         self.secret = self.options.treeherder_secret
         self.retry_wait = self.options.treeherder_retry_wait
-        self.bugscache_uri = '%s/api/bugscache/' % self.url
 
         logger.debug('AutophoneTreeherder: %s' % self)
 
@@ -80,8 +79,7 @@ class AutophoneTreeherder(object):
                      'server',
                      'protocol',
                      'host',
-                     'retry_wait',
-                     'bugscache_uri')
+                     'retry_wait')
         d = {}
         for attr in whitelist:
             d[attr] = getattr(self, attr)
