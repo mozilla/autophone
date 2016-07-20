@@ -200,13 +200,15 @@ class PhoneTest(object):
     @classmethod
     def match(cls, tests=None, test_name=None, phoneid=None,
               config_file=None, job_guid=None,
-              build_url=None):
+              build_url=None, abi=None, sdk=None):
 
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
                      'config_file: %s, job_guid: %s, '
-                     'build_url: %s' % (tests, test_name, phoneid,
-                                        config_file, job_guid,
-                                        build_url))
+                     'build_url: %s, '
+                     'abi: %s, sdk: %s' % (
+                         tests, test_name, phoneid,
+                         config_file, job_guid,
+                         build_url, abi, sdk))
         matches = []
         if not tests:
             tests = [PhoneTest.instances[key] for key in PhoneTest.instances.keys()]
@@ -226,14 +228,27 @@ class PhoneTest(object):
             if job_guid and job_guid != test.job_guid:
                 continue
 
+            if abi and abi not in test.phone.abi:
+                # phone.abi may be of the form armeabi-v7a, arm64-v8a
+                # or some form of x86. Test for inclusion rather than
+                # exact matches to cover the possibilities.
+                continue
+
+            if sdk and sdk != test.phone.sdk:
+                continue
+
             if build_url:
-                abi = test.phone.abi
-                sdk = test.phone.sdk
+                # TaskCluster builds no longer encode meta data in the
+                # build_url. Matching tests on build_url will no longer
+                # work with TaskCluster builds.
+                logger.warning('PhoneTest.match using build_url metadata')
+                phone_abi = test.phone.abi
+                phone_sdk = test.phone.sdk
                 # First assume the test and build are compatible.
                 incompatible_job = False
                 # x86 devices can only test x86 builds and non-x86
                 # devices can not test x86 builds.
-                if abi == 'x86':
+                if phone_abi == 'x86':
                     if 'x86' not in build_url:
                         incompatible_job = True
                 else:
@@ -246,13 +261,13 @@ class PhoneTest(object):
                 match = re_api.search(build_url)
                 if not match:
                     pass
-                elif sdk == 'api-15' and 'api-11' in build_url:
+                elif phone_sdk == 'api-15' and 'api-11' in build_url:
                     # The change to a build api level of 15 in build
                     # urls means that we must adjust the match in the
                     # event we are attempting to test older builds for
                     # api-11.
                     pass
-                elif sdk not in build_url:
+                elif phone_sdk not in build_url:
                     # Otherwise the device's sdk must match the
                     # build's sdk.
                     incompatible_job  = True

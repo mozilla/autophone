@@ -201,16 +201,12 @@ class AutoPhone(object):
         if logger.getEffectiveLevel() == logging.DEBUG:
             if self.options.verbose:
                 logger.debug('lock_acquire: %s\n%s' % (data, self._get_frames()))
-            else:
-                logger.debug('lock_acquire: %s' % data)
         self.lock.acquire()
 
     def lock_release(self, data=None):
         if logger.getEffectiveLevel() == logging.DEBUG:
             if self.options.verbose:
                 logger.debug('lock_release: %s\n%s' % (data, self._get_frames()))
-            else:
-                logger.debug('lock_release: %s' % data)
         self.lock.release()
 
     @property
@@ -474,7 +470,10 @@ class AutoPhone(object):
             logger.debug('new_job: worker phoneid %s' % phoneid)
             # Determine if we will test this build, which tests to run and if we
             # need to enable unittests.
-            runnable_tests = PhoneTest.match(tests=tests, phoneid=phoneid, build_url=build_url)
+            runnable_tests = PhoneTest.match(tests=tests,
+                                             phoneid=phoneid,
+                                             abi=job_data['abi'],
+                                             sdk=job_data['sdk'])
             if not runnable_tests:
                 logger.debug('new_job: Ignoring build %s for phone %s' % (build_url, phoneid))
                 continue
@@ -878,6 +877,22 @@ ok
         if 'build' not in trigger_data:
             return 'invalid args'
         build_url = trigger_data['build']
+        abi = trigger_data['abi']
+        sdk = trigger_data['sdk']
+        if (abi and sdk):
+            logger.info('trigger_jobs: using abi %s, sdk %s from build' % (abi, sdk))
+        else:
+            mozinfo_url = build_url.replace('apk', 'mozinfo.json')
+            mozinfo_json = utils.get_remote_json(mozinfo_url)
+            if not mozinfo_json:
+                logger.warning('trigger_jobs: abi/sdk not set and could not get %s' % mozinfo_url)
+                return 'missing mozinfo'
+            abi = mozinfo_json['processor']
+            if 'android_min_sdk' in mozinfo_json:
+                sdk = mozinfo_json['android_min_sdk']
+            else:
+                logger.warning('trigger_jobs: android_min_sdk not set, defaulting to api-15')
+                sdk = 'api-15'
         tests = []
         test_names = trigger_data['test_names']
         if not test_names:
@@ -893,11 +908,14 @@ ok
             for device in devices:
                 tests.extend(PhoneTest.match(test_name=test_name,
                                              phoneid=device,
-                                             build_url=build_url))
+                                             abi=abi,
+                                             sdk=sdk))
         if tests:
             job_data = {
                 'build': build_url,
                 'tests': tests,
+                'abi': abi,
+                'sdk': sdk,
             }
             self.new_job(job_data)
         return 'ok'
@@ -914,8 +932,10 @@ ok
                 return
             logger.debug('PULSE BUILD FOUND %s' % msg)
             build_url = msg['packageUrl']
+            abi = msg['abi']
+            sdk = msg['sdk']
             if msg['branch'] != 'try':
-                tests = PhoneTest.match(build_url=build_url)
+                tests = PhoneTest.match(abi=abi, sdk=sdk)
             else:
                 # Autophone try builds will have a comment of the form:
                 # try: -b o -p android-api-9,android-api-15 -u autophone-smoke,autophone-s1s2 -t none
@@ -930,8 +950,9 @@ ok
                                   t != 'autophone-tests']
                     for test_name in test_names:
                         tests.extend(PhoneTest.match(test_name=test_name,
-                                                     build_url=build_url))
-            job_data = {'build': build_url, 'tests': tests}
+                                                     abi=abi,
+                                                     sdk=sdk))
+            job_data = {'build': build_url, 'abi': abi, 'sdk': sdk, 'tests': tests}
             self.new_job(job_data)
         finally:
             self.lock_release()

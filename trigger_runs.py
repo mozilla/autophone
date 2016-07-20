@@ -23,9 +23,23 @@ def from_iso_date_or_datetime(s):
 
 
 def command_str(build, test_names, devices):
+    re_api = re.compile(r'api-(9|10|11|15)')
+    match = re_api.search(build)
+    if match:
+        sdk = 'api-%s' % match.group(1)
+    else:
+        sdk = None
+    if 'arm' in build:
+        abi = 'arm'
+    elif 'x86' in build:
+        abi = 'x86'
+    else:
+        abi = None
     job_data = {'build': build,
                 'test_names': test_names or [],
-                'devices': devices or []}
+                'devices': devices or [],
+                'sdk': sdk,
+                'abi': abi}
     s = 'autophone-triggerjobs %s' % json.dumps(job_data)
     return s
 

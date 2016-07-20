@@ -9,6 +9,7 @@ import threading
 import time
 
 from kombu import Connection, Exchange, Queue
+import taskcluster
 
 import utils
 
@@ -24,11 +25,14 @@ class AutophonePulseMonitor(object):
     retriggers and cancels via the Treeherder UI. Builds can be selected using
     repository names, Android platform names or build types.
 
-    AutophonePulseMonitor detects new builds by listening to
+    AutophonePulseMonitor detects new buildbot builds by listening to
     un-normalized buildbot initiated pulse messages rather than the
     normalized messages in order to obtain the check-in comment for a
     build. The comment is used to determine if a try build has
     requested Autophone testing.
+
+    Taskcluster builds are detected by listening to the
+    exchange/taskcluster-queue/v1/task-completed exchange.
 
     :param hostname: Hostname of Pulse. Defaults to the production pulse
         server pulse.mozilla.org.
@@ -66,7 +70,6 @@ class AutophonePulseMonitor(object):
             'buildid': Build id in CCYYMMDDHHMMSS format.
             'robocopApkUrl': Url to robocop apk for the build.
             'symbolsUrl': Url to the symbols zip file for the build.
-            'testsUrl': Url to the tests zip file for the build.
             'who': Check-in Commiter.
     :param jobaction_callback: Required callback function which takes a
         single `jobaction_data` object as argument containing information
@@ -148,6 +151,7 @@ class AutophonePulseMonitor(object):
 
     monitor.start()
     time.sleep(3600)
+
     """
 
     def __init__(self,
@@ -178,6 +182,9 @@ class AutophonePulseMonitor(object):
         assert buildtypes, "buildtypes is required."
         assert shared_lock, "shared_lock is required."
 
+        taskcompleted_exchange_name = 'exchange/taskcluster-queue/v1/task-completed'
+        taskcompleted_queue_name = 'task-completed'
+
         self.hostname = hostname
         self.userid = userid
         self.password = password
@@ -197,16 +204,24 @@ class AutophonePulseMonitor(object):
         self._stopping = threading.Event()
         self.listen_thread = None
         build_exchange = Exchange(name=build_exchange_name, type='topic')
-        self.queues = [Queue(name='queue/%s/build' % userid,
+        self.queues = [Queue(name='queue/%s/%s' % (userid, build_queue_name),
                              exchange=build_exchange,
                              routing_key='build.#.finished',
                              durable=durable_queues,
                              auto_delete=not durable_queues)]
         if treeherder_url:
             jobaction_exchange = Exchange(name=jobaction_exchange_name, type='topic')
-            self.queues.append(Queue(name='queue/%s/jobactions' % userid,
+            self.queues.append(Queue(name='queue/%s/%s' % (userid, jobaction_queue_name),
                                  exchange=jobaction_exchange,
                                  routing_key='#',
+                                 durable=durable_queues,
+                                 auto_delete=not durable_queues))
+        taskcompleted_exchange = Exchange(name=taskcompleted_exchange_name, type='topic')
+        for platform in self.platforms:
+            # Create a queue for each platform
+            self.queues.append(Queue(name='queue/%s/%s' % (userid, taskcompleted_queue_name),
+                                 exchange=taskcompleted_exchange,
+                                 routing_key='primary.#.#.#.#.#.%s.#.#.#' % platform,
                                  durable=durable_queues,
                                  auto_delete=not durable_queues))
 
@@ -232,7 +247,8 @@ class AutophonePulseMonitor(object):
         return self.listen_thread.is_alive()
 
     def listen(self):
-        logger.debug('AutophonePulseMonitor: start shared_lock.acquire')
+        if self.verbose:
+            logger.debug('AutophonePulseMonitor: start shared_lock.acquire')
         connection = None
         restart = True
         while restart:
@@ -259,7 +275,8 @@ class AutophonePulseMonitor(object):
                 with consumer:
                     while not self._stopping.is_set():
                         try:
-                            logger.debug('AutophonePulseMonitor shared_lock.release')
+                            if self.verbose:
+                                logger.debug('AutophonePulseMonitor shared_lock.release')
                             self.shared_lock.release()
                             connection.drain_events(timeout=self.timeout)
                         except socket.timeout:
@@ -267,7 +284,8 @@ class AutophonePulseMonitor(object):
                         except KeyboardInterrupt:
                             raise
                         finally:
-                            logger.debug('AutophonePulseMonitor shared_lock.acquire')
+                            if self.verbose:
+                                logger.debug('AutophonePulseMonitor shared_lock.acquire')
                             self.shared_lock.acquire()
                 logger.debug('AutophonePulseMonitor.listen: stopping')
             except:
@@ -277,7 +295,8 @@ class AutophonePulseMonitor(object):
                 restart = True
                 time.sleep(1)
             finally:
-                logger.debug('AutophonePulseMonitor exit shared_lock.release')
+                if self.verbose:
+                    logger.debug('AutophonePulseMonitor exit shared_lock.release')
                 if connection and not restart:
                     connection.release()
                 self.shared_lock.release()
@@ -288,9 +307,12 @@ class AutophonePulseMonitor(object):
         message.ack()
         if '_meta' in data and 'payload' in data:
             self.handle_build(data, message)
-        if (self.treeherder_url and 'action' in data and
+        elif (self.treeherder_url and 'action' in data and
             'project' in data and 'job_id' in data):
             self.handle_jobaction(data, message)
+        elif 'status' in data:
+            logger.debug('handle_message: data: %s, message: %s' % (data, message))
+            self.handle_taskcompleted(data, message)
 
     def handle_build(self, data, message):
         if self.verbose:
@@ -315,7 +337,6 @@ class AutophonePulseMonitor(object):
             'platform',
             'robocopApkUrl',
             'symbolsUrl',
-            'testsUrl',
             'who'
         )
 
@@ -331,6 +352,7 @@ class AutophonePulseMonitor(object):
         builder_name = build['builderName']
         build_data['builder_name'] = builder_name
         build_data['build_type'] = 'debug' if 'debug' in builder_name else 'opt'
+        build_data['abi'] = 'x86' if 'x86' in builder_name else 'arm'
 
         for property in build['properties']:
             property_name = property[0]
@@ -341,7 +363,7 @@ class AutophonePulseMonitor(object):
             if required_field not in build_data or not build_data[required_field]:
                 return
 
-        if build_data['appName'] != 'Fennec':
+        if build_data['appName'].lower() != 'fennec':
             return
         if not build_data['platform'].startswith('android'):
             return
@@ -354,7 +376,11 @@ class AutophonePulseMonitor(object):
         if build_data['branch'] == 'try' and 'autophone' not in build_data['comments']:
             return
 
-        self.build_callback(build_data)
+        build_data['sdk'] = 'api-' + build_data['platform'].split('-')[-1]
+
+        # Only use buildbot for non-trunk builds until TaskCluster is available.
+        if build_data['branch'] in 'mozilla-beta,mozilla-aurora,mozilla-release':
+            self.build_callback(build_data)
 
     def handle_jobaction(self, data, message):
         if self.verbose:
@@ -427,6 +453,110 @@ class AutophonePulseMonitor(object):
             'chunk': build_artifact['blob']['chunk'],
         }
         self.jobaction_callback(jobaction_data)
+
+    def handle_taskcompleted(self, data, message):
+        if self.verbose:
+            logger.debug(
+                'handle_taskcompleted:\n'
+                '\tdata   : %s\n'
+                '\tmessage: %s' % (
+                    json.dumps(data, sort_keys=True, indent=4),
+                    json.dumps(message.__dict__, sort_keys=True, indent=4)))
+        tc_queue = taskcluster.Queue()
+        build_metadata = {}
+        artifact_data = {}
+        task_id = data['status']['taskId']
+        run_id = data['runId']
+        # The sdk level is only available from the pulse
+        # message workerType and is of the form android-(arm|x86)-15
+        build_metadata['platform'] = data['status']['workerType']
+        build_metadata['sdk'] = 'api-' + build_metadata['platform'].split('-')[-1]
+        artifact_data = {}
+        response = tc_queue.listArtifacts(task_id, run_id)
+        while True:
+            if 'artifacts' not in response:
+                logger.warning('handle_taskcompleted: listArtifacts(%s, %s) '
+                               'response missing artifacts' % (task_id, run_id))
+                break
+            for artifact in response['artifacts']:
+                key = artifact['name'].replace('public/build/', '')
+                artifact_data[key] = 'https://queue.taskcluster.net/v1/task/%s/runs/%s/artifacts/%s' % (
+                    task_id, run_id, artifact['name'])
+                if key == 'target.apk':
+                    build_data = utils.get_build_data(artifact_data[key])
+                    if not build_data:
+                        logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
+                                       'could not get %s' % (task_id, run_id, artifact_data[key]))
+                        break
+                    build_metadata['packageUrl'] = artifact_data[key]
+                    build_metadata['buildid'] = build_data['id']
+                    build_metadata['changeset'] = build_data['changeset']
+                    build_metadata['branch'] = build_data['repo']
+                    build_metadata['revision'] = build_data['revision']
+                elif key == 'target.mozinfo.json':
+                    mozinfo_json = utils.get_remote_json(artifact_data[key])
+                    if not mozinfo_json:
+                        logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
+                                       'could not get %s' % (task_id, run_id, artifact_data[key]))
+                        break
+                    logger.debug('handle_taskcompleted: mozinfo_json: %s' % mozinfo_json)
+                    build_metadata['appName'] = mozinfo_json['appname']
+                    build_metadata['builder_name'] = 'unknown'
+                    if mozinfo_json['debug']:
+                        build_metadata['build_type'] = 'debug'
+                    else:
+                        build_metadata['build_type'] = 'opt'
+                    build_metadata['abi'] = mozinfo_json['processor']
+                elif key == 'robocop.apk':
+                    build_metadata['robocopApkUrl'] = artifact_data[key]
+                elif key.endswith('crashreporter-symbols.zip'):
+                    build_metadata['symbolsUrl'] = artifact_data[key]
+
+            if 'continuationToken' not in response:
+                break
+            logger.debug('handle_taskcompleted: continuing listArtifacts(%s, %s)' %
+                         (task_id, run_id))
+            response = tc_queue.listArtifacts(task_id, run_id, {
+                'continuationToken': response['continuationToken']})
+
+        if 'buildid' not in build_metadata or 'build_type' not in build_metadata:
+            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: '
+                         'skipping build due to incomplete metadata %s. Not a build?' %
+                         (task_id, run_id, build_metadata))
+            return
+
+        logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: build_metadata: %s' % (task_id, run_id, build_metadata))
+
+        if build_metadata['appName'] != 'fennec':
+            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip appName %s' % (task_id, run_id, build_metadata['appName']))
+            return
+        if build_metadata['branch'] not in self.trees:
+            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip branch %s' % (task_id, run_id, build_metadata['branch']))
+            return
+        if build_metadata['platform'] not in self.platforms:
+            return
+        if build_metadata['build_type'] not in self.buildtypes:
+            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip build_type %s' % (task_id, run_id, build_metadata['build_type']))
+            return
+
+        rev_json_url = build_metadata['changeset'].replace('/rev/', '/json-rev/')
+        rev_json = utils.get_remote_json(rev_json_url)
+        if rev_json:
+            build_metadata['comments'] = rev_json['desc']
+            build_metadata['who'] = rev_json['user']
+        else:
+            build_metadata['comments'] = 'unknown'
+            build_metadata['who'] = 'unknown'
+            logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: could not get %s' % (task_id, run_id, rev_json_url))
+
+        if build_metadata['branch'] == 'try' and 'autophone' not in build_metadata['comments']:
+            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip %s %s' % (
+                task_id, run_id, build_metadata['branch'], build_metadata['comments']))
+            return
+
+        # Use TaskCluster for trunk builds until TaskCluster is available elsewhere.
+        if build_metadata['branch'] not in 'mozilla-beta,mozilla-aurora,mozilla-release':
+            self.build_callback(build_metadata)
 
     def get_treeherder_job(self, project, job_id):
         url = '%s/api/project/%s/jobs/%s/' % (

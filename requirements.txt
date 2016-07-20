@@ -11,6 +11,7 @@ mozprofile
 mozillapulse >= 1.0
 requests
 pytz
+taskcluster
 Twisted
 txWS
 psutil
