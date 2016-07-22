@@ -67,11 +67,6 @@ from different build locations via the --build-location option.
 
          python trigger_runs.py --build-location=tinderbox --repo=fx-team 20141025111011
 
-* inboundarchive (http://inbound-archive.pub.build.mozilla.org/)
-  builds for fx-team by revision range:
-
-        python trigger_runs.py --build-location=inboundarchive --repo=fx-team --first-revision 0c0f0b98deee --last-revision c7fc9fadd71e
-
 * try-server build:
 
         python trigger_runs.py --repo=try --build-url=http://ftp.mozilla.org/pub/mozilla.org/mobile/try-builds/wlitwinczyk@mozilla.com-fde6088fe349/try-android/
@@ -699,7 +694,7 @@ tests for specific builds.
           -p PORT, --port=PORT  port of autophone controller; defaults to 28001
           -b BUILD_LOCATION, --build-location=BUILD_LOCATION
                                 build location to search for builds, defaults to
-                                nightly; can be "tinderbox" or "inboundarchive" for
+                                nightly; or can be "tinderbox" for
                                 both m-c and m-i
           --logfile=LOGFILE     Log file to store build system logs, defaults to
                                 autophone.log

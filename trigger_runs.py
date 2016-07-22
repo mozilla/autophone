@@ -165,7 +165,7 @@ If "latest" is given, test runs are initiated for the most recent build.'''
     parser.add_option('-b', '--build-location', action='store', type='string',
                       dest='build_location', default='nightly',
                       help='build location to search for builds, defaults to nightly;'
-                      ' can be "tinderbox" or "inboundarchive" for both m-c and m-i')
+                      ' or can be "tinderbox" for both m-c and m-i')
     parser.add_option('--logfile', action='store', type='string',
                       dest='logfile', default='autophone.log',
                       help='Log file to store build system logs, '

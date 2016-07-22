@@ -90,6 +90,25 @@ class BuildLocation(object):
         self.product = product
         self.build_platforms = build_platforms
         self.buildfile_ext = buildfile_ext
+
+    def find_latest_builds(self):
+        raise NotImplementedError()
+
+    def find_builds_by_directory(self, directory):
+        raise NotImplementedError()
+
+    def find_builds_by_time(self, start_time, end_time):
+        raise NotImplementedError()
+
+    def find_builds_by_revision(self, first_revision, last_revision):
+        raise NotImplementedError()
+
+
+class FtpBuildLocation(BuildLocation):
+    def __init__(self, repos, buildtypes,
+                 product, build_platforms, buildfile_ext):
+        BuildLocation.__init__(self,  repos, buildtypes,
+                               product, build_platforms, buildfile_ext)
         buildfile_pattern = self.product + '.*\.('
         for platform in self.build_platforms:
             if platform.startswith('android-x86'):
@@ -105,7 +124,7 @@ class BuildLocation(object):
         self.build_regex = re.compile("(%s%s)$" % (buildfile_pattern,
                                                   self.buildfile_ext))
         self.buildtxt_regex = re.compile("(%s)\.txt$" % buildfile_pattern)
-        logger.debug('BuildLocation: '
+        logger.debug('FtpBuildLocation: '
                      'repos: %s, '
                      'buildtypes: %s, '
                      'product: %s, '
@@ -128,8 +147,8 @@ class BuildLocation(object):
     def does_build_directory_contain_repo_name(self):
         """Returns True if the build directory name
         contains the repository name as a substring.
-        Currently, this returns True only for Nightly
-        BuildLocations.
+        Currently, this returns True only for FtpNightly
+        FtpBuildLocations.
         """
         return False
 
@@ -277,7 +296,7 @@ class BuildLocation(object):
                 continue
             for search_directory_repo, search_directory in self.get_search_directories_by_time(first_datetime,
                                                                                                last_datetime):
-                # search_directory_repo is not None for Tinderbox builds and
+                # search_directory_repo is not None for FtpTinderbox builds and
                 # can be used to filter the search directories.
                 logger.debug('find_builds_by_revision: Checking repo: %s '
                              'search_directory_repo %s search_directory %s...' %
@@ -384,11 +403,11 @@ class BuildLocation(object):
         return builds
 
 
-class Nightly(BuildLocation):
+class FtpNightly(FtpBuildLocation):
 
     def __init__(self, repos, buildtypes,
                  product, build_platforms, buildfile_ext):
-        BuildLocation.__init__(self, repos, buildtypes,
+        FtpBuildLocation.__init__(self, repos, buildtypes,
                                product, build_platforms, buildfile_ext)
         self.nightly_dirname_regexs = []
         for repo in repos:
@@ -399,13 +418,13 @@ class Nightly(BuildLocation):
             pattern += ')$'
             self.nightly_dirname_regexs.append(re.compile(pattern))
         patterns = [regex.pattern for regex in self.nightly_dirname_regexs]
-        logger.debug('Nightly: nightly_dirname_regexs: %s' % patterns)
+        logger.debug('FtpNightly: nightly_dirname_regexs: %s' % patterns)
 
     def does_build_directory_contain_repo_name(self):
         return True
 
     def get_search_directories_by_time(self, start_time, end_time):
-        logger.debug('Nightly:get_search_directories_by_time(%s, %s)' % (start_time, end_time))
+        logger.debug('FtpNightly:get_search_directories_by_time(%s, %s)' % (start_time, end_time))
         y = start_time.year
         m = start_time.month
         while y < end_time.year or (y == end_time.year and m <= end_time.month):
@@ -417,7 +436,7 @@ class Nightly(BuildLocation):
                 m += 1
 
     def build_time_from_directory_name(self, directory_name):
-        logger.debug('Nightly:build_time_from_directory_name(%s)' % directory_name)
+        logger.debug('FtpNightly:build_time_from_directory_name(%s)' % directory_name)
         build_time = None
         dirnamematch = None
         for r in self.nightly_dirname_regexs:
@@ -426,7 +445,7 @@ class Nightly(BuildLocation):
                 break
         if dirnamematch:
             format, build_time = parse_datetime(directory_name)
-        logger.debug('Nightly:build_time_from_directory_name: (%s, %s)' %
+        logger.debug('FtpNightly:build_time_from_directory_name: (%s, %s)' %
                      (directory_name, build_time))
         return build_time
 
@@ -439,17 +458,17 @@ class Nightly(BuildLocation):
                     yield repo, '%s-%s-%s' % (date, repo, platform)
 
 
-class Tinderbox(BuildLocation):
+class FtpTinderbox(FtpBuildLocation):
 
     main_http_url = 'http://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/'
 
     def __init__(self, repos, buildtypes,
                  product, build_platforms, buildfile_ext):
-        BuildLocation.__init__(self, repos, buildtypes,
-                               product, build_platforms, buildfile_ext)
+        FtpBuildLocation.__init__(self, repos, buildtypes,
+                                  product, build_platforms, buildfile_ext)
 
     def get_search_directories_by_time(self, start_time, end_time):
-        logger.debug('Tinderbox:get_search_directories_by_time(%s, %s)' % (start_time, end_time))
+        logger.debug('FtpTinderbox:get_search_directories_by_time(%s, %s)' % (start_time, end_time))
         # FIXME: Can we be certain that there's only one buildID (unique
         # timestamp) regardless of repo (at least m-i vs m-c)?
         for platform in self.build_platforms:
@@ -462,7 +481,7 @@ class Tinderbox(BuildLocation):
                     yield repo, '%s%s-%s%s/' % (self.main_http_url, repo, platform, buildtypestring)
 
     def build_time_from_directory_name(self, directory_name):
-        logger.debug('Tinderbox:build_time_from_directory_name(%s)' % directory_name)
+        logger.debug('FtpTinderbox:build_time_from_directory_name(%s)' % directory_name)
         try:
             build_time = convert_timestamp_to_date(int(directory_name))
         except ValueError:
@@ -471,11 +490,6 @@ class Tinderbox(BuildLocation):
 
     def directory_names_from_datetimestamp(self, datetimestamp):
         yield None, convert_datetime_to_string(datetimestamp, TIMESTAMP)
-
-
-class InboundArchive(Tinderbox):
-
-    main_http_url = 'http://inbound-archive.pub.build.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/'
 
 
 class BuildCacheException(Exception):
@@ -517,17 +531,13 @@ class BuildCache(object):
 
     def build_location(self, s):
         if 'nightly' in s:
-            return Nightly(self.repos, self.buildtypes,
+            return FtpNightly(self.repos, self.buildtypes,
                            self.product, self.build_platforms,
                            self.buildfile_ext)
         if 'tinderbox' in s:
-            return Tinderbox(self.repos, self.buildtypes,
+            return FtpTinderbox(self.repos, self.buildtypes,
                              self.product, self.build_platforms,
                              self.buildfile_ext)
-        if 'inboundarchive' in s:
-            return InboundArchive(self.repos, self.buildtypes,
-                                  self.product, self.build_platforms,
-                                  self.buildfile_ext)
         return None
 
     def find_latest_builds(self, build_location_name='nightly'):
