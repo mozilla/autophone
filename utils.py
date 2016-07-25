@@ -17,6 +17,10 @@ import urlparse
 import uuid
 import math
 
+import taskcluster
+
+import build_dates
+
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
 logger = logging.getLogger()
@@ -77,54 +81,207 @@ def get_remote_json(url):
     content = get_remote_text(url)
     if content:
         content = json.loads(content)
+    logger.debug('get_remote_json(%s): %s' % (url, content))
     return content
 
 
-def get_build_data(build_url):
+def get_build_data(build_url, builder_type='taskcluster'):
     """Return a dict containing information parsed from a build's .txt
     file.
+
+    :param build_url: string containing url to the firefox build.
+    :param builder_type: either 'buildbot' or'taskcluster'
 
     Returns None if the file does not exist or does not contain build
     data, otherwise returns a dict with keys:
 
-       'id'       : build id of form 'CCYYMMDDHHSS'
-       'changeset': url to changeset
-       'repo'     : build repository
-       'revision' : revision
-
-    :param build_url: string containing url to the firefox build.
+       'url'          : url to build
+       'id'           : CCYYMMDDHHMMSS string in UTC
+       'date'         : build id as UTC datetime
+       'changeset'    : full url to changeset,
+       'revision'     : revision,
+       'builder_type' : either 'buildbot' or 'taskcluster'
+       'repo'         : repository name
+       'abi'          : 'arm' or 'x86'
+       'sdk'          : 'api-<minimum sdk>' if known or None
+       'build_type'   : 'opt' or 'debug'
+       'nightly'      : True if this is a nighlty build.
+       'platform'     : android, android-x86, android-<sdk>
     """
-    build_prefix, build_ext = os.path.splitext(build_url)
-    build_txt = build_prefix + '.txt'
-    content = get_remote_text(build_txt)
-    if not content:
-        return None
-
-    lines = content.splitlines()
-    if len(lines) < 1:
-        return None
-
-    buildid_regex = re.compile(r'([\d]{14})$')
-    changeset_regex = re.compile(r'.*/([^/]*)/rev/(.*)')
-
-    buildid_match = buildid_regex.match(lines[0])
-
-    if len(lines) >= 2:
-        changeset_match = changeset_regex.match(lines[1])
+    build_id = None
+    changeset = None
+    revision = None
+    repo = None
+    abi = None
+    sdk = None
+    build_type = None
+    platform = None
+    nightly = None
+    if builder_type == 'taskcluster':
+        build_id_tz = build_dates.UTC
     else:
-        logger.warning("Unable to find revision in %s, results cannot be " 
-                       " uploaded to treeherder" % build_url)
-        changeset_match = changeset_regex.match("file://local/rev/local")
-        lines.append("file://local/rev/local")
-    if not buildid_match or not changeset_match:
-        return None
+        build_id_tz = build_dates.PACIFIC
+
+    logger.debug('get_build_data(%s, builder_type=%s)' % (build_url, builder_type))
+
+    # Parse the url for meta data if possible.
+    re_tinderbox = re.compile(r'https?://ftp.mozilla.org/pub/mobile/tinderbox-builds/(.*)-(android[^/]*)/\d+/fennec.*\.apk$')
+    re_nightly = re.compile(r'https?://ftp.mozilla.org/pub/mobile/nightly/\d{4}/\d{2}/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-(.*)-(android[^/]*)/fennec.*\.apk$')
+    re_platform = re.compile(r'(android)-?(x86)?-?(api-\d+)?-?(debug)?')
+    re_mozconfig_sdk = re.compile(r'(api-\d+)')
+    ftp_build = False
+    match_tinderbox = re_tinderbox.match(build_url)
+    if match_tinderbox:
+        ftp_build = True
+        nightly = False
+        (repo, platform_api_build_type) = match_tinderbox.groups()
+        logger.debug('get_build_data: match_tinderbox: repo: %s, platform_api_build_type: %s' % (repo, platform_api_build_type))
+    else:
+        match_nightly = re_nightly.match(build_url)
+        if match_nightly:
+            ftp_build = True
+            nightly = True
+            (repo, platform_api_build_type) = match_nightly.groups()
+            logger.debug('get_build_data: match_nightly: repo: %s, platform_api_build_type: %s' % (repo, platform_api_build_type))
+    if ftp_build:
+        if builder_type == 'taskcluster':
+            logger.error('get_build_data(%s, builder_type=%s) for ftp build. Setting timezone to Pacific.' % (build_url, builder_type))
+            build_id_tz = build_dates.PACIFIC
+        match_platform = re_platform.match(platform_api_build_type)
+        if match_platform:
+            (platform, abi, sdk, debug) = match_platform.groups()
+            build_type = 'debug' if debug else 'opt'
+            if not abi:
+                abi = 'arm'
+            elif abi == 'i386' or abi == 'i686':
+                abi = 'x86'
+            logger.debug('get_build_data: platform: %s, abi: %s, sdk: %s, debug: %s' % (platform, abi, sdk, debug))
+    build_prefix, build_ext = os.path.splitext(build_url)
+
+    build_json_url = build_prefix + '.json'
+    build_json = get_remote_json(build_json_url)
+    if build_json:
+        build_id = build_json['buildid']
+        format, build_date = build_dates.parse_datetime(build_id, tz=build_id_tz)
+        # convert buildid to UTC to match Taskcluster
+        build_id = build_dates.convert_datetime_to_string(build_date,
+                                                          build_dates.BUILDID,
+                                                          tz=build_dates.UTC)
+        if not abi:
+            abi = build_json['target_cpu']
+            if abi == 'i386' or abi == 'i686':
+                abi = 'x86'
+        moz_source_repo = build_json['moz_source_repo'].replace('MOZ_SOURCE_REPO=', '')
+        repo = os.path.basename(moz_source_repo)
+        revision = build_json['moz_source_stamp']
+        changeset = moz_source_repo + '/rev/' + revision
+        if not sdk and 'mozconfig' in build_json:
+            search = re_mozconfig_sdk.search(build_json['mozconfig'])
+            if search:
+                sdk = search.group(1)
+        logger.debug('get_build_data: build_json: build_id: %s, platform: %s, abi: %s, sdk: %s, repo: %s, revision: %s, changeset: %s' %
+                     (build_id, platform, abi, sdk, repo, revision, changeset))
+    if build_type is None or sdk is None or nightly is None or platform is None:
+        build_mozinfo_json_url = build_prefix + '.mozinfo.json'
+        build_mozinfo_json = get_remote_json(build_mozinfo_json_url)
+        if build_mozinfo_json:
+            if not build_type and 'debug' in build_mozinfo_json:
+                build_type = 'debug' if build_mozinfo_json['debug'] else 'opt'
+            if not sdk:
+                if 'android_min_sdk' in build_mozinfo_json:
+                    sdk = 'api-%s' % build_mozinfo_json['android_min_sdk']
+                else:
+                    if 'mozconfig' in build_mozinfo_json:
+                        search = re_mozconfig_sdk.search(build_mozinfo_json['mozconfig'])
+                        if search:
+                            sdk = search.group(1)
+            if not platform:
+                platform = build_mozinfo_json['os']
+                if sdk:
+                    platform += sdk
+            if not nightly and 'nightly_build' in build_mozinfo_json:
+                nightly = build_mozinfo_json['nightly_build']
+            logger.debug('get_build_data: mozinfo build_type: %s, sdk: %s, nightly: %s' % (build_type, sdk, nightly))
+
+    if not build_id or not changeset or not repo or not revision:
+        build_id_tz = build_dates.PACIFIC
+        build_txt = build_prefix + '.txt'
+        content = get_remote_text(build_txt)
+        if not content:
+            return None
+
+        lines = content.splitlines()
+        if len(lines) < 1:
+            return None
+
+        buildid_regex = re.compile(r'([\d]{14})$')
+        changeset_regex = re.compile(r'.*/([^/]*)/rev/(.*)')
+
+        buildid_match = buildid_regex.match(lines[0])
+
+        if len(lines) >= 2:
+            changeset_match = changeset_regex.match(lines[1])
+        else:
+            logger.warning("Unable to find revision in %s, results cannot be "
+                           " uploaded to treeherder" % build_url)
+            changeset_match = changeset_regex.match("file://local/rev/local")
+            lines.append("file://local/rev/local")
+        if not buildid_match or not changeset_match:
+            return None
+
+        txt_build_id = lines[0]
+        txt_changeset = lines[1]
+        txt_repo = changeset_match.group(1)
+        txt_revision = changeset_match.group(2)
+        logger.debug('get_build_data: txt build_id: %s, changeset: %s, repo: %s, revision: %s' % (txt_build_id, txt_changeset, txt_repo, txt_revision))
+
+        format, build_date = build_dates.parse_datetime(txt_build_id, tz=build_id_tz)
+        # convert buildid to UTC to match Taskcluster
+        txt_build_id = build_dates.convert_datetime_to_string(build_date,
+                                                              build_dates.BUILDID,
+                                                              tz=build_dates.UTC)
+
+        if not build_id:
+            build_id = txt_build_id
+        elif build_id != txt_build_id:
+            logger.warning('get_build_data: build_id %s != txt_build_id %s' % (build_id, txt_build_id))
+
+        if not changeset:
+            changeset = txt_changeset
+        elif txt_changeset not in changeset:
+            logger.warning('get_build_data: txt_changeset %s not in changeset %s' % (txt_changeset, changeset))
+
+        if not repo:
+            repo = txt_repo
+        else:
+            logger.warning('get_build_data: repo %s != txt_repo %s' % (repo, txt_repo))
+
+        if not revision:
+            revision = txt_revision
+        else:
+            logger.warning('get_build_data: revision %s != txt_revision %s' % (revision, txt_revision))
+
+    platform = 'android'
+    if abi == 'x86':
+        platform += '-x86'
+    if sdk:
+        platform += '-' + sdk
 
     build_data = {
-        'id' : lines[0],
-        'changeset' : lines[1],
-        'repo' : changeset_match.group(1),
-        'revision' : changeset_match.group(2),
+        'url'        : build_url,
+        'id'         : build_id,
+        'date'       : build_date.astimezone(build_dates.UTC),
+        'changeset'  : changeset,
+        'revision'   : revision,
+        'builder_type': builder_type,
+        'repo'       : repo,
+        'abi'        : abi,
+        'sdk'        : sdk,
+        'build_type' : build_type,
+        'nightly'    : nightly,
+        'platform'   : platform,
     }
+    logger.debug('get_build_data: %s' % build_data)
     return build_data
 
 
@@ -197,3 +354,23 @@ def urlretrieve(url, dest, max_attempts=3):
                 url, attempt, e))
             if attempt == max_attempts - 1:
                 raise
+
+
+def taskcluster_artifacts(task_id, run_id):
+    queue = taskcluster.client.Queue()
+    response = queue.listArtifacts(task_id, run_id)
+    while True:
+        if 'artifacts' not in response:
+            logger.warning('taskcluster_artifacts: listArtifacts(%s, %s) '
+                           'response missing artifacts' % (task_id, run_id))
+            raise StopIteration
+        artifacts = response['artifacts']
+        for artifact in artifacts:
+            logger.debug('taskcluster_artifacts: %s' % artifact)
+            yield artifact
+        if 'continuationToken' not in response:
+            raise StopIteration
+        logger.debug('taskcluster_artifacts: continuing listArtifacts(%s, %s)' %
+                     (task_id, run_id))
+        response = queue.listArtifacts(task_id, run_id, {
+            'continuationToken': response['continationToken']})

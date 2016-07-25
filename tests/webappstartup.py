@@ -295,7 +295,7 @@ class WebappStartupTest(PerfTest):
                      self.phone.id,
                      self.build.tree,
                      self.build.id,
-                     self.build.revision))
+                     self.build.changeset))
                 self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
                                   'No measurements detected.',
                                   PhoneTestResult.BUSTED)
@@ -603,7 +603,7 @@ class WebappStartupTest(PerfTest):
 
         if base_time and start_time and chrome_time and startup_time:
             parse = lambda y, t: datetime.datetime.strptime('%4d-%s' % (y, t), '%Y-%m-%d %H:%M:%S.%f')
-            year = datetime.datetime.now().year
+            year = datetime.datetime.utcnow().year
             base_time = parse(year, base_time)
             start_time = parse(year, start_time)
             chrome_time = parse(year, chrome_time)

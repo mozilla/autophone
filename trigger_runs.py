@@ -6,40 +6,25 @@ import datetime
 import json
 import logging
 import logging.handlers
-import re
 import socket
 import sys
 
 import builds
+import build_dates
 
-def from_iso_date_or_datetime(s):
-    datefmt = '%Y-%m-%d'
-    datetimefmt = datefmt + 'T%H:%M:%S'
-    try:
-        d = datetime.datetime.strptime(s, datetimefmt)
-    except ValueError:
-        d = datetime.datetime.strptime(s, datefmt)
-    return d
+import pytz
 
+PACIFIC = pytz.timezone('US/Pacific')
 
 def command_str(build, test_names, devices):
-    re_api = re.compile(r'api-(9|10|11|15)')
-    match = re_api.search(build)
-    if match:
-        sdk = 'api-%s' % match.group(1)
-    else:
-        sdk = None
-    if 'arm' in build:
-        abi = 'arm'
-    elif 'x86' in build:
-        abi = 'x86'
-    else:
-        abi = None
-    job_data = {'build': build,
-                'test_names': test_names or [],
-                'devices': devices or [],
-                'sdk': sdk,
-                'abi': abi}
+    # Dates are not json serializable. We don't need the build date in
+    # the trigger_jobs in autophone, so let's just delete it.
+    del build['date']
+    job_data = {
+        'build_data': build,
+        'test_names': test_names or [],
+        'devices': devices or [],
+    }
     s = 'autophone-triggerjobs %s' % json.dumps(job_data)
     return s
 
@@ -91,34 +76,38 @@ def main(args, options):
         product, build_platforms,
         buildfile_ext)
 
-    build_urls = []
+    matching_builds = []
     if options.build_url:
-        build_urls = cache.find_builds_by_directory(options.build_url)
+        logger.debug('cache.find_builds_by_directory(%s)' % options.build_url)
+        matching_builds = cache.find_builds_by_directory(options.build_url)
     elif not args:
-        build_urls = cache.find_builds_by_revision(
+        logger.debug('cache.find_builds_by_revision(%s, %s, %s)' % (
+            options.first_revision, options.last_revision,
+            options.build_location))
+        matching_builds = cache.find_builds_by_revision(
             options.first_revision, options.last_revision,
             options.build_location)
     elif args[0] == 'latest':
-        build_urls = cache.find_latest_builds(options.build_location)
+        logger.debug('cache.find_latest_builds(%s)' % options.build_location)
+        matching_builds = cache.find_latest_builds(options.build_location)
     else:
-        if re.match('\d{14}', args[0]):
-            # build id
-            build_time = datetime.datetime.strptime(args[0], '%Y%m%d%H%M%S')
-            start_time = build_time
-            end_time = build_time
+        date_format, start_time = build_dates.parse_datetime(args[0])
+        if date_format == build_dates.BUILDID:
+            end_time = start_time
         else:
-            start_time = from_iso_date_or_datetime(args[0])
             if len(args) > 1:
-                end_time = from_iso_date_or_datetime(args[1])
+                date_format, end_time = build_dates.parse_datetime(args[1])
             else:
-                end_time = datetime.datetime.now()
-        build_urls = cache.find_builds_by_time(
+                end_time = datetime.datetime.now(tz=PACIFIC)
+        logger.debug('cache.find_builds_by_time(%s, %s, %s)' %
+                     (start_time, end_time, options.build_location))
+        matching_builds = cache.find_builds_by_time(
             start_time, end_time, options.build_location)
 
-    if not build_urls:
+    if not matching_builds:
         return 1
     commands = [command_str(b, options.test_names, options.devices)
-                for b in build_urls]
+                for b in matching_builds]
     commands.append('exit')
     logger.info('- %s' % s.recv(1024).strip())
     for c in commands:
@@ -144,6 +133,8 @@ The argument(s) should be one of the following:
 - a date/datetime, e.g. 2012-04-03 or 2012-04-03T06:31:58
 - a date/datetime range, e.g. 2012-04-03T06:31:58 2012-04-05
 - the string "latest"
+
+The build ID and dates are specified in the UTC timezone.
 
 If a build ID is given, a test run is initiated for that, and only that,
 particular build.

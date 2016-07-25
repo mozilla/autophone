@@ -193,7 +193,7 @@ class TalosTest(PerfTest):
                      self.phone.id,
                      self.build.tree,
                      self.build.id,
-                     self.build.revision))
+                     self.build.changeset))
                 self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
                                   'No measurements detected.',
                                   PhoneTestResult.BUSTED)

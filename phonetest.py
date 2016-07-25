@@ -91,7 +91,7 @@ class Logcat(object):
         current_logcat = []
         prev_line_date = None
         curr_line_date = None
-        curr_year = datetime.datetime.now().year
+        curr_year = datetime.datetime.utcnow().year
         hour = datetime.timedelta(hours=1)
 
         for line in raw_logcat:
@@ -200,15 +200,15 @@ class PhoneTest(object):
     @classmethod
     def match(cls, tests=None, test_name=None, phoneid=None,
               config_file=None, job_guid=None,
-              build_url=None, abi=None, sdk=None):
+              repo=None, build_type=None, build_abi=None, build_sdk=None):
 
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
                      'config_file: %s, job_guid: %s, '
-                     'build_url: %s, '
-                     'abi: %s, sdk: %s' % (
+                     'repo: %s, build_type: %s, '
+                     'abi: %s, build_sdk: %s' % (
                          tests, test_name, phoneid,
                          config_file, job_guid,
-                         build_url, abi, sdk))
+                         repo, build_type, build_abi, build_sdk))
         matches = []
         if not tests:
             tests = [PhoneTest.instances[key] for key in PhoneTest.instances.keys()]
@@ -228,77 +228,30 @@ class PhoneTest(object):
             if job_guid and job_guid != test.job_guid:
                 continue
 
-            if abi and abi not in test.phone.abi:
+            if repo and test.repos and repo not in test.repos:
+                continue
+
+            if build_type and build_type not in test.buildtypes:
+                continue
+
+            if build_abi and build_abi not in test.phone.abi:
                 # phone.abi may be of the form armeabi-v7a, arm64-v8a
                 # or some form of x86. Test for inclusion rather than
                 # exact matches to cover the possibilities.
                 continue
 
-            if sdk and sdk != test.phone.sdk:
-                continue
-
-            if build_url:
-                # TaskCluster builds no longer encode meta data in the
-                # build_url. Matching tests on build_url will no longer
-                # work with TaskCluster builds.
-                logger.warning('PhoneTest.match using build_url metadata')
-                phone_abi = test.phone.abi
-                phone_sdk = test.phone.sdk
-                # First assume the test and build are compatible.
-                incompatible_job = False
-                # x86 devices can only test x86 builds and non-x86
-                # devices can not test x86 builds.
-                if phone_abi == 'x86':
-                    if 'x86' not in build_url:
-                        incompatible_job = True
-                else:
-                    if 'x86' in build_url:
-                        incompatible_job = True
-                # If the build_url does not contain an sdk level, then
-                # assume this is an build from before the split sdk
-                # builds were first created.
-                re_api = re.compile(r'api-(9|10|11|15)')
-                match = re_api.search(build_url)
-                if not match:
-                    pass
-                elif phone_sdk == 'api-15' and 'api-11' in build_url:
-                    # The change to a build api level of 15 in build
-                    # urls means that we must adjust the match in the
-                    # event we are attempting to test older builds for
-                    # api-11.
-                    pass
-                elif phone_sdk not in build_url:
-                    # Otherwise the device's sdk must match the
-                    # build's sdk.
-                    incompatible_job  = True
-
-                if incompatible_job:
+            if build_sdk and build_sdk not in test.phone.supported_sdks:
+                # We have extended build_sdk and the
+                # phone.supported_sdks to be a comma-delimited list of
+                # sdk values for phones whose minimum support has
+                # changed as the builds have changed.
+                sdk_found = False
+                for sdk in build_sdk.split(','):
+                    if sdk in test.phone.supported_sdks:
+                        sdk_found = True
+                        break
+                if not sdk_found:
                     continue
-
-                # The test may be defined for multiple repositories.
-                # We are interested if this particular build is
-                # supported by this test. First assume it is
-                # incompatible, and only accept it if the build_url is
-                # from one of the supported repositories.
-                if test.repos:
-                    incompatible_job = True
-                    for repo in test.repos:
-                        if repo in build_url:
-                            incompatible_job = False
-                            break
-                    if incompatible_job:
-                        continue
-
-                # The test may be configured for either opt, debug or both.
-                if build_url:
-                    incompatible_job = True
-                    for build_type in test.buildtypes:
-                        if build_type == 'opt' and 'debug' not in build_url:
-                            incompatible_job = False
-                        elif build_type == 'debug' and 'debug' in build_url:
-                            incompatible_job = False
-                    if incompatible_job:
-                        continue
 
             matches.append(test)
 
@@ -686,7 +639,7 @@ class PhoneTest(object):
                    'repo=%s&revision=%s')
         return job_url % (self.options.treeherder_url,
                           self.build.tree,
-                          os.path.basename(self.build.revision)[:12])
+                          self.build.revision[:12])
 
     @property
     def job_name(self):
@@ -739,10 +692,6 @@ class PhoneTest(object):
 
     def generate_guid(self):
         self.job_guid = utils.generate_guid()
-
-    def get_buildername(self, tree):
-        return "%s %s opt %s" % (
-            self.phone.platform, tree, self.name)
 
     def handle_test_interrupt(self, reason, test_result):
         self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL', reason, test_result)
@@ -890,7 +839,7 @@ class PhoneTest(object):
         # Log the current full contents of logcat, then clear the
         # logcat buffers to help prevent the device's buffer from
         # over flowing during the test.
-        self.start_time = datetime.datetime.now()
+        self.start_time = datetime.datetime.utcnow()
         self.stop_time = self.start_time
         # Clear the Treeherder job details.
         self.job_details = []
@@ -908,6 +857,11 @@ class PhoneTest(object):
             self.build.url,
             self.build.tree,
             self.build.revision,
+            self.build.type,
+            self.build.abi,
+            self.build.platform,
+            self.build.sdk,
+            self.build.builder_type,
             tests=[self])
 
         self.loggerdeco_original = self.loggerdeco
@@ -961,7 +915,7 @@ class PhoneTest(object):
 
     def teardown_job(self):
         self.loggerdeco.debug('PhoneTest.teardown_job')
-        self.stop_time = datetime.datetime.now()
+        self.stop_time = datetime.datetime.utcnow()
         self.loggerdeco.info('Test %s elapsed time: %s' % (
             self.name, self.stop_time - self.start_time))
         try:
@@ -1004,6 +958,11 @@ class PhoneTest(object):
                 self.build.url,
                 self.build.tree,
                 self.build.revision,
+                self.build.type,
+                self.build.abi,
+                self.build.platform,
+                self.build.sdk,
+                self.build.builder_type,
                 tests=[self])
         except:
             self.loggerdeco.exception('Exception tearing down job')

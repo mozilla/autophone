@@ -36,10 +36,14 @@ class Jobs(object):
                          'last_attempt text, '
                          'build_url text, '
                          'build_id text, '
+                         'build_type text, '
+                         'build_abi text, '
+                         'build_platform text, '
+                         'build_sdk text, '
                          'changeset text, '
                          'tree text, '
                          'revision text, '
-                         'revision_hash, '
+                         'builder_type text, '
                          'enable_unittests int, '
                          'attempts int, '
                          'device text)')
@@ -144,16 +148,18 @@ class Jobs(object):
         self._commit_connection(conn)
         self._close_connection(conn)
 
-    def new_job(self, build_url, build_id=None, changeset=None, tree=None,
-                revision=None, tests=None,
+    def new_job(self, build_url, build_id=None, build_type=None, build_abi=None,
+                build_platform=None, build_sdk=None, changeset=None, tree=None,
+                revision=None, builder_type=None, tests=None,
                 enable_unittests=False, device=None,
                 attempts=0):
-        logger.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s' % (
-            build_url, build_id, changeset, tree, revision,
+        logger.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s %s %s %s %s %s' % (
+            build_url, build_id, build_type, build_abi, build_platform, build_sdk,
+            changeset, tree, revision, builder_type,
             tests, enable_unittests, device, attempts))
         if not device:
             device = self.default_device
-        now = datetime.datetime.now().isoformat()
+        now = datetime.datetime.utcnow().isoformat()
 
         conn = self._conn()
         job_id = None
@@ -170,9 +176,10 @@ class Jobs(object):
         if not job_id:
             job_cursor = self._execute_sql(
                 conn,
-                'insert into jobs values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                values=(None, now, None, build_url, build_id, changeset, tree,
-                        revision, '', enable_unittests, attempts, device))
+                'insert into jobs values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                values=(None, now, None, build_url, build_id, build_type, build_abi,
+                        build_platform, build_sdk, changeset, tree,
+                        revision, builder_type, enable_unittests, attempts, device))
             job_id = job_cursor.lastrowid
             job_cursor.close()
 
@@ -256,7 +263,8 @@ class Jobs(object):
         job_cursor = self._execute_sql(
             conn,
             'select id,created,last_attempt,build_url,'
-            'build_id,changeset,tree,revision,revision_hash,'
+            'build_id,build_type,build_abi,build_platform,build_sdk,'
+            'changeset,tree,revision,builder_type,'
             'enable_unittests,attempts,instr(build_url,"try") as istry '
             'from jobs where device=? order by istry desc, '
             'created %s' % order,
@@ -273,15 +281,19 @@ class Jobs(object):
                'last_attempt': job_row[2],
                'build_url': job_row[3],
                'build_id': job_row[4],
-               'changeset': job_row[5],
-               'tree': job_row[6],
-               'revision': job_row[7],
-               'revision_hash': job_row[8],
-               'enable_unittests': job_row[9],
-               'attempts': job_row[10],
-               'istry': job_row[11]}
+               'build_type': job_row[5],
+               'build_abi': job_row[6],
+               'build_platform': job_row[7],
+               'build_sdk': job_row[8],
+               'changeset': job_row[9],
+               'tree': job_row[10],
+               'revision': job_row[11],
+               'builder_type': job_row[12],
+               'enable_unittests': job_row[13],
+               'attempts': job_row[14],
+               'istry': job_row[15]}
         job['attempts'] += 1
-        job['last_attempt'] = datetime.datetime.now().isoformat()
+        job['last_attempt'] = datetime.datetime.utcnow().isoformat()
 
         self._execute_sql(
             conn,
@@ -375,7 +387,7 @@ class Jobs(object):
     def new_treeherder_job(self, machine, project, job_collection):
         logger.debug('jobs.new_treeherder_job: %s %s %s' % (machine, project, job_collection.__dict__))
         attempts = 0
-        now = datetime.datetime.now().isoformat()
+        now = datetime.datetime.utcnow().isoformat()
         conn = self._conn()
         job_cursor = self._execute_sql(
             conn,
@@ -405,7 +417,7 @@ class Jobs(object):
                'project': job_row[4],
                'job_collection': json.loads(job_row[5])}
         job['attempts'] += 1
-        job['last_attempt'] = datetime.datetime.now().isoformat()
+        job['last_attempt'] = datetime.datetime.utcnow().isoformat()
         self._execute_sql(
             conn,
             'update treeherder set attempts=?, last_attempt=? where id=?',

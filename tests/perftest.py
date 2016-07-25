@@ -5,7 +5,6 @@
 import ConfigParser
 import csv
 import json
-import re
 import time
 import urllib
 import urllib2
@@ -15,6 +14,7 @@ from math import sqrt
 from jot import jwt, jws
 
 import utils
+from build_dates import TIMESTAMP, convert_datetime_to_string
 from phonetest import PhoneTest, PhoneTestResult
 
 """
@@ -220,10 +220,15 @@ class PerfTest(PhoneTest):
                         rejected=False):
         # Create JSON to send to webserver
         author = None
-        re_try = re.compile('.*/try-builds/([^-]*)-')
-        match = re_try.match(self.build.url)
-        if match:
-            author = match.group(1)
+        if self.build.tree == 'try':
+            rev_json_url = self.build.changeset.replace('/rev/', '/json-rev/')
+            rev_json = utils.get_remote_json(rev_json_url)
+            if rev_json:
+                author = rev_json['pushuser']
+
+        blddate = float(convert_datetime_to_string(self.build.date, TIMESTAMP))
+        self.loggerdeco.debug('publish_results: build.id: %s, build.date: %s, blddate: %s' % (
+            self.build.id, self.build.date, blddate))
 
         resultdata = {
             'phoneid': self.phone.id,
@@ -231,10 +236,10 @@ class PerfTest(PhoneTest):
             'starttime': starttime,
             'throbberstart': tstrt,
             'throbberstop': tstop,
-            'blddate': self.build.date,
+            'blddate': blddate,
             'cached': cache_enabled,
             'rejected': rejected,
-            'revision': self.build.revision,
+            'revision': self.build.changeset,
             'author': author,
             'productname': self.build.app_name,
             'productversion': self.build.version,
@@ -297,7 +302,7 @@ class PerfTest(PhoneTest):
                      self.phone.id,
                      self.build.tree,
                      self.build.id,
-                     self.build.revision,
+                     self.build.changeset,
                      e,
                      json.dumps(resultdata, sort_keys=True, indent=2)))
                 message = 'Error sending results to server'
@@ -319,7 +324,7 @@ class PerfTest(PhoneTest):
             self.build.date,
             cache_enabled,
             rejected,
-            self.build.revision,
+            self.build.changeset,
             self.build.app_name,
             self.build.version,
             self.phone.osver,
@@ -338,7 +343,7 @@ class PerfTest(PhoneTest):
         query = {
             'phoneid': self.phone.id,
             'test': testname,
-            'revision': self.build.revision,
+            'revision': self.build.changeset,
             'product': self.build.app_name
         }
 

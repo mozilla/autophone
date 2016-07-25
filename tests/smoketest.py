@@ -34,8 +34,8 @@ class SmokeTest(PhoneTest):
         command = None
         fennec_launched = self.dm.process_exist(self.build.app_name)
         found_throbber = False
-        start = datetime.datetime.now()
-        while (not fennec_launched and (datetime.datetime.now() - start
+        start = datetime.datetime.utcnow()
+        while (not fennec_launched and (datetime.datetime.utcnow() - start
                                         <= datetime.timedelta(seconds=60))):
             command = self.worker_subprocess.process_autophone_cmd(test=self)
             if command['interrupt']:
@@ -45,7 +45,7 @@ class SmokeTest(PhoneTest):
 
         if fennec_launched:
             found_throbber = self.check_throbber()
-            while (not found_throbber and (datetime.datetime.now() - start
+            while (not found_throbber and (datetime.datetime.utcnow() - start
                                            <= datetime.timedelta(seconds=60))):
                 command = self.worker_subprocess.process_autophone_cmd(test=self)
                 if command['interrupt']:

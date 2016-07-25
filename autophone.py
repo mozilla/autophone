@@ -21,6 +21,7 @@ import sys
 import threading
 import traceback
 
+import pytz
 from manifestparser import TestManifest
 
 import builds
@@ -44,35 +45,19 @@ logger = None
 console_logger = None
 
 class PhoneData(object):
-    def __init__(self, phoneid, serial, machinetype, osver, abi, sdk, ipaddr):
+    def __init__(self, phoneid, serial, machinetype, osver, abi, sdk, supported_sdks, ipaddr):
         self.id = phoneid
         self.serial = serial
         self.machinetype = machinetype
         self.osver = osver
         self.abi = abi
         self.sdk = sdk
+        self.supported_sdks = supported_sdks
         self.host_ip = ipaddr
-
-    @property
-    def architecture(self):
-        abi = self.abi
-        if 'armeabi-v7a' in abi:
-            abi = 'armv7'
-        elif 'arm64-v8a' in abi:
-            abi = 'armv8'
-        return abi
 
     @property
     def os(self):
         return 'android-%s' % '-'.join(self.osver.split('.')[:2])
-
-    @property
-    def platform(self):
-        if self.architecture == 'x86':
-            return '%s-x86' % self.os
-        return '%s-%s-%s' % (self.os,
-                             self.architecture,
-                             ''.join(self.sdk.split('-')))
 
     def __str__(self):
         return '%s' % self.__dict__
@@ -341,7 +326,7 @@ class AutoPhone(object):
             # Do not check the last timestamp of a worker that
             # is currently downloading a build due to the size
             # of the downloads and the unknown network speed.
-            elapsed = datetime.datetime.now() - worker.last_status_msg.timestamp
+            elapsed = datetime.datetime.now(tz=pytz.utc) - worker.last_status_msg.timestamp
             if (worker.last_status_msg.phone_status != PhoneStatus.FETCHING and
                 elapsed > datetime.timedelta(seconds=self.options.maximum_heartbeat)):
                 self.unrecoverable_error = True
@@ -456,14 +441,6 @@ class AutoPhone(object):
         build_url = job_data['build']
         tests = job_data['tests']
 
-        build_data = utils.get_build_data(build_url)
-        logger.debug('new_job: build_data %s' % build_data)
-
-        if not build_data:
-            logger.warning('new_job: Could not find build_data for %s' %
-                                build_url)
-            return
-
         phoneids = set([test.phone.id for test in tests])
         for phoneid in phoneids:
             p = self.phone_workers[phoneid]
@@ -472,8 +449,10 @@ class AutoPhone(object):
             # need to enable unittests.
             runnable_tests = PhoneTest.match(tests=tests,
                                              phoneid=phoneid,
-                                             abi=job_data['abi'],
-                                             sdk=job_data['sdk'])
+                                             repo=job_data['repo'],
+                                             build_type=job_data['build_type'],
+                                             build_abi=job_data['abi'],
+                                             build_sdk=job_data['sdk'])
             if not runnable_tests:
                 logger.debug('new_job: Ignoring build %s for phone %s' % (build_url, phoneid))
                 continue
@@ -482,18 +461,28 @@ class AutoPhone(object):
                 enable_unittests = enable_unittests or t.enable_unittests
 
             new_tests = self.jobs.new_job(build_url,
-                                          build_id=build_data['id'],
-                                          changeset=build_data['changeset'],
-                                          tree=build_data['repo'],
-                                          revision=build_data['revision'],
+                                          build_id=job_data['build_id'],
+                                          build_type=job_data['build_type'],
+                                          build_platform=job_data['platform'],
+                                          build_abi=job_data['abi'],
+                                          build_sdk=job_data['sdk'],
+                                          tree=job_data['repo'],
+                                          changeset=job_data['changeset'],
+                                          revision=job_data['revision'],
+                                          builder_type=job_data['builder_type'],
                                           tests=runnable_tests,
                                           enable_unittests=enable_unittests,
                                           device=phoneid)
             if new_tests:
                 self.treeherder.submit_pending(phoneid,
                                                build_url,
-                                               build_data['repo'],
-                                               build_data['revision'],
+                                               job_data['repo'],
+                                               job_data['revision'],
+                                               job_data['build_type'],
+                                               job_data['platform'],
+                                               job_data['abi'],
+                                               job_data['sdk'],
+                                               job_data['builder_type'],
                                                tests=new_tests)
                 logger.info('new_job: Notifying device %s of new job '
                                  '%s for tests %s, enable_unittests=%s.' %
@@ -712,6 +701,7 @@ ok
             data['osver'],
             data['abi'],
             data['sdk'],
+            data['supported_sdks'],
             self.options.ipaddr) # XXX IPADDR no longer needed?
         if logger.getEffectiveLevel() == logging.DEBUG:
             logger.debug('register_cmd: phone: %s' % phone)
@@ -786,14 +776,15 @@ ok
                 device['abi'] = dm.get_prop('ro.product.cpu.abi')
                 try:
                     sdk = int(dm.get_prop('ro.build.version.sdk'))
+                    device['sdk'] = 'api-%s' % sdk
                     if sdk <= 10:
-                        device['sdk'] = 'api-9'
+                        device['supported_sdks'] = 'api-9,api-10'
                     elif sdk < 15:
-                        device['sdk'] = 'api-11'
+                        device['supported_sdks'] = 'api-11'
                     else:
-                        device['sdk'] = 'api-15'
+                        device['supported_sdks'] = 'api-11,api-15'
                 except ValueError:
-                    device['sdk'] = 'api-9'
+                    device['supported_sdks'] = 'api-9'
                 self._devices[device_name] = device
                 if new_device_name:
                     self.read_tests()
@@ -874,27 +865,27 @@ ok
     def trigger_jobs(self, data):
         logger.info('Received user-specified job: %s' % data)
         trigger_data = json.loads(data)
-        if 'build' not in trigger_data:
+        if 'build_data' not in trigger_data:
             return 'invalid args'
-        build_url = trigger_data['build']
-        abi = trigger_data['abi']
-        sdk = trigger_data['sdk']
-        if (abi and sdk):
-            logger.info('trigger_jobs: using abi %s, sdk %s from build' % (abi, sdk))
-        else:
-            mozinfo_url = build_url.replace('apk', 'mozinfo.json')
-            mozinfo_json = utils.get_remote_json(mozinfo_url)
-            if not mozinfo_json:
-                logger.warning('trigger_jobs: abi/sdk not set and could not get %s' % mozinfo_url)
-                return 'missing mozinfo'
-            abi = mozinfo_json['processor']
-            if 'android_min_sdk' in mozinfo_json:
-                sdk = mozinfo_json['android_min_sdk']
-            else:
-                logger.warning('trigger_jobs: android_min_sdk not set, defaulting to api-15')
-                sdk = 'api-15'
-        tests = []
+
+        build_data = trigger_data['build_data']
+        build_url = build_data['url']
+        repo = build_data['repo']
+        build_type = build_data['build_type']
+        abi = build_data['abi']
+        sdk = build_data['sdk']
         test_names = trigger_data['test_names']
+
+        # If we can not determine the sdk, default to all, abi to arm.
+        if not sdk:
+            sdk = 'api-9,api-10,api-11,api-15'
+            logger.warning('trigger_jobs: default sdks: %s' % sdk)
+        if not abi:
+            abi = 'arm'
+            logger.warning('trigger_jobs: default abi: %s' % abi)
+        logger.info('trigger_jobs: using repo %s, build_type %s, abi %s, sdk %s' %
+                    (repo, build_type, abi, sdk))
+        tests = []
         if not test_names:
             # No test names specified, force PhoneTest.match
             # to return tests with any name.
@@ -908,14 +899,23 @@ ok
             for device in devices:
                 tests.extend(PhoneTest.match(test_name=test_name,
                                              phoneid=device,
-                                             abi=abi,
-                                             sdk=sdk))
+                                             repo=repo,
+                                             build_type=build_type,
+                                             build_abi=abi,
+                                             build_sdk=sdk))
         if tests:
             job_data = {
                 'build': build_url,
-                'tests': tests,
+                'build_id': build_data['id'],
+                'build_type': build_data['build_type'],
+                'platform': build_data['platform'],
                 'abi': abi,
                 'sdk': sdk,
+                'repo': repo,
+                'changeset': build_data['changeset'],
+                'revision': build_data['revision'],
+                'builder_type': build_data['builder_type'],
+                'tests': tests,
             }
             self.new_job(job_data)
         return 'ok'
@@ -925,17 +925,25 @@ ok
         for phoneid, phone in self.phone_workers.iteritems():
             phone.reboot()
 
-    def on_build(self, msg):
+    def on_build(self, build_data):
         self.lock_acquire()
         try:
             if self.state != ProcessStates.RUNNING:
                 return
-            logger.debug('PULSE BUILD FOUND %s' % msg)
-            build_url = msg['packageUrl']
-            abi = msg['abi']
-            sdk = msg['sdk']
-            if msg['branch'] != 'try':
-                tests = PhoneTest.match(abi=abi, sdk=sdk)
+            logger.debug('PULSE BUILD FOUND %s' % build_data)
+            build_url = build_data['url']
+            platform = build_data['platform']
+            repo = build_data['repo']
+            build_id = build_data['id']
+            build_type = build_data['build_type']
+            changeset = build_data['changeset']
+            revision = build_data['revision']
+            builder_type = build_data['builder_type']
+            abi = build_data['abi']
+            sdk = build_data['sdk']
+            comments = build_data['comments']
+            if repo != 'try':
+                tests = PhoneTest.match(repo=repo, build_type=build_type, build_abi=abi, build_sdk=sdk)
             else:
                 # Autophone try builds will have a comment of the form:
                 # try: -b o -p android-api-9,android-api-15 -u autophone-smoke,autophone-s1s2 -t none
@@ -943,16 +951,30 @@ ok
                 # since Autophone can not handle the load.
                 tests = []
                 reTests = re.compile('try:.* (?:-u|--unittests) (.*) -t.*')
-                match = reTests.match(msg['comments'])
+                match = reTests.match(comments)
                 if match:
                     test_names = [t for t in match.group(1).split(',')
                                   if t.startswith('autophone-') and
                                   t != 'autophone-tests']
                     for test_name in test_names:
                         tests.extend(PhoneTest.match(test_name=test_name,
-                                                     abi=abi,
-                                                     sdk=sdk))
-            job_data = {'build': build_url, 'abi': abi, 'sdk': sdk, 'tests': tests}
+                                                     repo=repo,
+                                                     build_type=build_type,
+                                                     build_abi=abi,
+                                                     build_sdk=sdk))
+            job_data = {
+                'build': build_url,
+                'build_id': build_id,
+                'build_type': build_type,
+                'changeset': changeset,
+                'revision': revision,
+                'builder_type': builder_type,
+                'platform': platform,
+                'repo': repo,
+                'abi': abi,
+                'sdk': sdk,
+                'tests': tests,
+            }
             self.new_job(job_data)
         finally:
             self.lock_release()
@@ -967,8 +989,7 @@ ok
             if machine_name not in self.phone_workers:
                 logger.warning('on_jobaction: unknown device %s' % machine_name)
                 return
-            logger.debug('on_jobaction: found %s' % json.dumps(
-                job_action, sort_keys=True, indent=4))
+            logger.debug('on_jobaction: found %s' % job_action)
 
             p = self.phone_workers[machine_name]
             if job_action['action'] == 'cancel':
@@ -984,11 +1005,25 @@ ok
                         'on_jobaction: No test found for %s' %
                         json.dumps(job_action, sort_keys=True, indent=4))
                 else:
-                    job_data = {
-                        'build': job_action['build_url'],
-                        'tests': [test],
-                    }
-                    self.new_job(job_data)
+                    build_url = job_action['build_url']
+                    build_data = utils.get_build_data(build_url, builder_type=job_action['builder_type'])
+                    if not build_data:
+                        logger.debug('on_jobaction: ignoring missing build_data on url %s' % build_url)
+                    else:
+                        job_data = {
+                            'build': build_data['url'],
+                            'build_id': build_data['id'],
+                            'build_type': build_data['build_type'],
+                            'changeset': build_data['changeset'],
+                            'revision': build_data['revision'],
+                            'builder_type': build_data['builder_type'],
+                            'platform': build_data['platform'],
+                            'repo': build_data['repo'],
+                            'abi': build_data['abi'],
+                            'sdk': build_data['sdk'],
+                            'tests': [test],
+                        }
+                        self.new_job(job_data)
             else:
                 logger.warning('on_jobaction: unknown action %s' %
                                     job_action['action'])

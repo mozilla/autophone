@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import calendar
 import datetime
 import glob
 import json
@@ -12,6 +13,7 @@ import tempfile
 import time
 import urlparse
 
+import pytz
 from thclient import (TreeherderClient, TreeherderJobCollection, TreeherderJob)
 
 import utils
@@ -26,7 +28,28 @@ CRASH_RE = re.compile('.+ application crashed \[@ (.+)\]$')
 logger = logging.getLogger()
 
 def timestamp_now():
-    return int(time.mktime(datetime.datetime.now().timetuple()))
+    return int(calendar.timegm(datetime.datetime.now(tz=pytz.utc).timetuple()))
+
+
+def platform(architecture, platform, sdk):
+    if architecture == 'x86':
+        return '%s-x86' % platform
+    return '%s-%s-%s' % (platform,
+                         architecture,
+                         ''.join(sdk.split('-')))
+
+
+def architecture(abi):
+    if 'armeabi-v7a' in abi:
+        return 'armv7'
+    if 'arm64-v8a' in abi:
+        return 'armv8'
+    return 'unknown'
+
+
+def buildername(platform, tree, build_type, test_name):
+    return "%s %s %s %s" % (
+        platform, tree, build_type, test_name)
 
 
 class TestState(object):
@@ -123,19 +146,70 @@ class AutophoneTreeherder(object):
             logger.debug('AutophoneTreeherder shared_lock.release')
             self.shared_lock.release()
 
-    def get_revision(self, revision):
-        # Extract the revision id from the changeset url.
-        re_revision = re.compile(r'http.*/rev/(.*)')
-        match = re_revision.match(revision)
-        if match:
-            revision = match.group(1)
-        else:
-            logger.info('AutophoneTreeherder did not find expected changeset url format')
+    def _create_job(self, tjc, machine, build_url, project, revision, build_type, build_abi, build_platform, build_sdk, builder_type, t):
+        """Create job to be sent to Treeherder
+
+        :param tjc: treeherder job collection instance
+        :param machine: machine id
+        :param build_url: url to build being tested.
+        :param project: repository of build.
+        :param revision: Either a URL to the changeset or the revision id.
+        :param t: test to be reported.
+        """
+        logger.debug('AutophoneTreeherder.create_job: %s' % t)
+        assert self.url and revision, 'AutophoneTreeherder.create_job: no url/revision'
+
         if len(revision) != 40:
             logger.warning('AutophoneTreeherder using revision with length %d: %s' % (len(revision), revision))
-        return revision
 
-    def submit_pending(self, machine, build_url, project, revision, tests=[]):
+        logger.info('creating Treeherder job %s for %s %s, '
+                    'revision: %s' % (
+                        t.job_guid, t.name, project,
+                        revision))
+
+        logger.debug('AutophoneTreeherder.create_job: '
+                     'test config_file=%s, config sections=%s' % (
+                         t.config_file, t.cfg.sections()))
+
+        tj = tjc.get_job()
+        tj.add_tier(self.options.treeherder_tier)
+        tj.add_revision(revision)
+        tj.add_project(project)
+        tj.add_job_guid(t.job_guid)
+        tj.add_job_name(t.job_name)
+        tj.add_job_symbol(t.job_symbol)
+        tj.add_group_name(t.group_name)
+        tj.add_group_symbol(t.group_symbol)
+        tj.add_product_name('fennec')
+
+        tj.add_machine(machine)
+        build_platform = platform(architecture(build_abi),
+                                  build_platform,
+                                  build_sdk)
+        build_architecture = architecture(build_abi)
+        machine_platform = platform(architecture(t.phone.abi),
+                                   t.phone.os,
+                                   build_sdk)
+                                   #t.phone.sdk)
+        machine_architecture = architecture(t.phone.abi)
+        tj.add_build_info('android', build_platform, build_architecture)
+        tj.add_machine_info('android', machine_platform, machine_architecture)
+        tj.add_option_collection({build_type: True})
+
+        # Fake the buildername from buildbot...
+        tj.add_artifact('buildapi', 'json', {
+            'buildername': buildername(machine_platform, project, build_type, t.name)})
+        # Create a 'privatebuild' artifact for storing information
+        # regarding the build.
+        tj.add_artifact('privatebuild', 'json', {
+            'build_url': build_url,
+            'config_file': t.config_file,
+            'chunk': t.chunk,
+            'builder_type': builder_type})
+
+        return tj
+
+    def submit_pending(self, machine, build_url, project, revision, build_type, build_abi, build_platform, build_sdk, builder_type, tests=[]):
         """Submit tests pending notifications to Treeherder
 
         :param machine: machine id
@@ -149,54 +223,22 @@ class AutophoneTreeherder(object):
             logger.debug('AutophoneTreeherder.submit_pending: no url/revision')
             return
 
-        revision = self.get_revision(revision)
-
         tjc = TreeherderJobCollection()
 
         for t in tests:
+            logger.debug('AutophoneTreeherder.submit_pending: '
+                         'for %s %s' % (t.name, project))
+
             t.message = None
             t.submit_timestamp = timestamp_now()
             t.job_details = []
 
-            logger.info('creating Treeherder job %s for %s %s, '
-                        'revision: %s' % (
-                            t.job_guid, t.name, project,
-                            revision))
-
-            logger.debug('AutophoneTreeherder.submit_pending: '
-                         'test config_file=%s, config sections=%s' % (
-                             t.config_file, t.cfg.sections()))
-
-            tj = tjc.get_job()
-            tj.add_tier(self.options.treeherder_tier)
-            tj.add_revision(revision)
-            tj.add_project(project)
-            tj.add_job_guid(t.job_guid)
-            tj.add_job_name(t.job_name)
-            tj.add_job_symbol(t.job_symbol)
-            tj.add_group_name(t.group_name)
-            tj.add_group_symbol(t.group_symbol)
-            tj.add_product_name('fennec')
+            tj = self._create_job(tjc, machine, build_url, project, revision, build_type, build_abi, build_platform, build_sdk, builder_type, t)
             tj.add_state(TestState.PENDING)
             tj.add_submit_timestamp(t.submit_timestamp)
             # XXX need to send these until Bug 1066346 fixed.
             tj.add_start_timestamp(0)
             tj.add_end_timestamp(0)
-            #
-            tj.add_machine(machine)
-            tj.add_build_info('android', t.phone.platform, t.phone.architecture)
-            tj.add_machine_info('android',t.phone.platform, t.phone.architecture)
-            tj.add_option_collection({t.build.type: True})
-
-            # Fake the buildername from buildbot...
-            tj.add_artifact('buildapi', 'json', {
-                'buildername': t.get_buildername(project)})
-            # Create a 'privatebuild' artifact for storing information
-            # regarding the build.
-            tj.add_artifact('privatebuild', 'json', {
-                'build_url': build_url,
-                'config_file': t.config_file,
-                'chunk': t.chunk})
             tjc.add(tj)
 
         logger.debug('AutophoneTreeherder.submit_pending: tjc: %s' % (
@@ -204,7 +246,7 @@ class AutophoneTreeherder(object):
 
         self.queue_request(machine, project, tjc)
 
-    def submit_running(self, machine, build_url, project, revision, tests=[]):
+    def submit_running(self, machine, build_url, project, revision, build_type, build_abi, build_platform, build_sdk, builder_type, tests=[]):
         """Submit tests running notifications to Treeherder
 
         :param machine: machine id
@@ -218,8 +260,6 @@ class AutophoneTreeherder(object):
             logger.debug('AutophoneTreeherder.submit_running: no url/revision')
             return
 
-        revision = self.get_revision(revision)
-
         tjc = TreeherderJobCollection()
 
         for t in tests:
@@ -229,33 +269,12 @@ class AutophoneTreeherder(object):
             t.submit_timestamp = timestamp_now()
             t.start_timestamp = timestamp_now()
 
-            tj = tjc.get_job()
-            tj.add_tier(self.options.treeherder_tier)
-            tj.add_revision(revision)
-            tj.add_project(project)
-            tj.add_job_guid(t.job_guid)
-            tj.add_job_name(t.job_name)
-            tj.add_job_symbol(t.job_symbol)
-            tj.add_group_name(t.group_name)
-            tj.add_group_symbol(t.group_symbol)
-            tj.add_product_name('fennec')
+            tj = self._create_job(tjc, machine, build_url, project, revision, build_type, build_abi, build_platform, build_sdk, builder_type, t)
             tj.add_state(TestState.RUNNING)
             tj.add_submit_timestamp(t.submit_timestamp)
             tj.add_start_timestamp(t.start_timestamp)
             # XXX need to send these until Bug 1066346 fixed.
             tj.add_end_timestamp(0)
-            #
-            tj.add_machine(machine)
-            tj.add_build_info('android', t.phone.platform, t.phone.architecture)
-            tj.add_machine_info('android',t.phone.platform, t.phone.architecture)
-            tj.add_option_collection({t.build.type: True})
-
-            tj.add_artifact('buildapi', 'json', {
-                'buildername': t.get_buildername(project)})
-            tj.add_artifact('privatebuild', 'json', {
-                'build_url': build_url,
-                'config_file': t.config_file,
-                'chunk': t.chunk})
             tjc.add(tj)
 
         logger.debug('AutophoneTreeherder.submit_running: tjc: %s' %
@@ -263,8 +282,7 @@ class AutophoneTreeherder(object):
 
         self.queue_request(machine, project, tjc)
 
-    def submit_complete(self, machine, build_url, project, revision,
-                        tests=None):
+    def submit_complete(self, machine, build_url, project, revision, build_type, build_abi, build_platform, build_sdk, builder_type, tests=None):
         """Submit test results for the worker's current job to Treeherder.
 
         :param machine: machine id
@@ -279,13 +297,24 @@ class AutophoneTreeherder(object):
             logger.debug('AutophoneTreeherder.submit_complete: no url/revision')
             return
 
-        revision = self.get_revision(revision)
-
         tjc = TreeherderJobCollection()
 
         for t in tests:
             logger.debug('AutophoneTreeherder.submit_complete '
                          'for %s %s' % (t.name, project))
+
+            t.end_timestamp = timestamp_now()
+            # A usercancelled job may not have a start_timestamp
+            # since it may have been cancelled before it started.
+            if not t.start_timestamp:
+                t.start_timestamp = t.end_timestamp
+
+            tj = self._create_job(tjc, machine, build_url, project, revision, build_type, build_abi, build_platform, build_sdk, builder_type, t)
+            tj.add_state(TestState.COMPLETED)
+            tj.add_result(t.test_result.status)
+            tj.add_submit_timestamp(t.submit_timestamp)
+            tj.add_start_timestamp(t.start_timestamp)
+            tj.add_end_timestamp(t.end_timestamp)
 
             t.job_details.append({
                 'value': os.path.basename(t.config_file),
@@ -300,12 +329,6 @@ class AutophoneTreeherder(object):
                 'value': utils.host(),
                 'content_type': 'text',
                 'title': 'Host'})
-
-            t.end_timestamp = timestamp_now()
-            # A usercancelled job may not have a start_timestamp
-            # since it may have been cancelled before it started.
-            if not t.start_timestamp:
-                t.start_timestamp = t.end_timestamp
 
             if t.test_result.failed == 0:
                 failed = '0'
@@ -325,8 +348,6 @@ class AutophoneTreeherder(object):
                     'content_type': 'link',
                     'title': 'phonedash'
                     })
-
-            tj = tjc.get_job()
 
             # Attach logs, ANRs, tombstones, etc.
 
@@ -484,25 +505,6 @@ class AutophoneTreeherder(object):
                             'content_type': 'text',
                             'title': 'Error'})
 
-            tj.add_tier(self.options.treeherder_tier)
-            tj.add_revision(revision)
-            tj.add_project(project)
-            tj.add_job_guid(t.job_guid)
-            tj.add_job_name(t.job_name)
-            tj.add_job_symbol(t.job_symbol)
-            tj.add_group_name(t.group_name)
-            tj.add_group_symbol(t.group_symbol)
-            tj.add_product_name('fennec')
-            tj.add_state(TestState.COMPLETED)
-            tj.add_result(t.test_result.status)
-            tj.add_submit_timestamp(t.submit_timestamp)
-            tj.add_start_timestamp(t.start_timestamp)
-            tj.add_end_timestamp(t.end_timestamp)
-            tj.add_machine(machine)
-            tj.add_build_info('android', t.phone.platform, t.phone.architecture)
-            tj.add_machine_info('android',t.phone.platform, t.phone.architecture)
-            tj.add_option_collection({t.build.type: True})
-
             error_lines = []
             errors_truncated = False
             for failure in t.test_result.failures:
@@ -557,13 +559,6 @@ class AutophoneTreeherder(object):
             logger.debug('AutophoneTreeherder.submit_complete: text_log_summary: %s' % json.dumps(text_log_summary))
 
             tj.add_artifact('Job Info', 'json', {'job_details': t.job_details})
-            tj.add_artifact('buildapi', 'json', {
-                'buildername': t.get_buildername(project)})
-
-            tj.add_artifact('privatebuild', 'json', {
-                'build_url': build_url,
-                'config_file': t.config_file,
-                'chunk': t.chunk})
 
             if hasattr(t, 'perfherder_artifact') and t.perfherder_artifact:
                 jsondata = json.dumps({'performance_data': t.perfherder_artifact})

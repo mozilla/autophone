@@ -86,12 +86,6 @@ class UnitTest(PhoneTest):
         symbols_path = self.build.symbols
         if symbols_path and not os.path.exists(symbols_path):
             symbols_path = None
-        re_revision = re.compile(r'http.*/rev/(.*)')
-        match = re_revision.match(self.build.revision)
-        if match:
-            revision = match.group(1)
-        else:
-            revision = self.build.revision
 
         # Check that the device is accessible and that its network is up.
         ping_msg = self.worker_subprocess.ping(test=self, require_ip_address=True)
@@ -113,7 +107,7 @@ class UnitTest(PhoneTest):
         self.parms['app_name'] = self.build.app_name
         self.parms['build_dir'] = build_dir
         self.parms['symbols_path'] = symbols_path
-        self.parms['revision'] = revision
+        self.parms['revision'] = self.build.revision
         self.parms['buildid'] = self.build.id
         self.parms['tree'] = self.build.tree
 

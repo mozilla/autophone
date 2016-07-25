@@ -212,7 +212,7 @@ class S1S2Test(PerfTest):
                          self.phone.id,
                          self.build.tree,
                          self.build.id,
-                         self.build.revision))
+                         self.build.changeset))
                     self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
                                       'No measurements detected.',
                                       PhoneTestResult.BUSTED)
@@ -448,7 +448,7 @@ class S1S2Test(PerfTest):
 
         if base_time and start_time and throbber_start_time and throbber_stop_time:
             parse = lambda y, t: datetime.datetime.strptime('%4d-%s' % (y, t), '%Y-%m-%d %H:%M:%S.%f')
-            year = datetime.datetime.now().year
+            year = datetime.datetime.utcnow().year
             base_time = parse(year, base_time)
             start_time = parse(year, start_time)
             throbber_start_time = parse(year, throbber_start_time)
