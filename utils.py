@@ -285,6 +285,48 @@ def get_build_data(build_url, builder_type='taskcluster'):
     return build_data
 
 
+def get_changeset_dirs(changeset_url):
+    changeset_dirs = set()
+    url = changeset_url.replace('rev/', 'json-pushes?changeset=')
+    pushlog = get_remote_json(url)
+
+    if not pushlog:
+        logger.debug('Could not find pushlog at %s' %  url)
+        return changeset_dirs
+
+    for pushid in pushlog:
+        try:
+            changesets = pushlog[pushid]['changesets']
+        except:
+            # We normally see a 'user' in this json blob, more might
+            # be added in the future.
+            continue
+        for changeset in changesets:
+            #TODO: When Bug 1286353 is fixed, use json-rev for this,
+            #      as this requires retrieving and scanning the whole
+            #      diff.
+            url = changeset_url.replace('rev', 'raw-rev')
+            diff = get_remote_text(url)
+            if diff:
+                for line in diff.split('\n'):
+                    if line.find('/dev/null') != -1:
+                        continue
+                    if line.startswith('+++') or line.startswith('---'):
+                        # skip markers, space and leading slash
+                        path = os.path.dirname(line[6:])
+                        changeset_dirs.add(path)
+            else:
+                logger.debug('Could not find diff for revision %s at %s' %
+                             (changeset, url))
+                # We return an empty set here to force the test to be
+                # run, in case the missing diff here contained files
+                # we care about.
+                return set()
+
+    logger.debug('get_changeset_dirs: %s' % changeset_dirs)
+    return changeset_dirs
+
+
 def generate_guid():
     return str(uuid.uuid4())
 

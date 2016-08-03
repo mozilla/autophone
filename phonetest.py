@@ -189,6 +189,7 @@ class PhoneTest(object):
     # to lookup tests.
 
     instances = {}
+    has_run_if_changed = False
 
     @classmethod
     def lookup(cls, phoneid, config_file, chunk):
@@ -200,7 +201,7 @@ class PhoneTest(object):
     @classmethod
     def match(cls, tests=None, test_name=None, phoneid=None,
               config_file=None, job_guid=None,
-              repo=None, build_type=None, build_abi=None, build_sdk=None):
+              repo=None, build_type=None, build_abi=None, build_sdk=None, changeset_dirs=None):
 
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
                      'config_file: %s, job_guid: %s, '
@@ -214,6 +215,23 @@ class PhoneTest(object):
             tests = [PhoneTest.instances[key] for key in PhoneTest.instances.keys()]
 
         for test in tests:
+            # If changeset_dirs is empty, we will run the tests anyway.
+            # This is safer in terms of catching regressions and extra tests
+            # being run are more likely to be noticed and fixed than tests
+            # not being run that should have been.
+            if test.run_if_changed and changeset_dirs:
+                matched = False
+                for cd in changeset_dirs:
+                    if matched:
+                        break
+                    for td in test.run_if_changed:
+                        if cd.startswith(td):
+                            logger.debug('PhoneTest.match: test %s dir %s matched changeset_dirs %s' % (test, td, cd))
+                            matched = True
+                            break
+                if not matched:
+                    continue
+
             if (test_name and
                 test_name != test.name and
                 "%s%s" % (test_name, test.name_suffix) != test.name):
@@ -364,6 +382,14 @@ class PhoneTest(object):
                 self._paths['profile'] += '/'
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             pass
+        self.run_if_changed = set()
+        try:
+            dirs = self.cfg.get('runtests', 'run_if_changed')
+            self.run_if_changed = set([d.strip() for d in dirs.split(',')])
+            if self.run_if_changed:
+                PhoneTest.has_run_if_changed = True
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            pass
         if 'profile' in self._paths:
             self.profile_path = self._paths['profile']
         # _pushes = {'sourcepath' : 'destpath', ...}
@@ -415,7 +441,14 @@ class PhoneTest(object):
     def remove(self):
         key = '%s:%s:%s' % (self.phone.id, self.config_file, self.chunk)
         if key in PhoneTest.instances:
+            had_run_if_changed = PhoneTest.instances[key].run_if_changed
             del PhoneTest.instances[key]
+            if had_run_if_changed:
+                PhoneTest.has_run_if_changed = False
+                for key in PhoneTest.instances.keys():
+                    if PhoneTest.instances[key].run_if_changed:
+                        PhoneTest.has_run_if_changed = True
+                        break
 
     @property
     def preferences(self):

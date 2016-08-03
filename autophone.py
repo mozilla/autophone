@@ -870,11 +870,16 @@ ok
 
         build_data = trigger_data['build_data']
         build_url = build_data['url']
+        changeset = build_data['changeset']
         repo = build_data['repo']
         build_type = build_data['build_type']
         abi = build_data['abi']
         sdk = build_data['sdk']
         test_names = trigger_data['test_names']
+
+        changeset_dirs = set()
+        if PhoneTest.has_run_if_changed:
+            changeset_dirs = utils.get_changeset_dirs(changeset)
 
         # If we can not determine the sdk, default to all, abi to arm.
         if not sdk:
@@ -902,7 +907,8 @@ ok
                                              repo=repo,
                                              build_type=build_type,
                                              build_abi=abi,
-                                             build_sdk=sdk))
+                                             build_sdk=sdk,
+                                             changeset_dirs=changeset_dirs))
         if tests:
             job_data = {
                 'build': build_url,
@@ -942,8 +948,11 @@ ok
             abi = build_data['abi']
             sdk = build_data['sdk']
             comments = build_data['comments']
+            changeset_dirs = set()
+            if PhoneTest.has_run_if_changed:
+                changeset_dirs = utils.get_changeset_dirs(changeset)
             if repo != 'try':
-                tests = PhoneTest.match(repo=repo, build_type=build_type, build_abi=abi, build_sdk=sdk)
+                tests = PhoneTest.match(repo=repo, build_type=build_type, build_abi=abi, build_sdk=sdk, changeset_dirs=changeset_dirs)
             else:
                 # Autophone try builds will have a comment of the form:
                 # try: -b o -p android-api-9,android-api-15 -u autophone-smoke,autophone-s1s2 -t none
