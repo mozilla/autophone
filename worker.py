@@ -364,9 +364,9 @@ class PhoneWorkerSubProcess(object):
         return success
 
     def start_usbwatchdog(self):
-        if not self.dm.is_app_installed(self.options.usbwatchdog_appname):
-            return
         try:
+            if not self.dm.is_app_installed(self.options.usbwatchdog_appname):
+                return
             debugarg = '--esn debug' if self.options.loglevel == 'DEBUG' else ''
 
             self.dm.shell_output(
