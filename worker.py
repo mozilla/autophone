@@ -11,6 +11,7 @@ import logging.handlers
 import multiprocessing
 import os
 import posixpath
+import pytz
 import re
 import sys
 import tempfile
@@ -52,7 +53,7 @@ class Crashes(object):
         self.crash_limit = crash_limit
 
     def add_crash(self):
-        self.crash_times.append(datetime.datetime.utcnow())
+        self.crash_times.append(datetime.datetime.now(tz=pytz.utc))
         self.crash_times = [x for x in self.crash_times
                             if self.crash_times[-1] - x <= self.crash_window]
 
@@ -68,7 +69,7 @@ class PhoneTestMessage(object):
         self.build = build
         self.phone_status = phone_status
         self.message = message
-        self.timestamp = datetime.datetime.utcnow().replace(microsecond=0)
+        self.timestamp = datetime.datetime.now(tz=pytz.utc).replace(microsecond=0)
 
     def __str__(self):
         s = '<%s> %s (%s)' % (self.timestamp.isoformat(), self.phone.id,
@@ -204,7 +205,7 @@ class PhoneWorker(object):
 
     def status(self):
         response = ''
-        now = datetime.datetime.utcnow().replace(microsecond=0)
+        now = datetime.datetime.now(tz=pytz.utc).replace(microsecond=0)
         response += 'phone %s (%s):\n' % (self.phone.id, self.phone.serial)
         response += '  state %s\n' % self.state
         response += '  debug level %d\n' % self.options.debug
@@ -544,7 +545,7 @@ class PhoneWorkerSubProcess(object):
                              'Phone %s is now usable.' % self.phone.id)
             self.update_status(phone_status=PhoneStatus.OK)
 
-        self.last_ping = datetime.datetime.utcnow()
+        self.last_ping = datetime.datetime.now(tz=pytz.utc)
         return msg
 
     def check_battery(self, test):
@@ -590,7 +591,7 @@ class PhoneWorkerSubProcess(object):
                            message='%s %s' % (job['tree'], job['build_id']))
         self.loggerdeco.info('Installing build %s.' % self.build.id)
         # Record start time for the install so can track how long this takes.
-        start_time = datetime.datetime.utcnow()
+        start_time = datetime.datetime.now(tz=pytz.utc)
         message = ''
         for attempt in range(1, self.options.phone_retry_limit+1):
             uninstalled = False
@@ -642,7 +643,7 @@ class PhoneWorkerSubProcess(object):
             try:
                 self.dm.install_app(os.path.join(self.build.dir,
                                                 'build.apk'))
-                stop_time = datetime.datetime.utcnow()
+                stop_time = datetime.datetime.now(tz=pytz.utc)
                 self.loggerdeco.info('Install build %s elapsed time: %s' % (
                     (job['build_url'], stop_time - start_time)))
                 return {'success': True, 'message': ''}
@@ -812,7 +813,7 @@ class PhoneWorkerSubProcess(object):
     def handle_timeout(self):
         if (not self.is_disabled() and
             (not self.last_ping or
-             (datetime.datetime.utcnow() - self.last_ping >
+             (datetime.datetime.now(tz=pytz.utc) - self.last_ping >
               datetime.timedelta(seconds=self.options.phone_ping_interval)))):
             self.ping()
 
@@ -838,7 +839,7 @@ class PhoneWorkerSubProcess(object):
             return
         self.build = BuildMetadata().from_json(cache_response['metadata'])
         self.loggerdeco.info('Starting job %s.' % job['build_url'])
-        starttime = datetime.datetime.utcnow()
+        starttime = datetime.datetime.now(tz=pytz.utc)
         if self.run_tests(job):
             self.loggerdeco.info('Job completed.')
             self.jobs.job_completed(job['id'])
@@ -860,7 +861,7 @@ class PhoneWorkerSubProcess(object):
         if self.is_ok() and not self.is_disabled():
             self.update_status(phone_status=PhoneStatus.IDLE,
                                build=self.build)
-        stoptime = datetime.datetime.utcnow()
+        stoptime = datetime.datetime.now(tz=pytz.utc)
         self.loggerdeco.info('Job elapsed time: %s' % (stoptime - starttime))
 
     def handle_cmd(self, request, current_test=None):
