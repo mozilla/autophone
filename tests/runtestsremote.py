@@ -237,6 +237,7 @@ class UnitTest(PhoneTest):
 
             test_args = [
                 'reftest/remotereftest.py',
+                '--suite=reftest',
                 '--ignore-window-size',
                 '%s' % self.parms['test_manifest'],
                 ]
@@ -245,6 +246,7 @@ class UnitTest(PhoneTest):
 
             test_args = [
                 'reftest/remotereftest.py',
+                '--suite=jstestbrowser',
                 '--ignore-window-size',
                 '--extra-profile-file=jsreftest/tests/user.js',
                 '%s' % self.parms['test_manifest'],
@@ -254,6 +256,7 @@ class UnitTest(PhoneTest):
 
             test_args = [
                 'reftest/remotereftest.py',
+                '--suite=crashtest',
                 '--ignore-window-size',
                 '%s' % self.parms['test_manifest'],
                 ]
