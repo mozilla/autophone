@@ -1328,7 +1328,7 @@ if __name__ == '__main__':
                       help='The repos to test. '
                       'One of b2g-inbound, fx-team, mozilla-aurora, '
                       'mozilla-beta, mozilla-central, mozilla-inbound, '
-                      'mozilla-release, try. To specify multiple '
+                      'autoland, mozilla-release, try. To specify multiple '
                       'repos, specify them with additional --repo options. '
                       'Defaults to mozilla-central.')
     parser.add_option('--buildtype',

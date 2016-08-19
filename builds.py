@@ -35,6 +35,7 @@ from build_dates import (TIMESTAMP, DIRECTORY_DATE, DIRECTORY_DATETIME,
 logger = logging.getLogger()
 
 repo_urls = {
+    'autoland': 'http://hg.mozilla.org/integration/autoland/',
     'b2g-inbound': 'http://hg.mozilla.org/integration/b2g-inbound/',
     'fx-team': 'http://hg.mozilla.org/integration/fx-team/',
     'mozilla-aurora': 'http://hg.mozilla.org/releases/mozilla-aurora/',
@@ -73,7 +74,7 @@ def get_revision_datetimes(repo, first_revision, last_revision):
     arguments:
     repo            - name of repository. For example, one of
                       mozilla-central, mozilla-aurora, mozilla-beta,
-                      mozilla-inbound, fx-team, b2g-inbound
+                      mozilla-inbound, autoland, fx-team, b2g-inbound
     first_revision  - string.
     last_revision - string.
 
