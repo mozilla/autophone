@@ -20,6 +20,7 @@ def command_str(build, test_names, devices):
     # Dates are not json serializable. We don't need the build date in
     # the trigger_jobs in autophone, so let's just delete it.
     del build['date']
+    build['changeset_dirs'] = build['changeset_dirs']
     job_data = {
         'build_data': build,
         'test_names': test_names or [],

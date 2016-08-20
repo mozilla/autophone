@@ -41,6 +41,7 @@ class Jobs(object):
                          'build_platform text, '
                          'build_sdk text, '
                          'changeset text, '
+                         'changeset_dirs text, '
                          'tree text, '
                          'revision text, '
                          'builder_type text, '
@@ -149,13 +150,13 @@ class Jobs(object):
         self._close_connection(conn)
 
     def new_job(self, build_url, build_id=None, build_type=None, build_abi=None,
-                build_platform=None, build_sdk=None, changeset=None, tree=None,
-                revision=None, builder_type=None, tests=None,
+                build_platform=None, build_sdk=None, changeset=None, changeset_dirs=[],
+                tree=None, revision=None, builder_type=None, tests=None,
                 enable_unittests=False, device=None,
                 attempts=0):
-        logger.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s %s %s %s %s %s' % (
+        logger.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s' % (
             build_url, build_id, build_type, build_abi, build_platform, build_sdk,
-            changeset, tree, revision, builder_type,
+            changeset, changeset_dirs, tree, revision, builder_type,
             tests, enable_unittests, device, attempts))
         if not device:
             device = self.default_device
@@ -174,11 +175,12 @@ class Jobs(object):
             if job:
                 job_id = job[0]
         if not job_id:
+            changeset_dirs = json.dumps(changeset_dirs)
             job_cursor = self._execute_sql(
                 conn,
-                'insert into jobs values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'insert into jobs values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 values=(None, now, None, build_url, build_id, build_type, build_abi,
-                        build_platform, build_sdk, changeset, tree,
+                        build_platform, build_sdk, changeset, changeset_dirs, tree,
                         revision, builder_type, enable_unittests, attempts, device))
             job_id = job_cursor.lastrowid
             job_cursor.close()
@@ -264,7 +266,7 @@ class Jobs(object):
             conn,
             'select id,created,last_attempt,build_url,'
             'build_id,build_type,build_abi,build_platform,build_sdk,'
-            'changeset,tree,revision,builder_type,'
+            'changeset,changeset_dirs,tree,revision,builder_type,'
             'enable_unittests,attempts,instr(build_url,"try") as istry '
             'from jobs where device=? order by istry desc, '
             'created %s' % order,
@@ -286,12 +288,13 @@ class Jobs(object):
                'build_platform': job_row[7],
                'build_sdk': job_row[8],
                'changeset': job_row[9],
-               'tree': job_row[10],
-               'revision': job_row[11],
-               'builder_type': job_row[12],
-               'enable_unittests': job_row[13],
-               'attempts': job_row[14],
-               'istry': job_row[15]}
+               'changeset_dirs': json.loads(job_row[10]),
+               'tree': job_row[11],
+               'revision': job_row[12],
+               'builder_type': job_row[13],
+               'enable_unittests': job_row[14],
+               'attempts': job_row[15],
+               'istry': job_row[16]}
         job['attempts'] += 1
         job['last_attempt'] = datetime.datetime.utcnow().isoformat()
 

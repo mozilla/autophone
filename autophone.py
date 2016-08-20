@@ -468,6 +468,7 @@ class AutoPhone(object):
                                           build_sdk=job_data['sdk'],
                                           tree=job_data['repo'],
                                           changeset=job_data['changeset'],
+                                          changeset_dirs=job_data['changeset_dirs'],
                                           revision=job_data['revision'],
                                           builder_type=job_data['builder_type'],
                                           tests=runnable_tests,
@@ -870,16 +871,12 @@ ok
 
         build_data = trigger_data['build_data']
         build_url = build_data['url']
-        changeset = build_data['changeset']
+        changeset_dirs = build_data['changeset_dirs']
         repo = build_data['repo']
         build_type = build_data['build_type']
         abi = build_data['abi']
         sdk = build_data['sdk']
         test_names = trigger_data['test_names']
-
-        changeset_dirs = set()
-        if PhoneTest.has_run_if_changed:
-            changeset_dirs = utils.get_changeset_dirs(changeset)
 
         # If we can not determine the sdk, default to all, abi to arm.
         if not sdk:
@@ -919,6 +916,7 @@ ok
                 'sdk': sdk,
                 'repo': repo,
                 'changeset': build_data['changeset'],
+                'changeset_dirs': build_data['changeset_dirs'],
                 'revision': build_data['revision'],
                 'builder_type': build_data['builder_type'],
                 'tests': tests,
@@ -943,14 +941,12 @@ ok
             build_id = build_data['id']
             build_type = build_data['build_type']
             changeset = build_data['changeset']
+            changeset_dirs = build_data['changeset_dirs']
             revision = build_data['revision']
             builder_type = build_data['builder_type']
             abi = build_data['abi']
             sdk = build_data['sdk']
             comments = build_data['comments']
-            changeset_dirs = set()
-            if PhoneTest.has_run_if_changed:
-                changeset_dirs = utils.get_changeset_dirs(changeset)
             if repo != 'try':
                 tests = PhoneTest.match(repo=repo, build_type=build_type, build_abi=abi, build_sdk=sdk, changeset_dirs=changeset_dirs)
             else:
@@ -976,6 +972,7 @@ ok
                 'build_id': build_id,
                 'build_type': build_type,
                 'changeset': changeset,
+                'changeset_dirs': changeset_dirs,
                 'revision': revision,
                 'builder_type': builder_type,
                 'platform': platform,
@@ -1024,6 +1021,7 @@ ok
                             'build_id': build_data['id'],
                             'build_type': build_data['build_type'],
                             'changeset': build_data['changeset'],
+                            'changeset_dirs': build_data['changeset_dirs'],
                             'revision': build_data['revision'],
                             'builder_type': build_data['builder_type'],
                             'platform': build_data['platform'],

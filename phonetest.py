@@ -225,7 +225,7 @@ class PhoneTest(object):
                     if matched:
                         break
                     for td in test.run_if_changed:
-                        if cd.startswith(td):
+                        if cd == "" or cd.startswith(td):
                             logger.debug('PhoneTest.match: test %s dir %s matched changeset_dirs %s' % (test, td, cd))
                             matched = True
                             break

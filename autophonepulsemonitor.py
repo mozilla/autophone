@@ -238,28 +238,34 @@ class AutophonePulseMonitor(object):
         return self.listen_thread.is_alive()
 
     def listen(self):
-        if self.verbose:
-            logger.debug('AutophonePulseMonitor: start shared_lock.acquire')
+        connect_timeout = 5
+        wait = 30
         connection = None
         restart = True
         while restart:
             restart = False
+            if self.verbose:
+                logger.debug('AutophonePulseMonitor: start shared_lock.acquire')
             self.shared_lock.acquire()
             try:
                 # connection does not connect to the server until
                 # either the connection.connect() method is called
                 # explicitly or until kombu calls it implicitly as
                 # needed.
+                logger.debug('AutophonePulseMonitor: Connection()')
                 connection = Connection(hostname=self.hostname,
                                         userid=self.userid,
                                         password=self.password,
                                         virtual_host=self.virtual_host,
                                         port=DEFAULT_SSL_PORT,
-                                        ssl=True)
+                                        ssl=True,
+                                        connect_timeout=connect_timeout)
+                logger.debug('AutophonePulseMonitor: connection.Consumer()')
                 consumer = connection.Consumer(self.queues,
                                                callbacks=[self.handle_message],
                                                accept=['json'],
                                                auto_declare=False)
+                logger.debug('AutophonePulseMonitor: bind queues')
                 for queue in self.queues:
                     queue(connection).queue_declare(passive=False)
                     queue(connection).queue_bind()
@@ -272,8 +278,6 @@ class AutophonePulseMonitor(object):
                             connection.drain_events(timeout=self.timeout)
                         except socket.timeout:
                             pass
-                        except KeyboardInterrupt:
-                            raise
                         finally:
                             if self.verbose:
                                 logger.debug('AutophonePulseMonitor shared_lock.acquire')
@@ -283,8 +287,15 @@ class AutophonePulseMonitor(object):
                 logger.exception('AutophonePulseMonitor Exception')
                 if connection:
                     connection.release()
-                restart = True
-                time.sleep(1)
+                if self.verbose:
+                    logger.debug('AutophonePulseMonitor exit shared_lock.release')
+                self.shared_lock.release()
+                if not self._stopping.is_set():
+                    restart = True
+                    time.sleep(wait)
+                if self.verbose:
+                    logger.debug('AutophonePulseMonitor shared_lock.acquire')
+                self.shared_lock.acquire()
             finally:
                 if self.verbose:
                     logger.debug('AutophonePulseMonitor exit shared_lock.release')
@@ -475,6 +486,14 @@ class AutophonePulseMonitor(object):
         run_id = data['runId']
         task_definition = self.taskcluster_queue.task(task_id)
         logger.debug('handle_taskcompleted: task_definition: %s' % task_definition)
+        # Test the repo early in order to prevent unnecessary IO for irrelevent branches.
+        try:
+            MH_BRANCH = task_definition['payload']['env']['MH_BRANCH']
+            if MH_BRANCH not in self.trees:
+                logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip task_definition MH_BRANCH %s' % (task_id, run_id, MH_BRANCH))
+                return
+        except KeyError:
+            pass
         worker_type = task_definition['workerType']
         builder_type = 'buildbot' if worker_type == 'buildbot' else 'taskcluster'
 

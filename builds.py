@@ -1358,6 +1358,7 @@ class BuildCache(object):
                                  id=build_data['id'],
                                  revision=build_data['revision'],
                                  changeset=build_data['changeset'],
+                                 changeset_dirs=build_data['changeset_dirs'],
                                  app_name=procname,
                                  version=ver,
                                  build_type=build_data['build_type'],
@@ -1381,6 +1382,7 @@ class BuildMetadata(object):
                  id=None,
                  revision=None,
                  changeset=None,
+                 changeset_dirs=[],
                  app_name=None,
                  version=None,
                  build_type=None,
@@ -1391,11 +1393,13 @@ class BuildMetadata(object):
                  platform=None,
                  builder_type=None):
         logger.debug('BuildMetadata: url: %s, dir: %s, tree: %s, id: %s, '
-                     'revision: %s, changeset: %s, app_name: %s, version: %s, '
+                     'revision: %s, changeset: %s, changeset_dirs: %s, '
+                     'app_name: %s, version: %s, '
                      'build_type: %s, treeherder_url: %s, abi: %s, sdk: %s, '
-                     'nightly: %s, platform: %s, builder_type: %s' % (
+                     'nightly: %s, platform: %s, builder_type: %s, '
+                     '' % (
                          url, dir, tree, id,
-                         revision, changeset, app_name, version,
+                         revision, changeset, changeset_dirs, app_name, version,
                          build_type, treeherder_url, abi, sdk,
                          nightly, platform, builder_type ))
         self._date = None
@@ -1413,6 +1417,7 @@ class BuildMetadata(object):
         self.type = build_type
         self.revision = revision
         self.changeset = changeset
+        self.changeset_dirs = changeset_dirs
         self.app_name = app_name
         self.version = version
         self.abi = abi
@@ -1446,6 +1451,7 @@ class BuildMetadata(object):
             'id': self.id,
             'revision': self.revision,
             'changeset': self.changeset,
+            'changeset_dirs': json.dumps(self.changeset_dirs),
             'app_name': self.app_name,
             'version': self.version,
             'abi': self.abi,
@@ -1469,6 +1475,7 @@ class BuildMetadata(object):
         self.id = j['id']
         self.revision = j['revision']
         self.changeset = j['changeset']
+        self.changeset_dirs = json.loads(j['changeset_dirs'])
         self.app_name = j['app_name']
         self.version = j['version']
         self.abi = j['abi']

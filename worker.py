@@ -784,6 +784,7 @@ class PhoneWorkerSubProcess(object):
                                   build_platform=job['build_platform'],
                                   build_sdk=job['build_sdk'],
                                   changeset=job['changeset'],
+                                  changeset_dirs=job['changeset_dirs'],
                                   tree=job['tree'],
                                   revision=job['revision'],
                                   builder_type=job['builder_type'],

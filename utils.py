@@ -11,6 +11,7 @@ import os
 import random
 import re
 import time
+import traceback
 import urllib
 import urllib2
 import urlparse
@@ -99,6 +100,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
        'id'           : CCYYMMDDHHMMSS string in UTC
        'date'         : build id as UTC datetime
        'changeset'    : full url to changeset,
+       'changeset_dirs' : set of directories where changes occurred.
        'revision'     : revision,
        'builder_type' : either 'buildbot' or 'taskcluster'
        'repo'         : repository name
@@ -117,6 +119,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
     build_type = None
     platform = None
     nightly = None
+
     if builder_type == 'taskcluster':
         build_id_tz = build_dates.UTC
     else:
@@ -272,6 +275,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
         'id'         : build_id,
         'date'       : build_date.astimezone(build_dates.UTC),
         'changeset'  : changeset,
+        'changeset_dirs': get_changeset_dirs(changeset),
         'revision'   : revision,
         'builder_type': builder_type,
         'repo'       : repo,
@@ -285,27 +289,45 @@ def get_build_data(build_url, builder_type='taskcluster'):
     return build_data
 
 
-def get_changeset_dirs(changeset_url):
-    changeset_dirs = set()
+def get_changeset_dirs(changeset_url, max_changesets=32):
+    """Return a list of the directories changed in this changeset.
+
+    If the number of changesets exceeds max_changesets, return []
+    which will match any directory defined for a test.
+    """
     url = changeset_url.replace('rev/', 'json-pushes?changeset=')
     pushlog = get_remote_json(url)
 
     if not pushlog:
-        logger.debug('Could not find pushlog at %s' %  url)
-        return changeset_dirs
+        logger.debug('get_changeset_dirs: Could not find pushlog at %s' %  url)
+        return []
 
+    dirs_set = set()
     for pushid in pushlog:
+        logger.debug('get_changeset_dirs: %s: pushid %s' % (changeset_url, pushid))
         try:
             changesets = pushlog[pushid]['changesets']
+            logger.debug('get_changeset_dirs: %s: %s changesets %s' % (changeset_url, len(changesets), changesets))
+            if len(changesets) > max_changesets:
+                logger.warning(
+                    'get_changeset_dirs: %s contains %s '
+                    'changesets exceeding max %s. '
+                    'Returning [].' % (
+                        changeset_url, len(changesets),
+                        max_changesets))
+                return []
         except:
             # We normally see a 'user' in this json blob, more might
             # be added in the future.
+            logger.debug('get_changeset_dirs: Exception getting changesets: %s' % traceback.format_exc())
             continue
+        base_url = os.path.dirname(changeset_url).replace('rev', 'raw-rev')
         for changeset in changesets:
             #TODO: When Bug 1286353 is fixed, use json-rev for this,
             #      as this requires retrieving and scanning the whole
             #      diff.
-            url = changeset_url.replace('rev', 'raw-rev')
+            url = os.path.join(base_url, changeset)
+            logger.debug('get_changeset_dirs: diff url: %s' % url)
             diff = get_remote_text(url)
             if diff:
                 for line in diff.split('\n'):
@@ -314,17 +336,18 @@ def get_changeset_dirs(changeset_url):
                     if line.startswith('+++') or line.startswith('---'):
                         # skip markers, space and leading slash
                         path = os.path.dirname(line[6:])
-                        changeset_dirs.add(path)
+                        dirs_set.add(path)
             else:
-                logger.debug('Could not find diff for revision %s at %s' %
-                             (changeset, url))
-                # We return an empty set here to force the test to be
+                logger.debug('get_changeset_dirs: Could not find diff for '
+                             'revision %s at %s' % (changeset, url))
+                # We return an empty list here to force the test to be
                 # run, in case the missing diff here contained files
                 # we care about.
-                return set()
+                return []
 
-    logger.debug('get_changeset_dirs: %s' % changeset_dirs)
-    return changeset_dirs
+    dirs = list(dirs_set)
+    logger.debug('get_changeset_dirs: %s' % dirs)
+    return dirs
 
 
 def generate_guid():
