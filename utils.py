@@ -18,6 +18,8 @@ import urlparse
 import uuid
 import math
 
+from ssl import SSLError
+
 import taskcluster
 
 import build_dates
@@ -414,7 +416,7 @@ def urlretrieve(url, dest, max_attempts=3):
         try:
             urllib.urlretrieve(url, dest)
             break
-        except urllib.ContentTooShortError, e:
+        except (urllib.ContentTooShortError, SSLError), e:
             logger.warning("utils.urlretrieve: %s: Attempt %s: %s" % (
                 url, attempt, e))
             if attempt == max_attempts - 1:
