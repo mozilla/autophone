@@ -130,8 +130,10 @@ def get_treeherder_job_guid(task_id, run_id):
 def get_treeherder_job(repo, job_guid):
     job = None
     try:
-        client = TreeherderClient(protocol='https',
-                                  host='treeherder.mozilla.org')
+        # Note this uses the production instance of Treeherder which
+        # should be alright since we are looking up build jobs which
+        # will always be available on the production instance.
+        client = TreeherderClient()
         jobs = client.get_jobs(repo, job_guid=job_guid)
 
         if len(jobs) == 0 or len(jobs) > 1:

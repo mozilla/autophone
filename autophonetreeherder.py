@@ -79,21 +79,19 @@ class AutophoneTreeherder(object):
             logger.debug('AutophoneTreeherder: no treeherder url')
             return
 
-        self.server = self.options.treeherder_server
-        self.protocol = self.options.treeherder_protocol
-        self.host = self.options.treeherder_server
         self.client_id = self.options.treeherder_client_id
         self.secret = self.options.treeherder_secret
         self.retry_wait = self.options.treeherder_retry_wait
+
+        self.client = TreeherderClient(server_url=self.url,
+                                       client_id=self.client_id,
+                                       secret=self.secret)
 
         logger.debug('AutophoneTreeherder: %s' % self)
 
     def __str__(self):
         # Do not publish sensitive information
         whitelist = ('url',
-                     'server',
-                     'protocol',
-                     'host',
                      'retry_wait')
         d = {}
         for attr in whitelist:
@@ -103,13 +101,9 @@ class AutophoneTreeherder(object):
     def post_request(self, machine, project, job_collection, attempts, last_attempt):
         logger.debug('AutophoneTreeherder.post_request: %s, attempt=%d, last=%s' %
                      (job_collection.__dict__, attempts, last_attempt))
-        client = TreeherderClient(protocol=self.protocol,
-                                  host=self.server,
-                                  client_id=self.client_id,
-                                  secret=self.secret)
 
         try:
-            client.post_collection(project, job_collection)
+            self.client.post_collection(project, job_collection)
             return True
         except Exception, e:
             logger.exception('Error submitting request to Treeherder, attempt=%d, last=%s' %

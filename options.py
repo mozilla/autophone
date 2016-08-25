@@ -2,8 +2,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from urlparse import urlparse
-
 from builds import BuildCache
 from worker import Crashes, PhoneWorker
 
@@ -41,8 +39,6 @@ class AutophoneOptions(object):
         self.treeherder_secret = ''
         self.treeherder_tier = 0
         self.treeherder_retry_wait = 0
-        self._treeherder_protocol = ''
-        self._treeherder_server = ''
         self.reboot_on_error = False
         self.maximum_heartbeat = 0
         self.usbwatchdog_appname = ''
@@ -74,23 +70,6 @@ class AutophoneOptions(object):
         # other
         self.debug = 3
 
-    def _parse_treeherder_url(self):
-        p = urlparse(self.treeherder_url)
-        self._treeherder_protocol = p.scheme
-        self._treeherder_server = p.netloc
-
-    @property
-    def treeherder_protocol(self):
-        if self.treeherder_url and not self._treeherder_protocol:
-            self._parse_treeherder_url()
-        return self._treeherder_protocol
-
-    @property
-    def treeherder_server(self):
-        if self.treeherder_url and not self._treeherder_server:
-            self._parse_treeherder_url()
-        return self._treeherder_server
-
     def __str__(self):
         # Do not publish sensitive information
         whitelist = ('ipaddr',
@@ -117,8 +96,6 @@ class AutophoneOptions(object):
                      'treeherder_url',
                      'treeherder_tier',
                      'treeherder_retry_wait',
-                     '_treeherder_protocol',
-                     '_treeherder_server',
                      'reboot_on_error',
                      'maximum_heartbeat',
                      'device_test_root',
