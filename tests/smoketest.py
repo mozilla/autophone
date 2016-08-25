@@ -5,8 +5,6 @@
 import datetime
 from time import sleep
 
-from mozprofile import FirefoxProfile
-
 from phonetest import PhoneTest, PhoneTestResult
 
 
@@ -19,18 +17,29 @@ class SmokeTest(PhoneTest):
     def run_job(self):
         self.update_status(message='Running smoketest')
 
-        # Read our config file which gives us our number of
-        # iterations and urls that we will be testing
-        self.prepare_phone()
-
         # Clear logcat
         self.logcat.clear()
+
+        is_test_completed = True
+
+        if not self.install_local_pages():
+            self.test_failure(
+                self.name, 'TEST_UNEXPECTED_FAIL',
+                'Aborting test - Could not install local pages on phone.',
+                PhoneTestResult.EXCEPTION)
+            return is_test_completed
+
+        if not self.create_profile():
+            self.test_failure(
+                self.name, 'TEST_UNEXPECTED_FAIL',
+                'Aborting test - Could not run Fennec.',
+                PhoneTestResult.BUSTED)
+            return is_test_completed
 
         # Run test
         self.loggerdeco.debug('running fennec')
         self.run_fennec_with_profile(self.build.app_name, 'about:fennec')
 
-        is_test_completed = True
         command = None
         fennec_launched = self.dm.process_exist(self.build.app_name)
         found_throbber = False
@@ -77,10 +86,6 @@ class SmokeTest(PhoneTest):
         self.loggerdeco.debug('removing sessionstore files')
         self.remove_sessionstore_files()
         return is_test_completed
-
-    def prepare_phone(self):
-        profile = FirefoxProfile(preferences=self.preferences)
-        self.install_profile(profile)
 
     def check_throbber(self):
         buf = self.logcat.get()

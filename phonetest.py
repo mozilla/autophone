@@ -358,8 +358,6 @@ class PhoneTest(object):
         # [paths]
         self.autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
         self._paths = {}
-        self._paths['dest'] = posixpath.join(self.base_device_path,
-                                             self.__class__.__name__)
         try:
             sources = self.cfg.get('paths', 'sources').split()
             self._paths['sources'] = []
@@ -368,14 +366,14 @@ class PhoneTest(object):
                     source += '/'
                 self._paths['sources'].append(source)
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            self._paths['sources'] = [
-                os.path.join(self.autophone_directory, 'files/base/')]
+            self._paths['sources'] = ['files/base/']
         try:
             self._paths['dest'] = self.cfg.get('paths', 'dest')
             if not self._paths['dest'].endswith('/'):
                 self._paths['dest'] += '/'
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            pass
+            self._paths['dest'] = os.path.join(self.base_device_path,
+                                               self.__class__.__name__)
         try:
             self._paths['profile'] = self.cfg.get('paths', 'profile')
             if not self._paths['profile'].endswith('/'):
@@ -420,7 +418,7 @@ class PhoneTest(object):
         except ConfigParser.NoSectionError:
             self.buildtypes = list(self.options.buildtypes)
 
-        self.loggerdeco.info('PhoneTest: Connected.')
+        self.loggerdeco.debug('PhoneTest: %s' % self.__dict__)
 
     def __str__(self):
         return '%s(%s, config_file=%s, chunk=%s, buildtypes=%s)' % (
