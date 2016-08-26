@@ -8,6 +8,7 @@ import glob
 import logging
 import os
 import posixpath
+import urlparse
 import re
 import sys
 import shutil
@@ -326,7 +327,7 @@ class PhoneTest(object):
         self._job_symbol = None
         self._group_name = None
         self._group_symbol = None
-        self.test_result = PhoneTestResult()
+        self.test_result = PhoneTestResult(logger=self.loggerdeco)
         self.message = None
         # A unique consistent guid is necessary for identifying the
         # test job in treeherder. The test job_guid is updated when a
@@ -936,7 +937,7 @@ class PhoneTest(object):
                                                        self.upload_dir,
                                                        self.build.app_name)
         self.crash_processor.clear()
-        self.test_result = PhoneTestResult()
+        self.test_result = PhoneTestResult(logger=self.loggerdeco)
         if not self.worker_subprocess.is_disabled():
             self.update_status(phone_status=PhoneStatus.WORKING,
                                message='Setting up %s' % self.name)
@@ -981,7 +982,7 @@ class PhoneTest(object):
                 self.test_result.status != PhoneTestResult.USERCANCEL):
                 # The worker was disabled while running one test of a job.
                 # Record the cancellation on any remaining tests in that job.
-                self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
                                   'The worker was disabled.',
                                   PhoneTestResult.USERCANCEL)
             self.worker_subprocess.treeherder.submit_complete(
@@ -1004,7 +1005,6 @@ class PhoneTest(object):
 
         # Reset the tests' volatile members in order to prevent them
         # from being reused after a test has completed.
-        self.test_result = PhoneTestResult()
         self.message = None
         self.job_guid = None
         self.job_details = []
@@ -1022,6 +1022,7 @@ class PhoneTest(object):
         if self.dm_logger_original:
             self.dm._logger = self.dm_logger_original
             self.dm_logger_original = None
+        self.test_result = PhoneTestResult(logger=self.loggerdeco)
 
         self.test_logfilehandler.close()
         logger.removeHandler(self.test_logfilehandler)
@@ -1113,6 +1114,14 @@ class PhoneTest(object):
             return True
         return False
 
+
+def _normalize_testpath(testpath):
+    parts = urlparse.urlparse(testpath)
+    if testpath.startswith('http'):
+        testpath = testpath.replace(parts.netloc, 'remote')
+    return testpath
+
+
 class PhoneTestResult(object):
     """PhoneTestResult encapsulates the data format used by logparser
     so we can have a uniform approach to recording test results between
@@ -1127,30 +1136,26 @@ class PhoneTestResult(object):
     RETRY = 'retry'
     SUCCESS = 'success'
 
-    def __init__(self):
+    def __init__(self, logger=None):
         self.status = PhoneTestResult.SUCCESS
-        self.passes = []
-        self.failures = []
+        self.passed = 0
+        self.failed = 0
         self.todo = 0
+        self.logger = logger
 
     def __str__(self):
         return "PhoneTestResult: passes: %s, failures: %s" % (self.passes, self.failures)
 
-    @property
-    def passed(self):
-        return len(self.passes)
-
-    @property
-    def failed(self):
-        return len(self.failures)
-
     def add_pass(self, testpath):
-        self.passes.append(testpath)
+        testpath = _normalize_testpath(testpath)
+        self.passed += 1
+        if self.logger:
+            self.logger.info(' TEST-PASS | %s | Ok.' % testpath)
 
     def add_failure(self, testpath, test_status, text, testresult_status):
+        testpath = _normalize_testpath(testpath)
         if testresult_status:
             self.status = testresult_status
-        self.failures.append({
-            "test": testpath,
-            "status": test_status,
-            "text": text})
+        self.failed += 1
+        if self.logger:
+            self.logger.info(' %s | %s | %s' % (test_status, testpath, text))

@@ -991,7 +991,7 @@ class PhoneWorkerSubProcess(object):
                                 if t.test_result.status != PhoneTestResult.USERCANCEL:
                                     t.test_failure(
                                         t.name,
-                                        'TEST_UNEXPECTED_FAIL',
+                                        'TEST-UNEXPECTED-FAIL',
                                         'Worker disabled by administrator',
                                         PhoneTestResult.USERCANCEL)
                                 self.treeherder.submit_complete(

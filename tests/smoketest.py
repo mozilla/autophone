@@ -24,14 +24,14 @@ class SmokeTest(PhoneTest):
 
         if not self.install_local_pages():
             self.test_failure(
-                self.name, 'TEST_UNEXPECTED_FAIL',
+                self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not install local pages on phone.',
                 PhoneTestResult.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile():
             self.test_failure(
-                self.name, 'TEST_UNEXPECTED_FAIL',
+                self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not run Fennec.',
                 PhoneTestResult.BUSTED)
             return is_test_completed
@@ -69,11 +69,11 @@ class SmokeTest(PhoneTest):
         elif self.fennec_crashed:
             pass # Handle the crash in teardown_job
         elif not fennec_launched:
-            self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+            self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
                               'Failed to launch Fennec',
                               PhoneTestResult.BUSTED)
         elif not found_throbber:
-            self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+            self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
                               'Failed to find Throbber',
                               PhoneTestResult.TESTFAILED)
         else:

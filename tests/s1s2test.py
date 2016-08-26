@@ -71,14 +71,14 @@ class S1S2Test(PerfTest):
 
         if not self.install_local_pages():
             self.test_failure(
-                self.name, 'TEST_UNEXPECTED_FAIL',
+                self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not install local pages on phone.',
                 PhoneTestResult.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile():
             self.test_failure(
-                self.name, 'TEST_UNEXPECTED_FAIL',
+                self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not run Fennec.',
                 PhoneTestResult.BUSTED)
             return is_test_completed
@@ -144,7 +144,7 @@ class S1S2Test(PerfTest):
 
                     if not self.create_profile():
                         self.test_failure(url,
-                                          'TEST_UNEXPECTED_FAIL',
+                                          'TEST-UNEXPECTED-FAIL',
                                           'Failed to create profile',
                                           PhoneTestResult.TESTFAILED)
                         continue
@@ -155,7 +155,7 @@ class S1S2Test(PerfTest):
                     else:
                         self.test_failure(
                             url,
-                            'TEST_UNEXPECTED_FAIL',
+                            'TEST-UNEXPECTED-FAIL',
                             'Failed to get uncached measurement.',
                             PhoneTestResult.TESTFAILED)
                         continue
@@ -168,7 +168,7 @@ class S1S2Test(PerfTest):
                     else:
                         self.test_failure(
                             url,
-                            'TEST_UNEXPECTED_FAIL',
+                            'TEST-UNEXPECTED-FAIL',
                             'Failed to get cached measurement.',
                             PhoneTestResult.TESTFAILED)
                         continue
@@ -213,7 +213,7 @@ class S1S2Test(PerfTest):
                          self.build.tree,
                          self.build.id,
                          self.build.changeset))
-                    self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                    self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
                                       'No measurements detected.',
                                       PhoneTestResult.BUSTED)
                     break

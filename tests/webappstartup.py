@@ -220,14 +220,14 @@ class WebappStartupTest(PerfTest):
                                         self.testname, iteration))
                     self.test_failure(
                         self.name,
-                        'TEST_UNEXPECTED_FAIL',
+                        'TEST-UNEXPECTED-FAIL',
                         'Failed to get uncached measurement.',
                         PhoneTestResult.TESTFAILED)
                     continue
 
                 if not self.create_profile():
                     self.test_failure(self.name,
-                                      'TEST_UNEXPECTED_FAIL',
+                                      'TEST-UNEXPECTED-FAIL',
                                       'Failed to create profile',
                                       PhoneTestResult.TESTFAILED)
                     continue
@@ -238,7 +238,7 @@ class WebappStartupTest(PerfTest):
                 else:
                     self.test_failure(
                         self.name,
-                        'TEST_UNEXPECTED_FAIL',
+                        'TEST-UNEXPECTED-FAIL',
                         'Failed to get uncached measurement.',
                         PhoneTestResult.TESTFAILED)
                     continue
@@ -252,7 +252,7 @@ class WebappStartupTest(PerfTest):
                 else:
                     self.test_failure(
                         self.name,
-                        'TEST_UNEXPECTED_FAIL',
+                        'TEST-UNEXPECTED-FAIL',
                         'Failed to get cached measurement.',
                         PhoneTestResult.TESTFAILED)
                     continue
@@ -296,7 +296,7 @@ class WebappStartupTest(PerfTest):
                      self.build.tree,
                      self.build.id,
                      self.build.changeset))
-                self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
                                   'No measurements detected.',
                                   PhoneTestResult.BUSTED)
                 break

@@ -312,41 +312,36 @@ class AutophoneTreeherder(object):
 
             t.job_details.append({
                 'value': os.path.basename(t.config_file),
-                'content_type': 'text',
                 'title': 'Config'})
             t.job_details.append({
                 'url': build_url,
                 'value': os.path.basename(build_url),
-                'content_type': 'link',
                 'title': 'Build'})
             t.job_details.append({
                 'value': utils.host(),
-                'content_type': 'text',
                 'title': 'Host'})
 
-            if t.test_result.failed == 0:
-                failed = '0'
-            else:
-                failed = '<em class="testfail">%s</em>' % t.test_result.failed
+            if t.test_result.passed + t.test_result.failed + t.test_result.todo > 0:
+                if t.test_result.failed == 0:
+                    failed = '0'
+                else:
+                    failed = '<em class="testfail">%s</em>' % t.test_result.failed
 
-            t.job_details.append({
-                'value': "%s/%s/%s" % (t.test_result.passed, failed, t.test_result.todo),
-                'content_type': 'raw_html',
-                'title': "%s-%s" % (t.job_name, t.job_symbol)
-            })
+                t.job_details.append({
+                    'value': "%s/%s/%s" % (t.test_result.passed, failed, t.test_result.todo),
+                    'title': "%s-%s" % (t.job_name, t.job_symbol)
+                })
 
             if hasattr(t, 'phonedash_url'):
                 t.job_details.append({
                     'url': t.phonedash_url,
                     'value': 'graph',
-                    'content_type': 'link',
                     'title': 'phonedash'
                     })
 
             # Attach logs, ANRs, tombstones, etc.
 
             logurl = None
-            logname = None
             if self.s3_bucket:
                 # We must make certain that S3 keys for uploaded files
                 # are unique. We can create a unique log_identifier as
@@ -394,20 +389,17 @@ class AutophoneTreeherder(object):
                         logger.exception('Error reading logcat %s' % fname)
                         t.job_details.append({
                             'value': 'Failed to read %s: %s' % (fname, e),
-                            'content_type': 'text',
                             'title': 'Error'})
                     try:
                         url = self.s3_bucket.upload(f.name, key)
                         t.job_details.append({
                             'url': url,
                             'value': lname,
-                            'content_type': 'link',
                             'title': 'artifact uploaded'})
                     except S3Error, e:
                         logger.exception('Error uploading logcat %s' % fname)
                         t.job_details.append({
                             'value': 'Failed to upload %s: %s' % (fname, e),
-                            'content_type': 'text',
                             'title': 'Error'})
                 # Upload directory containing ANRs, tombstones and other items
                 # to be uploaded.
@@ -427,13 +419,11 @@ class AutophoneTreeherder(object):
                             t.job_details.append({
                                 'url': url,
                                 'value': lname,
-                                'content_type': 'link',
                                 'title': 'artifact uploaded'})
                         except S3Error, e:
                             logger.exception('Error uploading artifact %s' % fname)
                             t.job_details.append({
                                 'value': 'Failed to upload artifact %s: %s' % (fname, e),
-                                'content_type': 'text',
                                 'title': 'Error'})
 
                 # Bug 1113264 - Multiple job logs push action buttons outside
@@ -449,23 +439,20 @@ class AutophoneTreeherder(object):
                 # UnitTest Log
                 if t.unittest_logpath and os.path.exists(t.unittest_logpath):
                     fname = '%s.log' % log_identifier
-                    logname = os.path.basename(t.unittest_logpath)
                     key = "%s/%s" % (key_prefix, fname)
                     try:
                         logurl = self.s3_bucket.upload(t.unittest_logpath, key)
-                        tj.add_log_reference(fname, logurl,
-                                             parse_status='parsed')
+                        tj.add_log_reference('buildbot_text', logurl,
+                                             parse_status='pending')
                         t.job_details.append({
                             'url': logurl,
-                            'value': logname,
-                            'content_type': 'link',
+                            'value': fname,
                             'title': 'artifact uploaded'})
                     except Exception, e:
                         logger.exception('Error %s uploading log %s' % (
                             e, fname))
                         t.job_details.append({
                             'value': 'Failed to upload log %s: %s' % (fname, e),
-                            'content_type': 'text',
                             'title': 'Error'})
                 # Autophone Log
                 # Since we are submitting results to Treeherder, we flush
@@ -484,73 +471,17 @@ class AutophoneTreeherder(object):
                         t.job_details.append({
                             'url': url,
                             'value': lname,
-                            'content_type': 'link',
                             'title': 'artifact uploaded'})
                         if not logurl:
-                            tj.add_log_reference(fname, url,
-                                                 parse_status='parsed')
+                            tj.add_log_reference('buildbot_text', url,
+                                                 parse_status='pending')
                             logurl = url
-                            logname = fname
                     except Exception, e:
                         logger.exception('Error %s uploading %s' % (
                             e, fname))
                         t.job_details.append({
                             'value': 'Failed to upload Autophone log: %s' % e,
-                            'content_type': 'text',
                             'title': 'Error'})
-
-            error_lines = []
-            errors_truncated = False
-            for failure in t.test_result.failures:
-                line = ''
-                status = failure['status']
-                test = failure['test']
-                text = failure['text']
-                if not (status or test or text):
-                    continue
-                if status and test and text:
-                    line = '%s | %s | %s' % (status, test, text)
-                elif test and text:
-                    line = '%s | %s' % (test, text)
-                elif text:
-                    line = text
-                # XXX Need to update the log parser to return the line
-                # numbers of the errors.
-                if line:
-                    error_lines.append({"line": line, "linenumber": 1})
-                    if len(error_lines) >= 100:
-                        errors_truncated = True
-                        logger.warning('AutophoneTreeherder.submit_completed: too many errors - truncated')
-                        break
-
-            text_log_summary = {
-                'header': {
-                    'slave': machine,
-                    'revision': revision
-                },
-                'step_data': {
-                    'all_errors': error_lines,
-                    'steps': [
-                        {
-                            'name': 'step',
-                            'started_linenumber': 1,
-                            'finished_linenumber': 1,
-                            'duration': t.end_timestamp - t.start_timestamp,
-                            'finished': '%s' % datetime.datetime.fromtimestamp(t.end_timestamp),
-                            'errors': error_lines,
-                            'error_count': len(error_lines),
-                            'order': 0,
-                            'result': t.test_result.status
-                        },
-                    ],
-                    'errors_truncated': errors_truncated
-                    },
-                'logurl': logurl,
-                'logname': logname
-                }
-
-            tj.add_artifact('text_log_summary', 'json', json.dumps(text_log_summary))
-            logger.debug('AutophoneTreeherder.submit_complete: text_log_summary: %s' % json.dumps(text_log_summary))
 
             tj.add_artifact('Job Info', 'json', {'job_details': t.job_details})
 

@@ -4,7 +4,6 @@
 
 import ConfigParser
 import glob
-import json
 import logging
 import os
 import re
@@ -13,8 +12,6 @@ import subprocess
 import tempfile
 import time
 import traceback
-
-from logparser import LogParser
 
 from phonetest import PhoneTest, PhoneTestResult, FLASH_PACKAGE
 
@@ -314,42 +311,6 @@ class UnitTest(PhoneTest):
 
         return args
 
-    def process_test_log(self, logfilehandle):
-
-        logfilehandle.close()
-
-        # convert embedded \n into real newlines
-        logfilehandle = open(self.unittest_logpath)
-        logcontents = logfilehandle.read()
-        logfilehandle.close()
-        logcontents = re.sub(r'\\n', '\n', logcontents)
-        logfilehandle = open(self.unittest_logpath, 'wb')
-        logfilehandle.write(logcontents)
-        logfilehandle.close()
-
-        lp = LogParser([logfilehandle.name],
-                       includePass=True,
-                       output_dir=None,
-                       logger=self.loggerdeco,
-                       harnessType=self.parms['harness_type'])
-        parsed_log = lp.parseFiles()
-        if self.options.verbose:
-            self.loggerdeco.debug('process_test_log: LogParser parsed log : %s' %
-                                  json.dumps(parsed_log, indent=2))
-
-        self.test_result.todo = parsed_log.get('todo', 0)
-        self.test_result.passes = parsed_log.get('passes', [])
-        failures = parsed_log.get('failures', [])
-        if failures:
-            for failure in failures:
-                for test_failure in failure['failures']:
-                    self.test_failure(failure['test'],
-                                      test_failure['status'],
-                                      test_failure['text'],
-                                      PhoneTestResult.TESTFAILED)
-        self.loggerdeco.debug('process_test_log: test_result: %s' %
-                              json.dumps(self.test_result.__dict__, indent=2))
-
     def runtest(self):
 
         self.loggerdeco = self.loggerdeco.clone(
@@ -403,101 +364,109 @@ class UnitTest(PhoneTest):
         try:
             is_test_completed = True
             logfilehandle = None
+
+            self.loggerdeco.info('logging to %s' % self.unittest_logpath)
+            if os.path.exists(self.unittest_logpath):
+                os.unlink(self.unittest_logpath)
+
+            args = self.create_test_args()
+
+            self.parms['cmdline'] = ' '.join(args)
+            self.loggerdeco.info("cmdline = %s" %
+                                 self.parms['cmdline'])
+
+            self.update_status(message='Running test %s chunk %d of %d' %
+                               (self.parms['test_name'],
+                                self.chunk, self.chunks))
+            if self.dm.process_exist(self.parms['app_name']):
+                max_kill_attempts = 3
+                for kill_attempt in range(1, max_kill_attempts+1):
+                    self.loggerdeco.debug(
+                        'Process %s exists. Attempt %d to kill.' % (
+                            self.parms['app_name'], kill_attempt + 1))
+                    self.dm.pkill(self.parms['app_name'], root=True)
+                    if not self.dm.process_exist(self.parms['app_name']):
+                        break
+                if kill_attempt == max_kill_attempts and \
+                        self.dm.process_exist(self.parms['app_name']):
+                    self.loggerdeco.warning(
+                        'Could not kill process %s.' % (
+                            self.parms['app_name']))
+            logfilehandle = open(self.unittest_logpath, 'wb')
+            proc = subprocess.Popen(
+                args,
+                cwd=os.path.join(self.parms['build_dir'],
+                                 'tests'),
+                env=env,
+                preexec_fn=lambda: os.setpgid(0, 0),
+                stdout=logfilehandle,
+                stderr=subprocess.STDOUT,
+                close_fds=True
+            )
+            returncode = None
             while True:
-                socket_collision = False
-
-                self.loggerdeco.info('logging to %s' % self.unittest_logpath)
-                if os.path.exists(self.unittest_logpath):
-                    os.unlink(self.unittest_logpath)
-                logfilehandle = open(self.unittest_logpath, 'wb')
-
-                args = self.create_test_args()
-
-                self.parms['cmdline'] = ' '.join(args)
-                self.loggerdeco.info("cmdline = %s" %
-                                     self.parms['cmdline'])
-
-                self.update_status(message='Running test %s chunk %d of %d' %
-                                   (self.parms['test_name'],
-                                    self.chunk, self.chunks))
-                if self.dm.process_exist(self.parms['app_name']):
-                    max_kill_attempts = 3
-                    for kill_attempt in range(1, max_kill_attempts+1):
-                        self.loggerdeco.debug(
-                            'Process %s exists. Attempt %d to kill.' % (
-                                self.parms['app_name'], kill_attempt + 1))
-                        self.dm.pkill(self.parms['app_name'], root=True)
-                        if not self.dm.process_exist(self.parms['app_name']):
-                            break
-                    if kill_attempt == max_kill_attempts and \
-                            self.dm.process_exist(self.parms['app_name']):
-                        self.loggerdeco.warning(
-                            'Could not kill process %s.' % (
-                                self.parms['app_name']))
-                proc = subprocess.Popen(
-                    args,
-                    cwd=os.path.join(self.parms['build_dir'],
-                                     'tests'),
-                    env=env,
-                    preexec_fn=lambda: os.setpgid(0, 0),
-                    stdout=logfilehandle,
-                    stderr=subprocess.STDOUT,
-                    close_fds=True
-                )
-                returncode = None
-                while True:
-                    returncode = proc.poll()
-                    if returncode is not None:
-                        break
-                    command = self.worker_subprocess.process_autophone_cmd(
-                        test=self, require_ip_address=True)
-                    if command['interrupt']:
-                        is_test_completed = False
-                        proc.kill()
-                        self.handle_test_interrupt(command['reason'],
-                                                   command['test_result'])
-                        break
-                    # Don't beat up the device by pinging it
-                    # continually without a pause.
-                    time.sleep(60)
-                    # Collect logcat as we go, since many unit tests
-                    # will cause it to overflow. Autophone's copy of
-                    # the data should be complete while the version
-                    # collected by the unit test framework may be
-                    # missing the initial portions.
-                    self.logcat.get()
-
-                if command and command['interrupt']:
+                returncode = proc.poll()
+                if returncode is not None:
                     break
-                elif proc.returncode != 0:
-                    self.message = ('Test exited with return code %d' %
-                                    proc.returncode)
+                command = self.worker_subprocess.process_autophone_cmd(
+                    test=self, require_ip_address=True)
+                if command['interrupt']:
+                    is_test_completed = False
+                    proc.kill()
+                    proc.wait()
+                    self.handle_test_interrupt(command['reason'],
+                                               command['test_result'])
+                    break
+                # Don't beat up the device by pinging it
+                # continually without a pause.
+                time.sleep(60)
+                # Collect logcat as we go, since many unit tests
+                # will cause it to overflow. Autophone's copy of
+                # the data should be complete while the version
+                # collected by the unit test framework may be
+                # missing the initial portions.
+                self.logcat.get()
+
+            logfilehandle.close()
+            logfilehandle = open(self.unittest_logpath)
+            passedRe = re.compile(r'(INFO |INFO \| |\t)(Passed|Successful):(\s+)(\d+)')
+            failedRe = re.compile(r'(INFO |INFO \| |\t)(Failed|Unexpected):(\s+)(\d+)')
+            todoRe = re.compile(r'(INFO |INFO \| |\t)(Todo|Known problems):(\s+)(\d+)')
+            for logline in logfilehandle:
+                match = passedRe.search(logline)
+                if match:
+                    self.test_result.passed += int(match.group(4))
+                match = failedRe.search(logline)
+                if match:
+                    self.test_result.failed += int(match.group(4))
+                match = todoRe.search(logline)
+                if match:
+                    self.test_result.todo += int(match.group(4))
+            logfilehandle.close()
+            logfilehandle = None
+            if self.test_result.failed > 0:
+                self.test_result.status = PhoneTestResult.TESTFAILED
+
+            if proc.returncode != 0:
+                self.message = ('Test exited with return code %d' %
+                                proc.returncode)
+                # Only track the non zero return code as an error
+                # if no other failures were detected. Otherwise we
+                # would be counting an error twice.
+                if self.test_result.failed == 0:
                     self.test_failure(
-                        self.name, 'TEST_UNEXPECTED_FAIL',
+                        self.name, 'TEST-UNEXPECTED-FAIL',
                         self.message,
-                        PhoneTestResult.EXCEPTION)
+                        PhoneTestResult.TESTFAILED)
 
-                self.loggerdeco.info('runtestsremote.py return code %d' %
-                                     proc.returncode)
+            self.loggerdeco.info('runtestsremote.py return code %d' %
+                                 proc.returncode)
 
-                logfilehandle.close()
-                # XXX: investigate if this is still needed.
-                re_socket_error = re.compile('socket\.error:')
-                logfilehandle = open(self.unittest_logpath)
-                logcontents = logfilehandle.read()
-                logfilehandle.close()
-                if re_socket_error.search(logcontents):
-                    socket_collision = True
-
-                if not socket_collision:
-                    break
 
             self.update_status(message='Completed test %s chunk %d of %d' %
                                (self.parms['test_name'],
                                 self.chunk, self.chunks))
         except:
-            if logfilehandle:
-                logfilehandle.close()
             self.message = ('Exception during test %s chunk %d of %d: %s' %
                             (self.parms['test_name'],
                              self.chunk, self.chunks,
@@ -507,7 +476,7 @@ class UnitTest(PhoneTest):
             self.test_result.status = PhoneTestResult.EXCEPTION
         finally:
             if logfilehandle:
-                self.process_test_log(logfilehandle)
+                logfilehandle.close()
             tests_dir = '%s/tests' % self.build.dir
             test_classifier = '%s-%s-%s' % (self.parms['test_name'],
                                             self.chunk,

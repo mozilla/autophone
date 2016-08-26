@@ -92,14 +92,14 @@ class RoboTest(PerfTest):
 
         if not self.install_local_pages():
             self.test_failure(
-                self.name, 'TEST_UNEXPECTED_FAIL',
+                self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not install local pages on phone.',
                 PhoneTestResult.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile():
             self.test_failure(
-                self.name, 'TEST_UNEXPECTED_FAIL',
+                self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not run Fennec.',
                 PhoneTestResult.BUSTED)
             return is_test_completed
@@ -141,7 +141,7 @@ class RoboTest(PerfTest):
 
                 if not self.create_profile():
                     self.test_failure(test_args,
-                                      'TEST_UNEXPECTED_FAIL',
+                                      'TEST-UNEXPECTED-FAIL',
                                       'Failed to create profile',
                                       PhoneTestResult.TESTFAILED)
                     break
@@ -189,7 +189,7 @@ class RoboTest(PerfTest):
                          self.build.tree,
                          self.build.id,
                          self.build.changeset))
-                    self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                    self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
                                       'No measurements detected. %s != %s' % (
                                           len(measurements), self._iterations),
                                       PhoneTestResult.BUSTED)
@@ -198,7 +198,7 @@ class RoboTest(PerfTest):
                     self.loggerdeco.info(
                         'Failed to get enough measurements for test %s after '
                         '%d iterations' % (testname, self._iterations))
-                    self.test_failure(self.name, 'TEST_UNEXPECTED_FAIL',
+                    self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
                                       'Not enough measurements collected %s != %s' % (
                                           len(measurements), self._iterations),
                                       PhoneTestResult.TESTFAILED)
