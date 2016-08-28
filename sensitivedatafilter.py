@@ -10,8 +10,12 @@ class SensitiveDataFilter(logging.Filter):
         self.sensitive_data = sensitive_data
 
     def filter(self, record):
-        msg = record.getMessage()
-        for data in self.sensitive_data:
-            if data and data in msg:
-                return False
-        return True
+        try:
+            msg = record.getMessage()
+            for data in self.sensitive_data:
+                if data and data in msg:
+                    return False
+            return True
+        except:
+            # If we can't decode it, treat the message as sensitive
+            return False
