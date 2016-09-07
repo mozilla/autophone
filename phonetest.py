@@ -927,7 +927,7 @@ class PhoneTest(object):
                                        '%(phoneid)s|%(buildid)s|%(test)s|'
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
-        self.loggerdeco.debug('PhoneTest.setup_job')
+        self.loggerdeco.info('PhoneTest starting job')
         if self.unittest_logpath:
             os.unlink(self.unittest_logpath)
         self.unittest_logpath = None
@@ -985,6 +985,11 @@ class PhoneTest(object):
                 self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
                                   'The worker was disabled.',
                                   PhoneTestResult.USERCANCEL)
+            if self.loggerdeco_original:
+                loggerdeco = self.loggerdeco_original
+            else:
+                loggerdeco = self.loggerdeco
+            loggerdeco.info('PhoneTest stopping job')
             self.worker_subprocess.treeherder.submit_complete(
                 self.phone.id,
                 self.build.url,

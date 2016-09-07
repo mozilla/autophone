@@ -464,6 +464,8 @@ class AutophoneTreeherder(object):
                 if t.test_logfile:
                     try:
                         t.test_logfilehandler.flush()
+                        # Force the OS to flush its buffers to disk
+                        os.fsync(t.test_logfilehandler.stream.fileno())
                         fname = '%s-autophone.log' % log_identifier
                         lname = 'Autophone Log'
                         key = "%s/%s" % (key_prefix, fname)
