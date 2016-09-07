@@ -742,12 +742,12 @@ class PhoneTest(object):
 
         for error in self.crash_processor.get_errors(self.build.symbols,
                                                      self.options.minidump_stackwalk,
-                                                     clean=False):
+                                                     clean=True):
             if error['reason'] == 'java-exception':
                 self.test_failure(
                     self.name, 'PROCESS-CRASH',
                     error['signature'],
-                    PhoneTestResult.EXCEPTION)
+                    PhoneTestResult.TESTFAILED)
             elif error['reason'] == 'PROFILE-ERROR':
                 self.test_failure(
                     self.name,
@@ -755,16 +755,13 @@ class PhoneTest(object):
                     error['signature'],
                     PhoneTestResult.TESTFAILED)
             elif error['reason'] == 'PROCESS-CRASH':
-                self.loggerdeco.info("PROCESS-CRASH | %s | "
-                                     "application crashed [%s]" % (self.name,
-                                                                   error['signature']))
-                self.loggerdeco.info(error['stackwalk_output'])
-                self.loggerdeco.info(error['stackwalk_errors'])
-
                 self.test_failure(self.name,
                                   error['reason'],
                                   'application crashed [%s]' % error['signature'],
                                   PhoneTestResult.TESTFAILED)
+                self.loggerdeco.info(error['signature'])
+                self.loggerdeco.info(error['stackwalk_output'])
+                self.loggerdeco.info(error['stackwalk_errors'])
             else:
                 self.loggerdeco.warning('Unknown error reason: %s' % error['reason'])
 
