@@ -140,8 +140,6 @@ class S1S2Test(PerfTest):
                                        (attempt, self.stderrp_attempts,
                                         testnum, testcount, iteration, url))
 
-                    dataset.append({})
-
                     if not self.create_profile():
                         self.test_failure(url,
                                           'TEST-UNEXPECTED-FAIL',
@@ -153,24 +151,18 @@ class S1S2Test(PerfTest):
                     if measurement:
                         self.test_pass(url)
                     else:
-                        self.test_failure(
-                            url,
-                            'TEST-UNEXPECTED-FAIL',
-                            'Failed to get uncached measurement.',
-                            PhoneTestResult.TESTFAILED)
+                        self.loggerdeco.warning(
+                            '%s Failed to get uncached measurement.' % url)
                         continue
-                    dataset[-1]['uncached'] = measurement
                     success = True
+                    dataset.append({'uncached': measurement})
 
                     measurement = self.runtest(url)
                     if measurement:
                         self.test_pass(url)
                     else:
-                        self.test_failure(
-                            url,
-                            'TEST-UNEXPECTED-FAIL',
-                            'Failed to get cached measurement.',
-                            PhoneTestResult.TESTFAILED)
+                        self.loggerdeco.warning(
+                            '%s Failed to get cached measurement.' % url)
                         continue
                     dataset[-1]['cached'] = measurement
 
@@ -186,6 +178,18 @@ class S1S2Test(PerfTest):
 
                 if command and command['interrupt']:
                     break
+                measurements = len(dataset)
+                if measurements > 0 and self._iterations - measurements > 1:
+                    # Ignore a failure to get a single measurement
+                    # but treat the case where we got at least one
+                    # measurement but failed to get two or more
+                    # measurements as a reportable failure.
+                    self.test_failure(
+                        url,
+                        'TEST-UNEXPECTED-FAIL',
+                        'Failed to get %s measurements' % (
+                            self._iterations - measurements),
+                        PhoneTestResult.TESTFAILED)
                 if not success:
                     # If we have not gotten a single measurement at this point,
                     # just bail and report the failure rather than wasting time
