@@ -5,7 +5,7 @@
 import datetime
 from time import sleep
 
-from phonetest import PhoneTest, PhoneTestResult
+from phonetest import PhoneTest
 
 
 class SmokeTest(PhoneTest):
@@ -18,22 +18,22 @@ class SmokeTest(PhoneTest):
         self.update_status(message='Running smoketest')
 
         # Clear logcat
-        self.logcat.clear()
+        self.worker_subprocess.logcat.clear()
 
         is_test_completed = True
 
         if not self.install_local_pages():
-            self.test_failure(
+            self.add_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not install local pages on phone.',
-                PhoneTestResult.EXCEPTION)
+                PhoneTest.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile():
-            self.test_failure(
+            self.add_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not run Fennec.',
-                PhoneTestResult.BUSTED)
+                PhoneTest.BUSTED)
             return is_test_completed
 
         # Run test
@@ -69,15 +69,17 @@ class SmokeTest(PhoneTest):
         elif self.fennec_crashed:
             pass # Handle the crash in teardown_job
         elif not fennec_launched:
-            self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
-                              'Failed to launch Fennec',
-                              PhoneTestResult.BUSTED)
+            self.add_failure(
+                self.name, 'TEST-UNEXPECTED-FAIL',
+                'Failed to launch Fennec',
+                PhoneTest.BUSTED)
         elif not found_throbber:
-            self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
-                              'Failed to find Throbber',
-                              PhoneTestResult.TESTFAILED)
+            self.add_failure(
+                self.name, 'TEST-UNEXPECTED-FAIL',
+                'Failed to find Throbber',
+                PhoneTest.TESTFAILED)
         else:
-            self.test_pass(self.name)
+            self.add_pass(self.name)
 
         if fennec_launched:
             self.loggerdeco.debug('killing fennec')
@@ -88,7 +90,7 @@ class SmokeTest(PhoneTest):
         return is_test_completed
 
     def check_throbber(self):
-        buf = self.logcat.get()
+        buf = self.worker_subprocess.logcat.get()
 
         for line in buf:
             line = line.strip()

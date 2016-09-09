@@ -198,9 +198,8 @@ class ADBAndroid(ADBDevice):
                     failure = "Device state: %s" % state
                     success = False
                 else:
-                    if (self.selinux and
-                        self.shell_output('getenforce',
-                                          timeout=timeout) != 'Permissive'):
+                    if (self.selinux and self.shell_output('getenforce',
+                                                           timeout=timeout) != 'Permissive'):
                         self._logger.info('Setting SELinux Permissive Mode')
                         self.shell_output("setenforce Permissive", timeout=timeout, root=True)
                     if self.is_dir(ready_path, timeout=timeout, root=True):
@@ -300,8 +299,8 @@ class ADBAndroid(ADBDevice):
         return True
 
     def launch_application(self, app_name, activity_name, intent, url=None,
-                          extras=None, wait=True, fail_if_running=True,
-                          timeout=None):
+                           extras=None, wait=True, fail_if_running=True,
+                           timeout=None):
         """Launches an Android application
 
         :param str app_name: Name of application (e.g. `com.android.chrome`)
@@ -333,7 +332,7 @@ class ADBAndroid(ADBDevice):
             raise ADBError("Only one instance of an application may be running "
                            "at once")
 
-        acmd = [ "am", "start" ] + \
+        acmd = ["am", "start"] + \
             ["-W" if wait else '', "-n", "%s/%s" % (app_name, activity_name)]
 
         if intent:
@@ -341,9 +340,9 @@ class ADBAndroid(ADBDevice):
 
         if extras:
             for (key, val) in extras.iteritems():
-                if type(val) is int:
+                if isinstance(val, int):
                     extra_type_param = "--ei"
-                elif type(val) is bool:
+                elif isinstance(val, bool):
                     extra_type_param = "--ez"
                 else:
                     extra_type_param = "--es"
@@ -356,8 +355,8 @@ class ADBAndroid(ADBDevice):
         self.shell_output(cmd, timeout=timeout)
 
     def launch_fennec(self, app_name, intent="android.intent.action.VIEW",
-                     moz_env=None, extra_args=None, url=None, wait=True,
-                     fail_if_running=True, timeout=None):
+                      moz_env=None, extra_args=None, url=None, wait=True,
+                      fail_if_running=True, timeout=None):
         """Convenience method to launch Fennec on Android with various
         debugging arguments
 
@@ -434,7 +433,7 @@ class ADBAndroid(ADBDevice):
             while self.process_exist(app_name, timeout=timeout):
                 if num_tries > max_tries:
                     raise ADBError("Couldn't successfully kill %s after %s "
-                                  "tries" % (app_name, max_tries))
+                                   "tries" % (app_name, max_tries))
                 self.pkill(app_name, timeout=timeout, root=root)
                 num_tries += 1
 

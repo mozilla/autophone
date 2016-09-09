@@ -3,16 +3,13 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
-import logging
 import os
 import re
 from time import sleep
 
 from perftest import PerfTest, PerfherderArtifact, PerfherderSuite
-from phonetest import PhoneTestResult
+from phonetest import PhoneTest
 from utils import geometric_mean, host
-
-logger = logging.getLogger()
 
 
 class RoboTest(PerfTest):
@@ -50,11 +47,13 @@ class RoboTest(PerfTest):
                      self._tests[test_name], test_url))
                 self._test_args["%s-%s" % (test_location, test_name)] = test_url
 
+        self.loggerdeco.debug('RoboTest: %s', self.__dict__)
+
     @property
     def name(self):
         return 'autophone-talos%s' % self.name_suffix
 
-    def create_profile(self):
+    def create_profile(self, custom_addons=[], custom_prefs=None, root=True):
         retVal = PerfTest.create_profile(self)
 
         config_file = os.path.join(self.build.dir, 'robotium.config')
@@ -91,17 +90,17 @@ class RoboTest(PerfTest):
         is_test_completed = False
 
         if not self.install_local_pages():
-            self.test_failure(
+            self.add_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not install local pages on phone.',
-                PhoneTestResult.EXCEPTION)
+                PhoneTest.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile():
-            self.test_failure(
+            self.add_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not run Fennec.',
-                PhoneTestResult.BUSTED)
+                PhoneTest.BUSTED)
             return is_test_completed
 
         is_test_completed = True
@@ -114,7 +113,7 @@ class RoboTest(PerfTest):
                 extradict={'phoneid': self.phone.id,
                            'buildid': self.build.id,
                            'testname': testname},
-                extraformat='%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
+                extraformat='RoboTestJob|%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
                                  (testnum, testcount, self._iterations))
@@ -124,7 +123,7 @@ class RoboTest(PerfTest):
             failures = 0
             measurements = []
             # We allow 1 failure, the second failure will abort the test.
-            while (len(measurements) < self._iterations and failures < 2):
+            while len(measurements) < self._iterations and failures < 2:
                 command = self.worker_subprocess.process_autophone_cmd(
                     test=self, require_ip_address=testname.startswith('remote'))
                 if command['interrupt']:
@@ -140,10 +139,11 @@ class RoboTest(PerfTest):
                                    (testnum, testcount, len(measurements), test_args))
 
                 if not self.create_profile():
-                    self.test_failure(test_args,
-                                      'TEST-UNEXPECTED-FAIL',
-                                      'Failed to create profile',
-                                      PhoneTestResult.TESTFAILED)
+                    self.add_failure(
+                        test_args,
+                        'TEST-UNEXPECTED-FAIL',
+                        'Failed to create profile',
+                        PhoneTest.TESTFAILED)
                     break
 
                 measurement = self.runtest(test_args)
@@ -151,7 +151,7 @@ class RoboTest(PerfTest):
                     failures += 1
                 else:
                     measurements.append(measurement)
-                    self.test_pass(test_args)
+                    self.add_pass(test_args)
 
             count = len(measurements)
             if count == self._iterations:
@@ -160,7 +160,7 @@ class RoboTest(PerfTest):
                 phsuite = PerfherderSuite(name="tcheck3",
                                           value=summary,
                                           subtests=[{'name': 'tcheck3',
-                                                    'value': summary}])
+                                                     'value': summary}])
                 self.perfherder_artifact = PerfherderArtifact(suites=[phsuite])
             else:
                 if count == 0:
@@ -189,19 +189,21 @@ class RoboTest(PerfTest):
                          self.build.tree,
                          self.build.id,
                          self.build.changeset))
-                    self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
-                                      'No measurements detected. %s != %s' % (
-                                          len(measurements), self._iterations),
-                                      PhoneTestResult.BUSTED)
+                    self.add_failure(
+                        self.name, 'TEST-UNEXPECTED-FAIL',
+                        'No measurements detected. %s != %s' % (
+                            len(measurements), self._iterations),
+                        PhoneTest.BUSTED)
                 else:
                     # If we do not have enough, then we failed.
                     self.loggerdeco.info(
                         'Failed to get enough measurements for test %s after '
                         '%d iterations' % (testname, self._iterations))
-                    self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
-                                      'Not enough measurements collected %s != %s' % (
-                                          len(measurements), self._iterations),
-                                      PhoneTestResult.TESTFAILED)
+                    self.add_failure(
+                        self.name, 'TEST-UNEXPECTED-FAIL',
+                        'Not enough measurements collected %s != %s' % (
+                            len(measurements), self._iterations),
+                        PhoneTest.TESTFAILED)
 
                     self.loggerdeco.debug('publishing results')
                 break
@@ -210,7 +212,7 @@ class RoboTest(PerfTest):
 
     def runtest(self, test_args):
         # Clear logcat
-        self.logcat.clear()
+        self.worker_subprocess.logcat.clear()
 
         try:
             self.dm.uninstall_app('org.mozilla.roboexample.test')
@@ -236,7 +238,7 @@ class RoboTest(PerfTest):
         """
         self.loggerdeco.debug('analyzing logcat')
 
-        re_data = re.compile('.*__start_report([0-9\.]+)__end_report.*')
+        re_data = re.compile(r'.*__start_report([0-9\.]+)__end_report.*')
 
         attempt = 1
         max_time = 90  # maximum time to wait for completeness score
@@ -245,7 +247,7 @@ class RoboTest(PerfTest):
 
         results = None
         while attempt <= max_attempts and results is None:
-            buf = self.logcat.get()
+            buf = self.worker_subprocess.logcat.get()
             for line in buf:
                 match = re_data.match(line)
                 if match:

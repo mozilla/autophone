@@ -655,8 +655,7 @@ class ADBDevice(ADBCommand):
 
         # Do we need to run adb root to get a root shell?
         try:
-            if (not self._have_root_shell and
-                self.command_output(
+            if (not self._have_root_shell and self.command_output(
                     ["root"],
                     timeout=timeout).find("cannot run as root") == -1):
                 self._have_root_shell = True
@@ -673,7 +672,7 @@ class ADBDevice(ADBCommand):
         quoted_cmd = []
 
         for arg in cmd:
-            arg.replace('&', '\&')
+            arg.replace('&', r'\&')
 
             needs_quoting = False
             for char in [' ', '(', ')', '"', '&']:
@@ -1129,12 +1128,12 @@ class ADBDevice(ADBCommand):
                                    'timedout: %s, '
                                    'exitcode: %s, '
                                    'output: %s' %
-                                (' '.join(adb_process.args),
-                                 timeout,
+                                   (' '.join(adb_process.args),
+                                    timeout,
                                     root,
-                                 adb_process.timedout,
-                                 adb_process.exitcode,
-                                 output))
+                                    adb_process.timedout,
+                                    adb_process.exitcode,
+                                    output))
 
             return output
         finally:
@@ -1552,7 +1551,6 @@ class ADBDevice(ADBCommand):
             except ADBError:
                 self._logger.error('Ignoring exception in ADBDevice.list_files\n%s' %
                                    traceback.format_exc())
-                pass
         data[:] = [item for item in data if item]
         self._logger.debug('list_files: %s' % data)
         return data
@@ -1846,7 +1844,7 @@ class ADBDevice(ADBCommand):
                 adb_process.stdout_file.close()
                 adb_process.stderr_file.close()
 
-    def kill(self, pids, sig=None,  attempts=3, wait=5,
+    def kill(self, pids, sig=None, attempts=3, wait=5,
              timeout=None, root=False):
         """Kills processes on the device given a list of process ids.
 
@@ -2159,7 +2157,7 @@ class ADBDevice(ADBCommand):
         directives = ['battery', 'disk', 'id', 'os', 'process', 'systime',
                       'uptime']
 
-        if (directive in directives):
+        if directive in directives:
             directives = [directive]
 
         info = {}
@@ -2181,7 +2179,7 @@ class ADBDevice(ADBCommand):
         if 'uptime' in directives:
             uptime = self.shell_output('uptime', timeout=timeout)
             if uptime:
-                m = re.match('up time: ((\d+) days, )*(\d{2}):(\d{2}):(\d{2})',
+                m = re.match(r'up time: ((\d+) days, )*(\d{2}):(\d{2}):(\d{2})',
                              uptime)
                 if m:
                     uptime = '%d days %d hours %d minutes %d seconds' % tuple(

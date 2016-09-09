@@ -28,7 +28,7 @@ def parse_datetime(stringval, tz=UTC):
     arguments:
     stringval - string value containing the date to be parsed.
 
-    returns: format, datevalue
+    returns: dateformat, datevalue
 
     Supports parsing of the following datetime value formats:
     buildid            - CCYYMMDDHHSS
@@ -37,7 +37,7 @@ def parse_datetime(stringval, tz=UTC):
     directory datetime - CCYY-MM-DD-HH-MM-SS
     timestamp          - seconds since epoch
     """
-    format, datetimeval = None, None
+    dateformat, datetimeval = None, None
     try:
         # Distinguish between timestamps and buildids by converting
         # the value to a float. If the value is greater than the
@@ -46,10 +46,10 @@ def parse_datetime(stringval, tz=UTC):
         timestamp = calendar.timegm(datetime.datetime.now(tz=pytz.utc).timetuple())
         if floatval > timestamp:
             # 20131201030203 - buildid
-            format = BUILDID
+            dateformat = BUILDID
             datetimeval = datetime.datetime.strptime(stringval, '%Y%m%d%H%M%S')
         else:
-            format = TIMESTAMP
+            dateformat = TIMESTAMP
             datetimeval = datetime.datetime.fromtimestamp(floatval)
     except ValueError:
         # 2013-12-01T03:02:03
@@ -57,15 +57,16 @@ def parse_datetime(stringval, tz=UTC):
         match = datetime_regex.match(stringval)
         if match:
             stringval = match.group(1)
-            format = DATETIME
+            dateformat = DATETIME
             datetimeval = datetime.datetime.strptime(stringval, '%Y-%m-%dT%H:%M:%S')
         else:
             # 2013-12-01-03-02-03
-            directory_datetime_regex = re.compile(r'([\d]{4}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2})')
+            directory_datetime_regex = re.compile(
+                r'([\d]{4}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2}-[\d]{2})')
             match = directory_datetime_regex.match(stringval)
             if match:
                 stringval = match.group(1)
-                format = DIRECTORY_DATETIME
+                dateformat = DIRECTORY_DATETIME
                 datetimeval = datetime.datetime.strptime(stringval, '%Y-%m-%d-%H-%M-%S')
             else:
                 # 2013-12-01
@@ -73,22 +74,22 @@ def parse_datetime(stringval, tz=UTC):
                 match = directory_date_regex.match(stringval)
                 if match:
                     stringval = match.group(1)
-                    format = DIRECTORY_DATE
+                    dateformat = DIRECTORY_DATE
                     datetimeval = datetime.datetime.strptime(stringval, '%Y-%m-%d')
 
-    if not format:
+    if not dateformat:
         raise ValueError('%s is not a recognized datetime format' % stringval)
 
     datetimeval = tz.localize(datetimeval)
 
-    return format, datetimeval
+    return dateformat, datetimeval
 
-def convert_datetime_to_string(dateval, format, tz=UTC):
+def convert_datetime_to_string(dateval, dateformat, tz=UTC):
     """Convert a date to a string of the specified format.
 
     arguments:
     dateval -- a date value
-    format  -- a string containing one of the following format names:
+    dateformat  -- a string containing one of the following format names:
                timestamp          - number of seconds since epoch
                directory-date     - CCYY-MM-DD
                directory-datetime - CCYY-MM-DD-HH-MM-SS
@@ -103,19 +104,19 @@ def convert_datetime_to_string(dateval, format, tz=UTC):
 
     dateval = dateval.astimezone(tz)
 
-    if format == TIMESTAMP:
+    if dateformat == TIMESTAMP:
         return str(int(calendar.timegm(dateval.timetuple())))
 
-    if format == DIRECTORY_DATE:
+    if dateformat == DIRECTORY_DATE:
         return dateval.strftime('%Y-%m-%d')
-    if format == DIRECTORY_DATETIME:
+    if dateformat == DIRECTORY_DATETIME:
         return dateval.strftime('%Y-%m-%d-%H-%M-%S')
-    if format == BUILDID:
+    if dateformat == BUILDID:
         return dateval.strftime('%Y%m%d%H%M%S')
-    if format == DATETIME:
+    if dateformat == DATETIME:
         return dateval.strftime('%Y-%m-%dT%H:%M:%S')
 
-    raise ValueError("%s is not a recognized format name" % format)
+    raise ValueError("%s is not a recognized format name" % dateformat)
 
 def set_time_zone(dateval):
     """ Set a date's timezone to Mozilla Time.

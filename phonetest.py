@@ -25,167 +25,20 @@ from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
 from sensitivedatafilter import SensitiveDataFilter
 
-# Set the logger globally in the file, but this must be reset when
-# used in a child process.
-logger = logging.getLogger()
-
 # Define the Adobe Flash Player package name as a constant for reuse.
 FLASH_PACKAGE = 'com.adobe.flashplayer'
 
-class Logcat(object):
-    def __init__(self, phonetest, logger):
-        logger.debug('Logcat()')
-        self.phonetest = phonetest
-        self.logger = logger
-        self._accumulated_logcat = []
-
-    def get(self, full=False):
-        """Return the contents of logcat as list of strings.
-
-        :param full: optional boolean which defaults to False. If full
-                     is False, then get() will only return logcat
-                     output since the last call to clear(). If
-                     full is True, then get() will return all
-                     logcat output since the test was initialized or
-                     teardown_job was last called.
-        """
-
-        # Get the datetime from the last logcat message
-        # previously collected. Note that with the time
-        # format, logcat lines begin with a date time of the
-        # form: 09-17 16:45:04.370 which is the first 18
-        # characters of the line.
-        if self._accumulated_logcat:
-            logcat_datestr = self._accumulated_logcat[-1][:18]
-        else:
-            logcat_datestr = '00-00 00:00:00.000'
-
-        self.logger.debug('Logcat.get() since %s' % logcat_datestr)
-
-        # adb logcat can return lines with bogus dates where the MM-DD
-        # is not correct. This in particular has happened on a Samsung
-        # Galaxy S3 where Vold emits lines with the fixed date
-        # 11-30. It is not known if this is a general problem with
-        # other devices.
-
-        # This incorrect date causes problems when attempting to use
-        # the logcat dates to eliminate duplicates. It also conflicts
-        # with the strategy used in analyze_logcat to determine a
-        # potential year change during a test run. To distinguish
-        # between false year changes, we can decide that if the
-        # previous date and the current date are different by more
-        # than an hour, a decision must be made on which date is
-        # legitimate.
-
-        for attempt in range(1, self.phonetest.options.phone_retry_limit+1):
-            try:
-                raw_logcat = [
-                    unicode(x, 'UTF-8', errors='replace').strip()
-                    for x in self.phonetest.dm.get_logcat(filter_specs=['*:V'])]
-                break
-            except ADBError:
-                self.logger.exception('Attempt %d get logcat' % attempt)
-                if attempt == self.phonetest.options.phone_retry_limit:
-                    raise
-                sleep(self.phonetest.options.phone_retry_wait)
-
-        current_logcat = []
-        prev_line_date = None
-        curr_line_date = None
-        curr_year = datetime.datetime.utcnow().year
-        hour = datetime.timedelta(hours=1)
-
-        for line in raw_logcat:
-            try:
-                curr_line_date = datetime.datetime.strptime('%4d-%s' % (
-                    curr_year, line[:18]), '%Y-%m-%d %H:%M:%S.%f')
-            except ValueError:
-                curr_line_date = None
-            if curr_line_date and prev_line_date:
-                delta = curr_line_date - prev_line_date
-                prev_line_datestr = prev_line_date.strftime('%m-%d %H:%M:%S.%f')
-                if delta <= -hour:
-                    # The previous line's date is one or more hours in
-                    # the future compared to the current line. Keep
-                    # the current lines which are before the previous
-                    # line's date.
-                    new_current_logcat = []
-                    for x in current_logcat:
-                        if x < prev_line_datestr:
-                            self.logger.debug('Logcat.get(): Discarding future line: %s' % x)
-                        else:
-                            self.logger.debug('Logcat.get(): keeping line: %s' % x)
-                            new_current_logcat.append(x)
-                    current_logcat = new_current_logcat
-                elif delta >= hour:
-                    # The previous line's date is one or more hours in
-                    # the past compared to the current line. Keep the
-                    # current lines which are after the previous
-                    # line's date.
-                    new_current_logcat = []
-                    for x in current_logcat:
-                        if x > prev_line_datestr:
-                            self.logger.debug('Logcat.get(): Discarding past line: %s' % x)
-                        else:
-                            self.logger.debug('Logcat.get(): keeping line: %s' % x)
-                            new_current_logcat.append(x)
-                    current_logcat = new_current_logcat
-            # Keep the messages which are on or after the last accumulated
-            # logcat date.
-            if line >= logcat_datestr:
-                current_logcat.append(line)
-            prev_line_date = curr_line_date
-
-        # In order to eliminate the possible duplicate
-        # messages, partition the messages by before, on and
-        # after the logcat_datestr.
-        accumulated_logcat_before = []
-        accumulated_logcat_now = []
-        for x in self._accumulated_logcat:
-            if x < logcat_datestr:
-                accumulated_logcat_before.append(x)
-            elif x[:18] == logcat_datestr:
-                accumulated_logcat_now.append(x)
-
-        current_logcat_now = []
-        current_logcat_after = []
-        for x in current_logcat:
-            if x[:18] == logcat_datestr:
-                current_logcat_now.append(x)
-            elif x > logcat_datestr:
-                current_logcat_after.append(x)
-
-        # Remove any previously received messages from
-        # current_logcat_now for the logcat_datestr.
-        current_logcat_now = set(current_logcat_now).difference(
-            set(accumulated_logcat_now))
-        current_logcat_now = list(current_logcat_now)
-        current_logcat_now.sort()
-
-        current_logcat = current_logcat_now + current_logcat_after
-        self._accumulated_logcat += current_logcat
-
-        if full:
-            return self._accumulated_logcat
-        return current_logcat
-
-    def reset(self):
-        """Clears the Logcat buffers and the device's logcat buffer."""
-        self.logger.debug('Logcat.reset()')
-        self.__init__(self.phonetest, self.logger)
-        self.phonetest.dm.clear_logcat()
-
-    def clear(self):
-        """Accumulates current logcat buffers, then clears the device's logcat
-        buffers. clear() is used to prevent the device's logcat buffer
-        from overflowing while not losing any output.
-        """
-        self.logger.debug('Logcat.clear()')
-        self.get()
-        self.phonetest.dm.clear_logcat()
-
-
 class PhoneTest(object):
+    # Test status
+
+    BUSTED = 'busted'
+    EXCEPTION = 'exception'
+    TESTFAILED = 'testfailed'
+    UNKNOWN = 'unknown'
+    USERCANCEL = 'usercancel'
+    RETRY = 'retry'
+    SUCCESS = 'success'
+
     # Use instances keyed on phoneid+':'config_file+':'+str(chunk)
     # to lookup tests.
 
@@ -204,13 +57,14 @@ class PhoneTest(object):
               config_file=None, job_guid=None,
               repo=None, build_type=None, build_abi=None, build_sdk=None, changeset_dirs=None):
 
+        logger = logging.getLogger()
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
                      'config_file: %s, job_guid: %s, '
                      'repo: %s, build_type: %s, '
-                     'abi: %s, build_sdk: %s' % (
-                         tests, test_name, phoneid,
-                         config_file, job_guid,
-                         repo, build_type, build_abi, build_sdk))
+                     'abi: %s, build_sdk: %s',
+                     tests, test_name, phoneid,
+                     config_file, job_guid,
+                     repo, build_type, build_abi, build_sdk)
         matches = []
         if not tests:
             tests = [PhoneTest.instances[key] for key in PhoneTest.instances.keys()]
@@ -227,15 +81,15 @@ class PhoneTest(object):
                         break
                     for td in test.run_if_changed:
                         if cd == "" or cd.startswith(td):
-                            logger.debug('PhoneTest.match: test %s dir %s matched changeset_dirs %s' % (test, td, cd))
+                            logger.debug('PhoneTest.match: test %s dir %s '
+                                         'matched changeset_dirs %s', test, td, cd)
                             matched = True
                             break
                 if not matched:
                     continue
 
-            if (test_name and
-                test_name != test.name and
-                "%s%s" % (test_name, test.name_suffix) != test.name):
+            if test_name and test_name != test.name and \
+               "%s%s" % (test_name, test.name_suffix) != test.name:
                 continue
 
             if phoneid and phoneid != test.phone.id:
@@ -274,7 +128,7 @@ class PhoneTest(object):
 
             matches.append(test)
 
-        logger.debug('PhoneTest.match = %s' % matches)
+        logger.debug('PhoneTest.match = %s', matches)
 
         return matches
 
@@ -304,12 +158,20 @@ class PhoneTest(object):
         self.phone = phone
         self.worker_subprocess = None
         self.options = options
+
+        logger = logging.getLogger()
         self.loggerdeco = LogDecorator(logger,
                                        {'phoneid': self.phone.id},
-                                       '%(phoneid)s|%(message)s')
+                                       'PhoneTest|%(phoneid)s|%(message)s')
         self.loggerdeco_original = None
         self.dm_logger_original = None
         self.loggerdeco.info('init autophone.phonetest')
+        # Test result
+        self.status = PhoneTest.SUCCESS
+        self.passed = 0
+        self.failed = 0
+        self.todo = 0
+
         # test_logfilehandler is used by running tests to save log
         # messages to a separate file which can be reset at the
         # beginning of each test independently of the worker's log.
@@ -327,7 +189,6 @@ class PhoneTest(object):
         self._job_symbol = None
         self._group_name = None
         self._group_symbol = None
-        self.test_result = PhoneTestResult(logger=self.loggerdeco)
         self.message = None
         # A unique consistent guid is necessary for identifying the
         # test job in treeherder. The test job_guid is updated when a
@@ -338,8 +199,6 @@ class PhoneTest(object):
         self.submit_timestamp = None
         self.start_timestamp = None
         self.end_timestamp = None
-        self.logcat = Logcat(self, self.loggerdeco)
-        self.loggerdeco.debug('PhoneTest: %s, cfg sections: %s' % (self.__dict__, self.cfg.sections()))
         if not self.cfg.sections():
             self.loggerdeco.warning('Test configuration not found. '
                                     'Will use defaults.')
@@ -419,7 +278,7 @@ class PhoneTest(object):
         except ConfigParser.NoSectionError:
             self.buildtypes = list(self.options.buildtypes)
 
-        self.loggerdeco.debug('PhoneTest: %s' % self.__dict__)
+        self.loggerdeco.debug('PhoneTest: %s', self.__dict__)
 
     def __str__(self):
         return '%s(%s, config_file=%s, chunk=%s, buildtypes=%s)' % (
@@ -448,6 +307,20 @@ class PhoneTest(object):
                     if PhoneTest.instances[key].run_if_changed:
                         PhoneTest.has_run_if_changed = True
                         break
+
+    def set_worker_subprocess(self, worker_subprocess):
+        logger = logging.getLogger()
+        self.loggerdeco = LogDecorator(logger,
+                                       {'phoneid': self.phone.id},
+                                       'PhoneTestSubProcess|%(phoneid)s|%(message)s')
+
+        self.loggerdeco.info('PhoneTest.set_worker_subprocess')
+
+        self.loggerdeco_original = None
+        self.dm_logger_original = None
+        self.worker_subprocess = worker_subprocess
+        self.dm = worker_subprocess.dm
+        self.update_status_cb = worker_subprocess.update_status
 
     @property
     def preferences(self):
@@ -593,7 +466,7 @@ class PhoneTest(object):
                         value = True
                     elif value.lower() == 'false':
                         value = False
-                    elif re.match('\d+$', value):
+                    elif re.match(r'\d+$', value):
                         value = int(value)
                     self._preferences[name] = value
         return self._preferences
@@ -619,7 +492,7 @@ class PhoneTest(object):
                         value = True
                     elif value.lower() == 'false':
                         value = False
-                    elif re.match('\d+$', value):
+                    elif re.match(r'\d+$', value):
                         value = int(value)
                     self._environment[name] = value
         return self._environment
@@ -637,7 +510,6 @@ class PhoneTest(object):
         if self._base_device_path:
             return self._base_device_path
         success = False
-        e = None
         for attempt in range(1, self.options.phone_retry_limit+1):
             self._base_device_path = self.dm.test_root + '/autophone'
             self.loggerdeco.debug('Attempt %d creating base device path %s' % (
@@ -655,7 +527,7 @@ class PhoneTest(object):
                 sleep(self.options.phone_retry_wait)
 
         if not success:
-            raise e
+            raise Exception('Failed to determine base_device_path')
 
         self.loggerdeco.debug('base_device_path is %s' % self._base_device_path)
 
@@ -726,15 +598,27 @@ class PhoneTest(object):
         self.job_guid = utils.generate_guid()
 
     def handle_test_interrupt(self, reason, test_result):
-        self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL', reason, test_result)
+        self.add_failure(self.name, 'TEST-UNEXPECTED-FAIL', reason, test_result)
 
-    def test_pass(self, testpath):
-        self.test_result.add_pass(testpath)
+    def add_pass(self, testpath):
+        testpath = _normalize_testpath(testpath)
+        self.passed += 1
+        self.loggerdeco.info(' TEST-PASS | %s | Ok.' % testpath)
 
-    def test_failure(self, testpath, status, message, testresult_status):
-        self.message = message
-        self.update_status(message=message)
-        self.test_result.add_failure(testpath, status, message, testresult_status)
+    def add_failure(self, testpath, test_status, text, testresult_status):
+        self.message = text
+        self.update_status(message=text)
+        testpath = _normalize_testpath(testpath)
+        if testresult_status:
+            self.status = testresult_status
+        self.failed += 1
+        self.loggerdeco.info(' %s | %s | %s' % (test_status, testpath, text))
+
+    def reset_result(self):
+        self.status = PhoneTest.SUCCESS
+        self.passed = 0
+        self.failed = 0
+        self.todo = 0
 
     def handle_crashes(self):
         if not self.crash_processor:
@@ -744,21 +628,22 @@ class PhoneTest(object):
                                                      self.options.minidump_stackwalk,
                                                      clean=True):
             if error['reason'] == 'java-exception':
-                self.test_failure(
+                self.add_failure(
                     self.name, 'PROCESS-CRASH',
                     error['signature'],
-                    PhoneTestResult.TESTFAILED)
+                    PhoneTest.TESTFAILED)
             elif error['reason'] == 'PROFILE-ERROR':
-                self.test_failure(
+                self.add_failure(
                     self.name,
                     error['reason'],
                     error['signature'],
-                    PhoneTestResult.TESTFAILED)
+                    PhoneTest.TESTFAILED)
             elif error['reason'] == 'PROCESS-CRASH':
-                self.test_failure(self.name,
-                                  error['reason'],
-                                  'application crashed [%s]' % error['signature'],
-                                  PhoneTestResult.TESTFAILED)
+                self.add_failure(
+                    self.name,
+                    error['reason'],
+                    'application crashed [%s]' % error['signature'],
+                    PhoneTest.TESTFAILED)
                 self.loggerdeco.info(error['signature'])
                 self.loggerdeco.info(error['stackwalk_output'])
                 self.loggerdeco.info(error['stackwalk_errors'])
@@ -874,11 +759,11 @@ class PhoneTest(object):
         self.job_details = []
         self.loggerdeco.debug('phonetest.setup_job: full logcat before job:')
         try:
-            self.loggerdeco.debug('\n'.join(self.logcat.get(full=True)))
+            self.loggerdeco.debug('\n'.join(self.worker_subprocess.logcat.get(full=True)))
         except:
             self.loggerdeco.exception('Exception getting logcat')
         try:
-            self.logcat.reset()
+            self.worker_subprocess.logcat.reset()
         except:
             self.loggerdeco.exception('Exception resetting logcat')
         self.worker_subprocess.treeherder.submit_running(
@@ -897,31 +782,39 @@ class PhoneTest(object):
         # self.dm._logger can raise ADBTimeoutError due to the
         # property dm therefore place it after the initialization.
         self.dm_logger_original = self.dm._logger
-        # Create a test run specific logger which will propagate to
+        # Create a test run specific log handler for
         # the root logger in the worker which runs in the same
         # process. This log will be uploaded to Treeherder if
         # Treeherder submission is enabled and will be cleared at the
         # beginning of each test run.
+
         sensitive_data_filter = SensitiveDataFilter(self.options.sensitive_data)
-        logger = logging.getLogger('phonetest')
-        logger.addFilter(sensitive_data_filter)
-        logger.propagate = True
-        logger.setLevel(self.worker_subprocess.loglevel)
+
         self.test_logfile = (self.worker_subprocess.logfile_prefix +
                              '-' + self.name + '.log')
         self.test_logfilehandler = logging.FileHandler(
             self.test_logfile, mode='w')
+        self.test_logfilehandler.addFilter(sensitive_data_filter)
+
         fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
                             '%(levelname)s|%(message)s')
         fileformatter = logging.Formatter(fileformatstring)
         self.test_logfilehandler.setFormatter(fileformatter)
+        logger = logging.getLogger()
+        # Check for an Ubuntu 16 issue where we have stray FileHandlers
+        for handler in logger.handlers:
+            if type(handler) == logging.FileHandler:
+                logger.error('PhoneTest.setup_job: removing unexpected logger file handler: %s %s',
+                             handler, handler.__dict__)
+                logger.removeHandler(handler)
+        handler = None
         logger.addHandler(self.test_logfilehandler)
 
         self.loggerdeco = LogDecorator(logger,
                                        {'phoneid': self.phone.id,
                                         'buildid': self.build.id,
                                         'test': self.name},
-                                       '%(phoneid)s|%(buildid)s|%(test)s|'
+                                       'PhoneTestJob|%(phoneid)s|%(buildid)s|%(test)s|'
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
         self.loggerdeco.info('PhoneTest starting job')
@@ -934,7 +827,7 @@ class PhoneTest(object):
                                                        self.upload_dir,
                                                        self.build.app_name)
         self.crash_processor.clear()
-        self.test_result = PhoneTestResult(logger=self.loggerdeco)
+        self.reset_result()
         if not self.worker_subprocess.is_disabled():
             self.update_status(phone_status=PhoneStatus.WORKING,
                                message='Setting up %s' % self.name)
@@ -954,13 +847,12 @@ class PhoneTest(object):
                 self.handle_crashes()
         except Exception, e:
             self.loggerdeco.exception('Exception during crash processing')
-            self.test_failure(
+            self.add_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Exception %s during crash processing' % e,
-                PhoneTestResult.EXCEPTION)
-        logger = logging.getLogger('phonetest')
-        if (logger.getEffectiveLevel() == logging.DEBUG and self.unittest_logpath and
-            os.path.exists(self.unittest_logpath)):
+                PhoneTest.EXCEPTION)
+        if self.loggerdeco.getEffectiveLevel() == logging.DEBUG and \
+           self.unittest_logpath and os.path.exists(self.unittest_logpath):
             self.loggerdeco.debug(40 * '=')
             try:
                 logfilehandle = open(self.unittest_logpath)
@@ -973,20 +865,16 @@ class PhoneTest(object):
         # logcat buffers to help prevent the device's buffer from
         # over flowing after the test.
         self.loggerdeco.debug('phonetest.teardown_job full logcat after job:')
-        self.loggerdeco.debug('\n'.join(self.logcat.get(full=True)))
+        self.loggerdeco.debug('\n'.join(self.worker_subprocess.logcat.get(full=True)))
         try:
-            if (self.worker_subprocess.is_disabled() and
-                self.test_result.status != PhoneTestResult.USERCANCEL):
+            if self.worker_subprocess.is_disabled() and self.status != PhoneTest.USERCANCEL:
                 # The worker was disabled while running one test of a job.
                 # Record the cancellation on any remaining tests in that job.
-                self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
-                                  'The worker was disabled.',
-                                  PhoneTestResult.USERCANCEL)
-            if self.loggerdeco_original:
-                loggerdeco = self.loggerdeco_original
-            else:
-                loggerdeco = self.loggerdeco
-            loggerdeco.info('PhoneTest stopping job')
+                self.add_failure(
+                    self.name, 'TEST-UNEXPECTED-FAIL',
+                    'The worker was disabled.',
+                    PhoneTest.USERCANCEL)
+            self.loggerdeco.info('PhoneTest stopping job')
             self.worker_subprocess.treeherder.submit_complete(
                 self.phone.id,
                 self.build.url,
@@ -1017,20 +905,28 @@ class PhoneTest(object):
         self.start_time = None
         self.stop_time = None
         self.unittest_logpath = None
-        self.logcat.reset()
+        self.worker_subprocess.logcat.reset()
         if self.loggerdeco_original:
             self.loggerdeco = self.loggerdeco_original
             self.loggerdeco_original = None
         if self.dm_logger_original:
             self.dm._logger = self.dm_logger_original
             self.dm_logger_original = None
-        self.test_result = PhoneTestResult(logger=self.loggerdeco)
+        self.reset_result()
 
         self.test_logfilehandler.close()
+        logger = logging.getLogger()
         logger.removeHandler(self.test_logfilehandler)
         self.test_logfilehandler = None
         os.unlink(self.test_logfile)
         self.test_logfile = None
+        # Check for an Ubuntu 16 issue where we have stray FileHandlers
+        for handler in logger.handlers:
+            if type(handler) == logging.FileHandler:
+                logger.error('PhoneTest.setup_job: removing unexpected logger file handler: %s %s',
+                             handler, handler.__dict__)
+                logger.removeHandler(handler)
+        handler = None
 
     def update_status(self, phone_status=None, message=None):
         if self.update_status_cb:
@@ -1080,12 +976,12 @@ class PhoneTest(object):
         try:
             self.dm.pkill(appname, root=True)
             self.dm.launch_fennec(appname,
-                                 intent="android.intent.action.VIEW",
-                                 moz_env=self.environment,
-                                 extra_args=local_extra_args,
-                                 url=url,
-                                 wait=False,
-                                 fail_if_running=False)
+                                  intent="android.intent.action.VIEW",
+                                  moz_env=self.environment,
+                                  extra_args=local_extra_args,
+                                  url=url,
+                                  wait=False,
+                                  fail_if_running=False)
         except:
             self.loggerdeco.exception('run_fennec_with_profile: Exception:')
             raise
@@ -1122,42 +1018,3 @@ def _normalize_testpath(testpath):
     if testpath.startswith('http'):
         testpath = testpath.replace(parts.netloc, 'remote')
     return testpath
-
-
-class PhoneTestResult(object):
-    """PhoneTestResult encapsulates the data format used by logparser
-    so we can have a uniform approach to recording test results between
-    native Autophone tests and Unit tests.
-    """
-    #SKIPPED = 'skipped'
-    BUSTED = 'busted'
-    EXCEPTION = 'exception'
-    TESTFAILED = 'testfailed'
-    UNKNOWN = 'unknown'
-    USERCANCEL = 'usercancel'
-    RETRY = 'retry'
-    SUCCESS = 'success'
-
-    def __init__(self, logger=None):
-        self.status = PhoneTestResult.SUCCESS
-        self.passed = 0
-        self.failed = 0
-        self.todo = 0
-        self.logger = logger
-
-    def __str__(self):
-        return "PhoneTestResult: passes: %s, failures: %s" % (self.passes, self.failures)
-
-    def add_pass(self, testpath):
-        testpath = _normalize_testpath(testpath)
-        self.passed += 1
-        if self.logger:
-            self.logger.info(' TEST-PASS | %s | Ok.' % testpath)
-
-    def add_failure(self, testpath, test_status, text, testresult_status):
-        testpath = _normalize_testpath(testpath)
-        if testresult_status:
-            self.status = testresult_status
-        self.failed += 1
-        if self.logger:
-            self.logger.info(' %s | %s | %s' % (test_status, testpath, text))

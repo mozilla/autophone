@@ -18,7 +18,7 @@ import urlparse
 import zipfile
 
 import slugid
-import taskcluster
+import taskcluster.client
 from thclient import TreeherderClient
 
 from bs4 import BeautifulSoup
@@ -32,9 +32,9 @@ from build_dates import (TIMESTAMP, DIRECTORY_DATE, DIRECTORY_DATETIME,
 
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
-logger = logging.getLogger()
+LOGGER = logging.getLogger()
 
-repo_urls = {
+REPO_URLS = {
     'autoland': 'http://hg.mozilla.org/integration/autoland/',
     'b2g-inbound': 'http://hg.mozilla.org/integration/b2g-inbound/',
     'fx-team': 'http://hg.mozilla.org/integration/fx-team/',
@@ -46,7 +46,7 @@ repo_urls = {
     'try': 'http://hg.mozilla.org/try/',
 }
 
-urls_repos = dict([(url, repo) for repo, url in repo_urls.items()])
+URLS_REPOS = dict([(URL, REPO) for REPO, URL in REPO_URLS.items()])
 
 # lifted from mozregression:utils.py:urlLinks
 def url_links(url):
@@ -80,7 +80,7 @@ def get_revision_datetimes(repo, first_revision, last_revision):
 
     returns: first_datetime, last_datetime.
     """
-    prefix = '%sjson-pushes?changeset=' % repo_urls[repo]
+    prefix = '%sjson-pushes?changeset=' % REPO_URLS[repo]
     first = utils.get_remote_json('%s%s' % (prefix, first_revision))
     if first:
         first_timestamp = first[first.keys()[0]]['date']
@@ -107,7 +107,7 @@ def parse_taskcluster_namespace(namespace):
     build_type = platform_parts[-1]
     if build_type == 'dbg':
         build_type = 'debug'
-    logger.debug('parse_taskcluster_namespace: %s: %s, %s' % (namespace, platform, build_type))
+    LOGGER.debug('parse_taskcluster_namespace: %s: %s, %s', namespace, platform, build_type)
     return (platform, build_type)
 
 
@@ -137,7 +137,8 @@ def get_treeherder_job(repo, job_guid):
         jobs = client.get_jobs(repo, job_guid=job_guid)
 
         if len(jobs) == 0 or len(jobs) > 1:
-            logger.warning('get_treeherder_job: job_guid: %s returned %s jobs' % (job_guid, len(jobs)))
+            LOGGER.warning('get_treeherder_job: job_guid: %s returned %s jobs',
+                           job_guid, len(jobs))
 
         if len(jobs) > 0:
             job = jobs[0]
@@ -154,7 +155,8 @@ def get_treeherder_tier(repo, task_id, run_id):
         treeherder_job = get_treeherder_job(repo, treeherder_job_guid)
         if treeherder_job and 'tier' in treeherder_job:
             tier = treeherder_job['tier']
-    logger.debug('get_treeherder_tier: repo: %s, task_id: %s, run_id: %s, tier: %s' % (repo, task_id, run_id, tier))
+    LOGGER.debug('get_treeherder_tier: repo: %s, task_id: %s, run_id: %s, tier: %s',
+                 repo, task_id, run_id, tier)
     return tier
 
 
@@ -175,19 +177,19 @@ def get_push_revisions(repo, parameters):
         return x['date'] - y['date']
 
     revisions = []
-    pushlog_url = (repo_urls[repo] +
+    pushlog_url = (REPO_URLS[repo] +
                    'json-pushes?tipsonly=1&' +
                    '&'.join(['%s=%s' % (parameter, urllib.quote(value))
                              for (parameter, value) in parameters.iteritems()]))
 
     pushlog_json = utils.get_remote_json(pushlog_url)
     if not pushlog_json:
-        logger.warning('get_push_revisions: %s not found.' % pushlog_url)
+        LOGGER.warning('get_push_revisions: %s not found.', pushlog_url)
     else:
         # Guarantee that the pushes are accessed in push date order.
         push_id_dates = []
         for push_id in pushlog_json:
-            push_id_dates.append( {'push_id': push_id, 'date': pushlog_json[push_id]['date']} )
+            push_id_dates.append({'push_id': push_id, 'date': pushlog_json[push_id]['date']})
         push_id_dates.sort(cmp=cmp_push)
 
         for push_id_date in push_id_dates:
@@ -210,10 +212,10 @@ class BuildLocation(object):
     def find_builds_by_directory(self, directory):
         raise NotImplementedError()
 
-    def find_builds_by_time(self, start_time, end_time):
+    def find_builds_by_time(self, start_time, end_time, inclusive=True):
         raise NotImplementedError()
 
-    def find_builds_by_revision(self, first_revision, last_revision):
+    def find_builds_by_revision(self, first_revision, last_revision, inclusive=True):
         raise NotImplementedError()
 
 
@@ -240,9 +242,10 @@ class TaskClusterBuilds(BuildLocation):
             for build_data in builds_by_repo[repo]:
                 if build_data['date'] >= threshold:
                     if not build_data['nightly'] and self.nightly:
-                        logger.debug('find_latest_builds: overriding build_data nightly %s with %s' % (build_data['nightly'], self.nightly))
+                        LOGGER.debug('find_latest_builds: overriding build_data nightly %s with %s',
+                                     build_data['nightly'], self.nightly)
                     builds.append(build_data)
-        logger.debug('find_latest_builds: %s' % builds)
+        LOGGER.debug('find_latest_builds: %s', builds)
         return builds
 
     def find_builds_by_directory(self, directory):
@@ -271,7 +274,7 @@ class TaskClusterBuilds(BuildLocation):
                                                                only_run_id=run_id)
                 builds = builds_by_repo['dummy']
             else:
-                logger.error('No builds found.')
+                LOGGER.error('No builds found.')
                 builds = []
         else:
             if self.nightly:
@@ -283,11 +286,11 @@ class TaskClusterBuilds(BuildLocation):
                                                   self.product, self.build_platforms,
                                                   self.buildfile_ext)
             builds = ftp_build_location.find_builds_by_directory(directory)
-        logger.debug('find_builds_by_directory: builds %s' % builds)
+        LOGGER.debug('find_builds_by_directory: builds %s', builds)
         return builds
 
-    def find_builds_by_time(self, start_time, end_time):
-        logger.debug('find_builds_by_time(%s, %s)' % (start_time, end_time))
+    def find_builds_by_time(self, start_time, end_time, inclusive=True):
+        LOGGER.debug('find_builds_by_time(%s, %s)', start_time, end_time)
         if not start_time.tzinfo or not end_time.tzinfo:
             raise Exception('find_builds_by_time: naive times not permitted')
 
@@ -305,7 +308,8 @@ class TaskClusterBuilds(BuildLocation):
                 inclusive = True
             else:
                 first_build_date = repo_builds[0]['date']
-                logger.debug('find_builds_by_time: repo: %s, first_build_date: %s' % (repo, first_build_date))
+                LOGGER.debug('find_builds_by_time: repo: %s, first_build_date: %s',
+                             repo, first_build_date)
                 if first_build_date > start_time:
                     ftp_fallback = True
                     ftp_start_time = start_time
@@ -314,7 +318,8 @@ class TaskClusterBuilds(BuildLocation):
             if ftp_fallback:
                 # TaskCluster does not have builds for the full range of dates.
                 # Fallback to the FTP locations.
-                logger.debug('find_builds_by_time: fallback to ftp: repo: %s, %s-%s' % (repo, ftp_start_time, ftp_end_time))
+                LOGGER.debug('find_builds_by_time: fallback to ftp: repo: %s, %s-%s',
+                             repo, ftp_start_time, ftp_end_time)
                 if self.nightly:
                     ftp_build_location = FtpNightly(self.repos, self.buildtypes,
                                                     self.product, self.build_platforms,
@@ -334,7 +339,7 @@ class TaskClusterBuilds(BuildLocation):
                 build_date = build_data['date']
                 if build_date >= start_time and build_date <= end_time:
                     builds.append(build_data)
-        logger.debug('find_builds_by_time: %s' % builds)
+        LOGGER.debug('find_builds_by_time: %s', builds)
         return builds
 
     def find_builds_by_revision(self, start_revision, end_revision, inclusive=True):
@@ -364,7 +369,8 @@ class TaskClusterBuilds(BuildLocation):
             if ftp_fallback:
                 # TaskCluster does not have builds for the full range of revisions.
                 # Fallback to the FTP locations.
-                logger.debug('find_builds_by_revision: fallback to ftp: repo: %s, %s-%s' % (repo, ftp_start_revision, ftp_end_revision))
+                LOGGER.debug('find_builds_by_revision: fallback to ftp: repo: %s, %s-%s',
+                             repo, ftp_start_revision, ftp_end_revision)
                 if self.nightly:
                     ftp_build_location = FtpNightly(self.repos, self.buildtypes,
                                                     self.product, self.build_platforms,
@@ -378,10 +384,10 @@ class TaskClusterBuilds(BuildLocation):
                                                                ftp_end_revision,
                                                                inclusive=inclusive))
             builds.extend(repo_builds)
-        logger.debug('find_builds_by_revision: %s' % builds)
+        LOGGER.debug('find_builds_by_revision: %s', builds)
         return builds
 
-    def _find_builds_by_task_ids(self, task_ids_by_repo, only_run_id = None, start_time=None, end_time=None):
+    def _find_builds_by_task_ids(self, task_ids_by_repo, only_run_id=None, start_time=None, end_time=None):
         """Return a list of build_data objects for the build_urls for the
         specified tasks.
         """
@@ -394,7 +400,7 @@ class TaskClusterBuilds(BuildLocation):
                 status = self.queue.status(task_id)['status']
                 worker_type = status['workerType']
                 builder_type = 'buildbot' if (worker_type == 'buildbot') else 'taskcluster'
-                logger.debug('_find_builds_by_task_ids: status: %s' % status)
+                LOGGER.debug('_find_builds_by_task_ids: status: %s', status)
                 build_found = False
                 for run in reversed(status['runs']): # runs
                     if build_found:
@@ -414,14 +420,16 @@ class TaskClusterBuilds(BuildLocation):
                             search = re_fennec.search(artifact_name)
                             if search:
                                 build_url = url_format % (task_id, run_id, artifact_name)
-                                build_data = utils.get_build_data(build_url, builder_type=builder_type)
+                                build_data = utils.get_build_data(build_url,
+                                                                  builder_type=builder_type)
                                 if not build_data:
                                     # Failed to get the build data for this
                                     # build. Break out of the artifacts for this
                                     # run but keep looking for a build in earlier
                                     # runs.
-                                    logger.warning('_find_builds_by_task_ids: task_id: %s, run_id: %s: '
-                                                   'could not get %s' % (task_id, run_id, build_url))
+                                    LOGGER.warning('_find_builds_by_task_ids: '
+                                                   'task_id: %s, run_id: %s: '
+                                                   'could not get %s', task_id, run_id, build_url)
                                     break # artifacts
                                 # Fall back to the taskcluster workerType to get the sdk if possible
                                 if build_data['sdk'] is None:
@@ -432,18 +440,16 @@ class TaskClusterBuilds(BuildLocation):
                                 if 'nightly_build' in build_data and not build_data['nightly_build']:
                                     break # artifacts
                                 build_date = build_data['date']
-                                if ((start_time and end_time and
-                                     build_date >= start_time and build_date <= end_time) or
-                                    (start_time and build_date >= start_time) or
-                                    (end_time and build_date <= end_time) or
-                                    (not start_time and not end_time)):
+                                if (start_time and end_time and build_date >= start_time and build_date <= end_time) or (start_time and build_date >= start_time) or (end_time and build_date <= end_time) or (not start_time and not end_time):
                                     build_found = True
-                                    logger.debug('_find_builds_by_task_ids: adding worker_type: %s, build_data: %s, tier: %s' % (worker_type, build_data, tier))
-                                    builds.append( build_data )
+                                    LOGGER.debug('_find_builds_by_task_ids: adding worker_type: '
+                                                 '%s, build_data: %s, tier: %s',
+                                                 worker_type, build_data, tier)
+                                    builds.append(build_data)
                                     break # artifacts
                     except StopIteration:
                         pass
-        logger.debug('_find_builds_by_task_ids: %s' % builds)
+        LOGGER.debug('_find_builds_by_task_ids: %s', builds)
         return builds_by_repo
 
     def _find_latest_task_ids(self):
@@ -457,7 +463,8 @@ class TaskClusterBuilds(BuildLocation):
         else:
             namespace_format = 'gecko.%s.%s.latest.mobile'
 
-        logger.debug('_find_latest_task_ids: nightly: %s, namespace_format: %s' % (self.nightly, namespace_format))
+        LOGGER.debug('_find_latest_task_ids: nightly: %s, namespace_format: %s',
+                     self.nightly, namespace_format)
         task_ids_by_repo = {}
         for repo in self.repos:
             # We could iterate over the build_platforms by adding
@@ -470,26 +477,29 @@ class TaskClusterBuilds(BuildLocation):
             namespace = namespace_format % (namespace_version, repo)
             payload = {}
             response = self.index.listTasks(namespace, payload)
-            logger.debug('_find_latest_task_ids: listTasks(%s, %s): response: %s' % (namespace, payload, response))
+            LOGGER.debug('_find_latest_task_ids: listTasks(%s, %s): response: %s',
+                         namespace, payload, response)
             for task in response['tasks']:
                 # gecko.v2.mozilla-central.nightly.latest.mobile.android-api-15-opt
-                logger.debug('_find_latest_task_ids: task: %s' % task)
+                LOGGER.debug('_find_latest_task_ids: task: %s', task)
                 task_id = task['taskId']
                 task_definition = self.queue.task(task_id)
-                logger.debug('_find_latest_task_ids: task_definition: %s' % task_definition)
+                LOGGER.debug('_find_latest_task_ids: task_definition: %s', task_definition)
                 worker_type = task_definition['workerType']
                 builder_type = 'buildbot' if worker_type == 'buildbot' else 'taskcluster'
                 # Just hard-code run_id 0 since we are only interested in the tier.
                 tier = get_treeherder_tier(repo, task_id, 0)
                 task_namespace = task['namespace']
                 (platform, build_type) = parse_taskcluster_namespace(task_namespace)
-                if (platform in self.build_platforms and
-                    build_type in self.buildtypes and
-                    (builder_type == 'buildbot' or tier == 1)):
-                    logger.debug('_find_lastest_task_ids: adding worker_type: %s, task_id: %s, tier: %s, repo: %s, platform: %s, build_type: %s' % (worker_type, task_id, tier, repo, platform, build_type))
+                if platform in self.build_platforms and \
+                   build_type in self.buildtypes and \
+                   (builder_type == 'buildbot' or tier == 1):
+                    LOGGER.debug('_find_lastest_task_ids: adding worker_type: %s, '
+                                 'task_id: %s, tier: %s, repo: %s, platform: %s, build_type: %s',
+                                 worker_type, task_id, tier, repo, platform, build_type)
                     task_ids.append(task_id)
 
-        logger.debug('_find_latest_task_ids: %s' % task_ids_by_repo)
+        LOGGER.debug('_find_latest_task_ids: %s', task_ids_by_repo)
         return task_ids_by_repo
 
     def _find_revisions_by_revisions(self, start_revision, end_revision, inclusive=True):
@@ -511,7 +521,7 @@ class TaskClusterBuilds(BuildLocation):
             # repo, it may not be valid for all of them.
             if inclusive and (start_revision != end_revision or len(revisions) > 0):
                 revisions.append(end_revision)
-        logger.debug('_find_revisions_by_revisions: %s' % revisions_by_repo)
+        LOGGER.debug('_find_revisions_by_revisions: %s', revisions_by_repo)
         return revisions_by_repo
 
     def _find_revisions_by_dates(self, start_date, end_date):
@@ -538,7 +548,7 @@ class TaskClusterBuilds(BuildLocation):
             revisions_by_repo[repo] = get_push_revisions(repo,
                                                          {'startdate': start_date_str,
                                                           'enddate': end_date_str})
-        logger.debug('_find_revisions_by_dates: %s' % revisions_by_repo)
+        LOGGER.debug('_find_revisions_by_dates: %s', revisions_by_repo)
         return revisions_by_repo
 
     def _find_task_ids_by_revisions(self, revisions_by_repo):
@@ -564,11 +574,12 @@ class TaskClusterBuilds(BuildLocation):
                 payload = {}
                 response = self.index.listTasks(namespace, payload)
                 for task in response['tasks']:
-                    logger.debug('_find_task_ids_by_revisions: task: %s' % task)
+                    LOGGER.debug('_find_task_ids_by_revisions: task: %s', task)
                     task_id = task['taskId']
                     task_namespace = task['namespace']
                     task_definition = self.queue.task(task_id)
-                    logger.debug('_find_task_ids_by_revisions: task_definition: %s' % task_definition)
+                    LOGGER.debug('_find_task_ids_by_revisions: task_definition: %s',
+                                 task_definition)
                     worker_type = task_definition['workerType']
                     builder_type = 'buildbot' if worker_type == 'buildbot' else 'taskcluster'
                     # Just hard-code run_id 0 since the tier shouldn't change.
@@ -580,38 +591,44 @@ class TaskClusterBuilds(BuildLocation):
                         platform = task_definition['workerType']
                         build_type = task_definition['extra']['build_type']
                     else:
-                        logger.warning('_find_task_ids_by_revisions: missing build_type in task_definition["extra"] %s' % task_definition)
-                    logger.debug('_find_task_ids_by_revisions: worker_type: %s, platform: %s, build_type: %s, tier: %s' % (worker_type, platform, build_type, tier))
-                    if (platform in self.build_platforms and
-                        build_type in self.buildtypes and
-                        (builder_type == 'buildbot' or tier == 1)):
-                        logger.debug('_find_task_ids_by_revisions: adding worker_type: %s, task_id: %s, tier: %s, repo: %s, platform: %s, build_type; %s' % (builder_type, task_id, tier, repo, platform, build_type))
+                        LOGGER.warning('_find_task_ids_by_revisions: missing build_type '
+                                       'in task_definition["extra"] %s', task_definition)
+                    LOGGER.debug('_find_task_ids_by_revisions: worker_type: %s, platform: %s, '
+                                 'build_type: %s, tier: %s',
+                                 worker_type, platform, build_type, tier)
+                    if platform in self.build_platforms and \
+                       build_type in self.buildtypes and \
+                       (builder_type == 'buildbot' or tier == 1):
+                        LOGGER.debug('_find_task_ids_by_revisions: adding worker_type: %s, '
+                                     'task_id: %s, tier: %s, repo: %s, platform: %s, '
+                                     'build_type; %s',
+                                     builder_type, task_id, tier, repo, platform, build_type)
                         task_ids.append(task_id)
-        logger.debug('_find_task_ids_by_revisions: %s' % task_ids_by_repo)
+        LOGGER.debug('_find_task_ids_by_revisions: %s', task_ids_by_repo)
         return task_ids_by_repo
 
 
 class FtpBuildLocation(BuildLocation):
     def __init__(self, repos, buildtypes,
                  product, build_platforms, buildfile_ext):
-        BuildLocation.__init__(self,  repos, buildtypes,
+        BuildLocation.__init__(self, repos, buildtypes,
                                product, build_platforms, buildfile_ext)
-        buildfile_pattern = self.product + '.*\.('
+        buildfile_pattern = self.product + r'.*\.('
         for platform in self.build_platforms:
             if platform.startswith('android-x86'):
                 buildfile_pattern += 'android-i386|'
             elif platform.startswith('android'):
                 buildfile_pattern += 'android-arm|androideabi-arm|eabi-arm|'
             else:
-                raise Exception('Unsupported platform: %s' % platform)
+                raise Exception('Unsupported platform: %s', platform)
 
         buildfile_pattern = buildfile_pattern.rstrip('|')
         buildfile_pattern += ')'
         self.buildfile_regex = re.compile(buildfile_pattern)
         self.build_regex = re.compile("(%s%s)$" % (buildfile_pattern,
-                                                  self.buildfile_ext))
-        self.buildtxt_regex = re.compile("(%s)\.txt$" % buildfile_pattern)
-        logger.debug('FtpBuildLocation: '
+                                                   self.buildfile_ext))
+        self.buildtxt_regex = re.compile(r"(%s)\.txt$" % buildfile_pattern)
+        LOGGER.debug('FtpBuildLocation: '
                      'repos: %s, '
                      'buildtypes: %s, '
                      'product: %s, '
@@ -620,16 +637,16 @@ class FtpBuildLocation(BuildLocation):
                      'pattern: %s, '
                      'buildfile_regex: %s, '
                      'build_regex: %s, '
-                     'buildtxt_regex: %s' % (
-                         self.repos,
-                         self.buildtypes,
-                         self.product,
-                         self.build_platforms,
-                         self.buildfile_ext,
-                         buildfile_pattern,
-                         self.buildfile_regex.pattern,
-                         self.build_regex.pattern,
-                         self.buildtxt_regex.pattern))
+                     'buildtxt_regex: %s',
+                     self.repos,
+                     self.buildtypes,
+                     self.product,
+                     self.build_platforms,
+                     self.buildfile_ext,
+                     buildfile_pattern,
+                     self.buildfile_regex.pattern,
+                     self.build_regex.pattern,
+                     self.buildtxt_regex.pattern)
 
     def does_build_directory_contain_repo_name(self):
         """Returns True if the build directory name
@@ -660,8 +677,8 @@ class FtpBuildLocation(BuildLocation):
         now = datetime.datetime.now(tz=UTC)
         builds = self.find_builds_by_time(now - window, now)
         if not builds:
-            logger.error('Could not find any nightly builds in the last '
-                         '%d days!' % window.days)
+            LOGGER.error('Could not find any nightly builds in the last '
+                         '%d days!', window.days)
             return None
         # Return the most recent builds for each of the architectures.
         # The phones will weed out the unnecessary architectures.
@@ -683,27 +700,26 @@ class FtpBuildLocation(BuildLocation):
                     break
             builds = [build_data for build_data in builds if platform not in build_data['platform']]
 
-        logger.debug('find_latest_builds: builds: %s' % multiarch_builds)
+        LOGGER.debug('find_latest_builds: builds: %s', multiarch_builds)
         return multiarch_builds
 
     def find_builds_by_directory(self, directory):
-        logger.debug('Finding builds in directory %s' %
-                     directory)
+        LOGGER.debug('Finding builds in directory %s', directory)
 
         builds = []
         # Ensure directory ends with a trailing /.
         # See https://docs.python.org/2.7/library/os.path.html#os.path.join
         directory = os.path.join(directory, '')
 
-        logger.debug('Checking directory %s...' % directory)
+        LOGGER.debug('Checking directory %s...', directory)
         directory_tuple = urlparse.urlparse(directory)
         if directory_tuple.scheme.startswith('http'):
             build_links = url_links(directory)
             for build_link in build_links:
                 filename = build_link.get_text()
-                logger.debug('find_builds_by_directory: checking filename: %s' % filename)
+                LOGGER.debug('find_builds_by_directory: checking filename: %s', filename)
                 if self.build_regex.match(filename):
-                    logger.debug('find_builds_by_directory: found filename: %s' % filename)
+                    LOGGER.debug('find_builds_by_directory: found filename: %s', filename)
                     build_url = '%s%s' % (directory, filename)
                     build_data = utils.get_build_data(build_url, builder_type='buildbot')
                     if build_data:
@@ -715,9 +731,9 @@ class FtpBuildLocation(BuildLocation):
             filepaths = glob.glob(directory + '*')
             for filepath in filepaths:
                 filename = os.path.basename(filepath)
-                logger.debug('find_builds_by_directory: checking %s' % filepath)
+                LOGGER.debug('find_builds_by_directory: checking %s', filepath)
                 if self.build_regex.match(filename):
-                    logger.debug('find_builds_by_directory: found %s' % filepath)
+                    LOGGER.debug('find_builds_by_directory: found %s', filepath)
                     # Make sure the returned build urls have a file scheme.
                     build_url = urlparse.urljoin('file:', filepath)
                     build_data = utils.get_build_data(build_url, builder_type='buildbot')
@@ -725,13 +741,13 @@ class FtpBuildLocation(BuildLocation):
                         builds.append(build_data)
                     break
         if not builds:
-            logger.error('No builds found.')
-        logger.debug('find_builds_by_directory: builds %s' % builds)
+            LOGGER.error('No builds found.')
+        LOGGER.debug('find_builds_by_directory: builds %s', builds)
         return builds
 
     def find_builds_by_time(self, start_time, end_time, inclusive=True):
-        logger.debug('Finding builds between %s and %s' %
-                     (start_time, end_time))
+        LOGGER.debug('Finding builds between %s and %s',
+                     start_time, end_time)
         if not start_time.tzinfo or not end_time.tzinfo:
             raise Exception('find_builds_by_time: naive times not permitted')
 
@@ -739,43 +755,43 @@ class FtpBuildLocation(BuildLocation):
 
         for directory_repo, directory in self.get_search_directories_by_time(start_time,
                                                                              end_time):
-            logger.debug('Checking repo %s directory %s...' % (directory_repo, directory))
+            LOGGER.debug('Checking repo %s directory %s...', directory_repo, directory)
             directory_links = url_links(directory)
             for directory_link in directory_links:
                 directory_name = directory_link.get_text().rstrip('/')
                 directory_href = '%s%s/' % (directory, directory_name)
-                logger.debug('find_builds_by_time: directory: href: %s, name: %s' % (
-                    directory_href, directory_name))
+                LOGGER.debug('find_builds_by_time: directory: href: %s, name: %s',
+                             directory_href, directory_name)
                 build_time = self.build_time_from_directory_name(directory_name)
 
                 if not build_time:
                     continue
 
-                if (build_time < start_time or
-                    (inclusive and build_time > end_time) or
-                    (not inclusive and build_time >= end_time)):
+                if build_time < start_time or \
+                   (inclusive and build_time > end_time) or \
+                   (not inclusive and build_time >= end_time):
                     continue
 
                 build_links = url_links(directory_href)
                 for build_link in build_links:
                     filename = build_link.get_text()
-                    logger.debug('find_builds_by_time: checking filename: %s' % filename)
+                    LOGGER.debug('find_builds_by_time: checking filename: %s', filename)
                     if self.build_regex.match(filename):
-                        logger.debug('find_builds_by_time: found filename: %s' % filename)
+                        LOGGER.debug('find_builds_by_time: found filename: %s', filename)
                         build_url = '%s%s' % (directory_href, filename)
                         build_data = utils.get_build_data(build_url, builder_type='buildbot')
                         if build_data:
                             builds.append(build_data)
                         break
         if not builds:
-            logger.error('No builds found.')
+            LOGGER.error('No builds found.')
         return builds
 
     def find_builds_by_revision(self, first_revision, last_revision, inclusive=True):
-        logger.debug('Finding builds between revisions %s and %s' %
-                     (first_revision, last_revision))
+        LOGGER.debug('Finding builds between revisions %s and %s',
+                     first_revision, last_revision)
 
-        range = datetime.timedelta(hours=12)
+        date_range = datetime.timedelta(hours=12)
         builds = []
 
         for repo in self.repos:
@@ -785,61 +801,61 @@ class FtpBuildLocation(BuildLocation):
                     first_revision,
                     last_revision)
             except Exception:
-                logger.exception('repo %s' % repo)
+                LOGGER.exception('repo %s', repo)
                 continue
 
-            logger.debug('find_builds_by_revision: repo %s, '
+            LOGGER.debug('find_builds_by_revision: repo %s, '
                          'first_revision: %s, first_datetime: %s, '
-                         'last_revision: %s, last_datetime: %s' % (
-                             repo, first_revision, first_datetime,
-                             last_revision, last_datetime))
+                         'last_revision: %s, last_datetime: %s',
+                         repo, first_revision, first_datetime,
+                         last_revision, last_datetime)
             if not first_datetime or not last_datetime:
                 continue
-            for search_directory_repo, search_directory in self.get_search_directories_by_time(first_datetime,
-                                                                                               last_datetime):
+            for search_directory_repo, search_directory in self.get_search_directories_by_time(
+                    first_datetime, last_datetime):
                 # search_directory_repo is not None for FtpTinderbox builds and
                 # can be used to filter the search directories.
-                logger.debug('find_builds_by_revision: Checking repo: %s '
-                             'search_directory_repo %s search_directory %s...' %
-                             (repo, search_directory_repo, search_directory))
+                LOGGER.debug('find_builds_by_revision: Checking repo: %s '
+                             'search_directory_repo %s search_directory %s...',
+                             repo, search_directory_repo, search_directory)
                 if search_directory_repo and search_directory_repo != repo:
-                    logger.info('find_builds_by_revision: skipping repo %s, '
-                                'search_directory_repo: %s, search_directory: %s' %
-                                (repo, search_directory_repo, search_directory))
+                    LOGGER.info('find_builds_by_revision: skipping repo %s, '
+                                'search_directory_repo: %s, search_directory: %s',
+                                repo, search_directory_repo, search_directory)
                     continue
 
-                format = None
+                formatstr = None
                 datetimestamps = []
 
                 for link in url_links(search_directory):
                     try:
                         datetimestring = link.get('href').strip('/')
                         if self.does_build_directory_contain_repo_name() and repo not in datetimestring:
-                            logger.info('find_builds_by_revisions:'
+                            LOGGER.info('find_builds_by_revisions:'
                                         'skipping datetimestring: repo: %s, '
-                                        'datetimestring: %s' % (repo, datetimestring))
+                                        'datetimestring: %s', repo, datetimestring)
                             continue
 
-                        logger.debug('find_builds_by_revisions: datetimestring: %s' % datetimestring)
+                        LOGGER.debug('find_builds_by_revisions: datetimestring: %s', datetimestring)
                         link_format, link_datetime = parse_datetime(datetimestring, tz=PACIFIC)
-                        if not format:
-                            format = link_format
-                        logger.debug('find_builds_by_revisions: link_format: %s,'
-                                     'link_datetime: %s' % (link_format, link_datetime))
-                        if link_datetime > first_datetime - range and link_datetime < last_datetime + range:
+                        if not formatstr:
+                            formatstr = link_format
+                        LOGGER.debug('find_builds_by_revisions: link_format: %s,'
+                                     'link_datetime: %s', link_format, link_datetime)
+                        if link_datetime > first_datetime - date_range and \
+                           link_datetime < last_datetime + date_range:
                             datetimestamps.append(link_datetime)
                     except ValueError:
-                        logger.exception()
                         pass
 
                 total_datetimestamps = len(datetimestamps)
                 datetimestamps = sorted(set(datetimestamps))
                 unique_datetimestamps = len(datetimestamps)
-                logger.debug('find_builds_by_revision: total_datetimestamps=%d, unique_datetimestamps=%d' %
-                             (total_datetimestamps,
-                              unique_datetimestamps))
+                LOGGER.debug('find_builds_by_revision: total_datetimestamps=%d, '
+                             'unique_datetimestamps=%d',
+                             total_datetimestamps, unique_datetimestamps)
 
-                logger.debug('find_builds_by_revisions: datetimestamps: %s' % datetimestamps)
+                LOGGER.debug('find_builds_by_revisions: datetimestamps: %s', datetimestamps)
 
                 start_time = None
                 end_time = None
@@ -853,14 +869,14 @@ class FtpBuildLocation(BuildLocation):
                         # terminate this loop when we find the first
                         # build which matches the ending revision.
 
-                        logger.debug('find_builds_by_revisions: '
+                        LOGGER.debug('find_builds_by_revisions: '
                                      'datetimestamp: %s, repo: %s, '
                                      'search_directory_repo: %s, '
                                      'search_directory: %s, directory_repo: %s, '
-                                     'directory_name: %s' %
-                                     (datetimestamp, repo, search_directory_repo,
-                                      search_directory, directory_repo,
-                                      directory_name))
+                                     'directory_name: %s',
+                                     datetimestamp, repo, search_directory_repo,
+                                     search_directory, directory_repo,
+                                     directory_name)
 
                         try:
                             links = url_links("%s%s/" % (search_directory, directory_name))
@@ -871,26 +887,27 @@ class FtpBuildLocation(BuildLocation):
                             match = self.buildtxt_regex.match(href)
                             if match:
                                 build_url = "%s%s/%s%s" % (search_directory,
-                                                         directory_name,
-                                                         match.group(1),
-                                                         self.buildfile_ext)
-                                logger.debug('find_builds_by_revisions: '
+                                                           directory_name,
+                                                           match.group(1),
+                                                           self.buildfile_ext)
+                                LOGGER.debug('find_builds_by_revisions: '
                                              'found build: datetimestamp: %s, '
                                              'repo: %s, search_directory_repo:%s,'
                                              'search_directory: %s, '
                                              'directory_repo: %s, '
-                                             'directory_name: %s, found build: %s'
-                                             % (datetimestamp, repo,
+                                             'directory_name: %s, found build: %s',
+                                             datetimestamp, repo,
                                              search_directory_repo,
                                              search_directory, directory_repo,
-                                             directory_name, build_url))
-                                build_data = utils.get_build_data(build_url, builder_type='buildbot')
+                                             directory_name, build_url)
+                                build_data = utils.get_build_data(build_url,
+                                                                  builder_type='buildbot')
                                 if build_data:
                                     if repo != build_data['repo']:
-                                        logger.info('find_builds_by_revisions: '
-                                                    'skipping build: %s != %s'
-                                                    % (repo,
-                                                       urls_repos[build_data['repo']]))
+                                        LOGGER.info('find_builds_by_revisions: '
+                                                    'skipping build: %s != %s',
+                                                    repo,
+                                                    URLS_REPOS[build_data['repo']])
                                         continue
                                     if build_data['revision'].startswith(first_revision):
                                         start_time = build_data['date']
@@ -911,7 +928,7 @@ class FtpNightly(FtpBuildLocation):
     def __init__(self, repos, buildtypes,
                  product, build_platforms, buildfile_ext):
         FtpBuildLocation.__init__(self, repos, buildtypes,
-                               product, build_platforms, buildfile_ext)
+                                  product, build_platforms, buildfile_ext)
         self.nightly_dirname_regexs = []
         for repo in repos:
             pattern = '(.*)-%s-(' % repo
@@ -921,7 +938,7 @@ class FtpNightly(FtpBuildLocation):
             pattern += ')$'
             self.nightly_dirname_regexs.append(re.compile(pattern))
         patterns = [regex.pattern for regex in self.nightly_dirname_regexs]
-        logger.debug('FtpNightly: nightly_dirname_regexs: %s' % patterns)
+        LOGGER.debug('FtpNightly: nightly_dirname_regexs: %s', patterns)
 
     def does_build_directory_contain_repo_name(self):
         return True
@@ -930,7 +947,7 @@ class FtpNightly(FtpBuildLocation):
         # ftp directory directories use Pacific time in their names.
         start_time = start_time.astimezone(PACIFIC)
         end_time = end_time.astimezone(PACIFIC)
-        logger.debug('FtpNightly:get_search_directories_by_time(%s, %s)' % (start_time, end_time))
+        LOGGER.debug('FtpNightly:get_search_directories_by_time(%s, %s)', start_time, end_time)
         y = start_time.year
         m = start_time.month
         while y < end_time.year or (y == end_time.year and m <= end_time.month):
@@ -942,7 +959,7 @@ class FtpNightly(FtpBuildLocation):
                 m += 1
 
     def build_time_from_directory_name(self, directory_name):
-        logger.debug('FtpNightly:build_time_from_directory_name(%s)' % directory_name)
+        LOGGER.debug('FtpNightly:build_time_from_directory_name(%s)', directory_name)
         build_time = None
         dirnamematch = None
         for r in self.nightly_dirname_regexs:
@@ -950,13 +967,13 @@ class FtpNightly(FtpBuildLocation):
             if dirnamematch:
                 break
         if dirnamematch:
-            format, build_time = parse_datetime(directory_name, tz=PACIFIC)
-            logger.debug('FtpNightly:build_time_from_directory_name(%s)=%s,%s)' %
-                         (directory_name, format, build_time))
+            formatstr, build_time = parse_datetime(directory_name, tz=PACIFIC)
+            LOGGER.debug('FtpNightly:build_time_from_directory_name(%s)=%s,%s)',
+                         directory_name, formatstr, build_time)
         return build_time
 
     def directory_names_from_datetimestamp(self, datetimestamp):
-        dates = [convert_datetime_to_string(datetimestamp, DIRECTORY_DATE, tz=PACIFIC), # only really needed for non mobile
+        dates = [convert_datetime_to_string(datetimestamp, DIRECTORY_DATE, tz=PACIFIC),
                  convert_datetime_to_string(datetimestamp, DIRECTORY_DATETIME, tz=PACIFIC)]
         for platform in self.build_platforms:
             for date in dates:
@@ -975,7 +992,7 @@ class FtpTinderbox(FtpBuildLocation):
 
     def get_search_directories_by_time(self, start_time, end_time):
         # Note: start_time, end_time are unused.
-        logger.debug('FtpTinderbox:get_search_directories_by_time(%s, %s)' % (start_time, end_time))
+        LOGGER.debug('FtpTinderbox:get_search_directories_by_time(%s, %s)', start_time, end_time)
         # FIXME: Can we be certain that there's only one buildID (unique
         # timestamp) regardless of repo (at least m-i vs m-c)?
         for platform in self.build_platforms:
@@ -988,13 +1005,13 @@ class FtpTinderbox(FtpBuildLocation):
                     yield repo, '%s%s-%s%s/' % (self.main_http_url, repo, platform, buildtypestring)
 
     def build_time_from_directory_name(self, directory_name):
-        logger.debug('FtpTinderbox:build_time_from_directory_name(%s)' % directory_name)
+        LOGGER.debug('FtpTinderbox:build_time_from_directory_name(%s)', directory_name)
         try:
             date_format, build_time = parse_datetime(directory_name, tz=UTC)
         except ValueError:
             build_time = None
-        logger.debug('FtpTinderbox:build_time_from_directory_name: (%s, %s)' %
-                     (directory_name, build_time))
+        LOGGER.debug('FtpTinderbox:build_time_from_directory_name: (%s, %s)',
+                     directory_name, build_time)
         return build_time
 
     def directory_names_from_datetimestamp(self, datetimestamp):
@@ -1029,14 +1046,15 @@ class BuildCache(object):
 
             build_path = os.path.join(override_build_dir, 'build.apk')
             if not os.path.exists(build_path):
-                raise BuildCacheException('Override Build Directory %s does not contain a build.apk.' %
+                raise BuildCacheException('Override Build Directory %s '
+                                          'does not contain a build.apk.',
                                           override_build_dir)
         if not os.path.exists(self.cache_dir):
             os.mkdir(self.cache_dir)
         self.build_cache_size = build_cache_size
         self.build_cache_expires = build_cache_expires
         self.treeherder_url = treeherder_url
-        logger.debug('BuildCache: %s' % self.__dict__)
+        LOGGER.debug('BuildCache: %s', self.__dict__)
 
     def build_location(self, s):
         return TaskClusterBuilds(self.repos, self.buildtypes,
@@ -1047,27 +1065,27 @@ class BuildCache(object):
     def find_latest_builds(self, build_location_name='nightly'):
         build_location = self.build_location(build_location_name)
         if not build_location:
-            logger.error('unsupported build_location "%s"' % build_location_name)
+            LOGGER.error('unsupported build_location "%s"', build_location_name)
             return []
         return build_location.find_latest_builds()
 
     def find_builds_by_directory(self, directory, build_location_name='nightly'):
         build_location = self.build_location(build_location_name)
         if not build_location:
-            logger.error('unsupported build_location "%s"' % build_location_name)
+            LOGGER.error('unsupported build_location "%s"', build_location_name)
             return []
 
         return build_location.find_builds_by_directory(directory)
 
     def find_builds_by_time(self, start_time, end_time, build_location_name='nightly'):
-        logger.debug('Finding %s builds between %s and %s' %
-                     (build_location_name, start_time, end_time))
+        LOGGER.debug('Finding %s builds between %s and %s',
+                     build_location_name, start_time, end_time)
         if not start_time.tzinfo or not end_time.tzinfo:
             raise Exception('find_builds_by_time: naive times not permitted')
 
         build_location = self.build_location(build_location_name)
         if not build_location:
-            logger.error('unsupported build_location "%s"' % build_location_name)
+            LOGGER.error('unsupported build_location "%s"', build_location_name)
             return []
 
         return build_location.find_builds_by_time(start_time, end_time)
@@ -1076,7 +1094,7 @@ class BuildCache(object):
                                 build_location_name='nightly'):
         build_location = self.build_location(build_location_name)
         if not build_location:
-            logger.error('unsupported build_location "%s"' % build_location_name)
+            LOGGER.error('unsupported build_location "%s"', build_location_name)
             return []
 
         return build_location.find_builds_by_revision(first_revision, last_revision)
@@ -1121,7 +1139,8 @@ class BuildCache(object):
                     raise BuildCacheException(
                         'Override Build Directory %s is missing test packages %s.' %
                         (self.override_build_dir, missing_packages))
-            metadata = self.build_metadata(buildurl, self.override_build_dir, builder_type=builder_type)
+            metadata = self.build_metadata(buildurl, self.override_build_dir,
+                                           builder_type=builder_type)
             if metadata:
                 metadata_json = metadata.to_json()
             else:
@@ -1146,7 +1165,7 @@ class BuildCache(object):
             download_build = (force or not os.path.exists(build_path) or
                               zipfile.ZipFile(build_path).testzip() is not None)
         except (zipfile.BadZipfile, IOError), e:
-            logger.warning('%s checking build: %s. Forcing download.' % (e, buildurl))
+            LOGGER.warning('%s checking build: %s. Forcing download.', e, buildurl)
             download_build = True
         if download_build:
             # retrieve to temporary file then move over, so we don't end
@@ -1158,7 +1177,7 @@ class BuildCache(object):
             except IOError:
                 os.unlink(tmpf.name)
                 err = 'IO Error retrieving build: %s.' % buildurl
-                logger.exception(err)
+                LOGGER.exception(err)
                 return {'success': False, 'error': err}
             shutil.move(tmpf.name, build_path)
         file(os.path.join(cache_build_dir, 'lastused'), 'w')
@@ -1177,16 +1196,17 @@ class BuildCache(object):
                 symbols_zipfile.close()
             except IOError, ioerror:
                 if '550 Failed to change directory' in str(ioerror):
-                    logger.info('No symbols found: %s.' % symbols_url)
+                    LOGGER.info('No symbols found: %s.', symbols_url)
                 elif 'No such file or directory' in str(ioerror):
-                    logger.info('No symbols found: %s.' % symbols_url)
+                    LOGGER.info('No symbols found: %s.', symbols_url)
                 else:
-                    logger.exception('IO Error retrieving symbols: %s.' % symbols_url)
+                    LOGGER.exception('IO Error retrieving symbols: %s.', symbols_url)
             except zipfile.BadZipfile:
-                logger.info('Ignoring zipfile.BadZipfile Error retrieving symbols: %s.' % symbols_url)
+                LOGGER.info('Ignoring zipfile.BadZipfile Error retrieving symbols: %s.',
+                            symbols_url)
                 try:
                     with open(tmpf.name, 'r') as badzipfile:
-                        logger.debug(badzipfile.read())
+                        LOGGER.debug(badzipfile.read())
                 except:
                     pass
             os.unlink(tmpf.name)
@@ -1209,18 +1229,18 @@ class BuildCache(object):
                 except IOError:
                     os.unlink(tmpf.name)
                     err = 'IO Error retrieving robocop.apk: %s.' % robocop_url
-                    logger.exception(err)
+                    LOGGER.exception(err)
                     return {'success': False, 'error': err}
                 shutil.move(tmpf.name, robocop_path)
             test_packages_url = re.sub('.apk$', '.test_packages.json', buildurl)
-            logger.info('downloading test package json %s' % test_packages_url)
+            LOGGER.info('downloading test package json %s', test_packages_url)
             test_packages = utils.get_remote_json(test_packages_url)
             if not test_packages:
-                logger.warning('test package json %s not found' %
+                LOGGER.warning('test package json %s not found',
                                test_packages_url)
                 test_packages_url = urlparse.urljoin(buildurl,
                                                      'test_packages.json')
-                logger.info('falling back to test package json %s' %
+                LOGGER.info('falling back to test package json %s',
                             test_packages_url)
                 test_packages = utils.get_remote_json(test_packages_url)
 
@@ -1232,31 +1252,31 @@ class BuildCache(object):
             # easily eliminate duplicate file names.
             test_package_files = set()
             if test_package_names and test_packages:
-                logger.debug('test_packages: %s' % json.dumps(test_packages))
+                LOGGER.debug('test_packages: %s', json.dumps(test_packages))
                 for test_package_name in test_package_names:
-                    logger.debug('test_package_name: %s' % test_package_name)
+                    LOGGER.debug('test_package_name: %s', test_package_name)
                     test_package_files.update(set(test_packages[test_package_name]))
             else:
                 # XXX: assumes fixed buildurl-> tests_url mapping
                 if not test_packages:
                     # Only use the old style tests zip file if
                     # the split test_packages.json was not found.
-                    logger.warning('Using the default test package')
+                    LOGGER.warning('Using the default test package')
                     tests_url = re.sub('.apk$', '.tests.zip', buildurl)
                     test_package_files = set([os.path.basename(tests_url)])
                 else:
                     err = 'No test packages specified for build %s' % buildurl
-                    logger.exception(err)
+                    LOGGER.exception(err)
                     return {'success': False, 'error': err}
             for test_package_file in test_package_files:
                 test_package_path = os.path.join(cache_build_dir,
                                                  test_package_file)
                 test_package_url = urlparse.urljoin(buildurl, test_package_file)
                 if not force and os.path.exists(test_package_path):
-                    logger.info('skipping already downloaded '
-                                'test package %s' % test_package_url)
+                    LOGGER.info('skipping already downloaded '
+                                'test package %s', test_package_url)
                     continue
-                logger.info('downloading test package %s' % test_package_url)
+                LOGGER.info('downloading test package %s', test_package_url)
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
                 tmpf.close()
                 try:
@@ -1264,7 +1284,7 @@ class BuildCache(object):
                 except IOError:
                     os.unlink(tmpf.name)
                     err = 'IO Error retrieving tests: %s.' % test_package_url
-                    logger.exception(err)
+                    LOGGER.exception(err)
                     return {'success': False, 'error': err}
                 try:
                     tests_zipfile = zipfile.ZipFile(tmpf.name)
@@ -1276,12 +1296,12 @@ class BuildCache(object):
                     shutil.move(tmpf.name, test_package_path)
                 except zipfile.BadZipfile:
                     err = 'Zip file error retrieving tests: %s.' % test_package_url
-                    logger.exception(err)
+                    LOGGER.exception(err)
                     return {'success': False, 'error': err}
             if test_packages:
                 # Save the test_packages.json file
                 test_packages_json_path = os.path.join(cache_build_dir,
-                                                      'test_packages.json')
+                                                       'test_packages.json')
                 file(test_packages_json_path, 'w').write(
                     json.dumps(test_packages))
 
@@ -1320,7 +1340,7 @@ class BuildCache(object):
         builds.sort(key=lambda x: x[1])
         while len(builds) > self.build_cache_size:
             b = builds.pop(0)[0]
-            logger.info('Expiring %s' % b)
+            LOGGER.info('Expiring %s', b)
             shutil.rmtree(os.path.join(self.cache_dir, b))
 
     def build_metadata(self, build_url, build_dir, builder_type='taskcluster'):
@@ -1336,7 +1356,7 @@ class BuildCache(object):
                 pass
         build_data = utils.get_build_data(build_url, builder_type=builder_type)
         if not build_data:
-            raise BuildCacheException('Could not get build_data for %s' % build_url)
+            raise BuildCacheException('Could not get build_data for %s', build_url)
         tmpdir = tempfile.mkdtemp()
         try:
             build_path = os.path.join(build_dir, 'build.apk')
@@ -1346,7 +1366,7 @@ class BuildCache(object):
         except zipfile.BadZipfile:
             # we should have already tried to redownload bad zips, so treat
             # this as fatal.
-            logger.exception('%s is a bad apk; aborting job.' % build_path)
+            LOGGER.exception('%s is a bad apk; aborting job.', build_path)
             shutil.rmtree(tmpdir)
             return None
         with open(os.path.join(tmpdir, 'package-name.txt')) as package_file:
@@ -1356,9 +1376,9 @@ class BuildCache(object):
         ver = cfg.get('App', 'Version')
 
         metadata = BuildMetadata(url=build_url,
-                                 dir=build_dir,
+                                 directory=build_dir,
                                  tree=build_data['repo'],
-                                 id=build_data['id'],
+                                 buildid=build_data['id'],
                                  revision=build_data['revision'],
                                  changeset=build_data['changeset'],
                                  changeset_dirs=build_data['changeset_dirs'],
@@ -1380,9 +1400,9 @@ class BuildCache(object):
 class BuildMetadata(object):
     def __init__(self,
                  url=None,
-                 dir=None,
+                 directory=None,
                  tree=None,
-                 id=None,
+                 buildid=None,
                  revision=None,
                  changeset=None,
                  changeset_dirs=[],
@@ -1395,28 +1415,27 @@ class BuildMetadata(object):
                  nightly=None,
                  platform=None,
                  builder_type=None):
-        logger.debug('BuildMetadata: url: %s, dir: %s, tree: %s, id: %s, '
+        LOGGER.debug('BuildMetadata: url: %s, directory: %s, tree: %s, buildid: %s, '
                      'revision: %s, changeset: %s, changeset_dirs: %s, '
                      'app_name: %s, version: %s, '
                      'build_type: %s, treeherder_url: %s, abi: %s, sdk: %s, '
-                     'nightly: %s, platform: %s, builder_type: %s, '
-                     '' % (
-                         url, dir, tree, id,
-                         revision, changeset, changeset_dirs, app_name, version,
-                         build_type, treeherder_url, abi, sdk,
-                         nightly, platform, builder_type ))
+                     'nightly: %s, platform: %s, builder_type: %s',
+                     url, directory, tree, buildid,
+                     revision, changeset, changeset_dirs, app_name, version,
+                     build_type, treeherder_url, abi, sdk,
+                     nightly, platform, builder_type)
         self._date = None
         self.url = url
-        if not dir:
+        if not directory:
             self.dir = None
             self.symbols = None
         else:
-            self.dir = os.path.abspath(dir)
+            self.dir = os.path.abspath(directory)
             self.symbols = os.path.join(self.dir, 'symbols')
             if not os.path.exists(self.symbols):
                 self.symbols = None
         self.tree = tree
-        self.id = id
+        self.id = buildid
         self.type = build_type
         self.revision = revision
         self.changeset = changeset
@@ -1429,12 +1448,12 @@ class BuildMetadata(object):
         self.platform = platform
         self.builder_type = builder_type
 
-        logger.debug('BuildMetadata: %s' % self.__dict__)
+        LOGGER.debug('BuildMetadata: %s', self.__dict__)
 
     @property
     def date(self):
         if not self._date:
-            format, self._date = parse_datetime(self.id, tz=UTC)
+            formatstr, self._date = parse_datetime(self.id, tz=UTC)
         return self._date
 
     def __str__(self):
@@ -1463,13 +1482,13 @@ class BuildMetadata(object):
             'platform': self.platform,
             'builder_type': self.builder_type,
         }
-        logger.debug('BuildMetadata: to_json: %s' % j)
+        LOGGER.debug('BuildMetadata: to_json: %s', j)
         return j
 
     def from_json(self, j):
         if '__class__' not in j or j['__class__'] != 'BuildMetadata':
             raise ValueError
-        logger.debug('BuildMetadata: from_json: %s' % j)
+        LOGGER.debug('BuildMetadata: from_json: %s', j)
         self.url = j['url']
         self.dir = j['dir']
         self.symbols = j['symbols']

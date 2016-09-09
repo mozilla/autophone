@@ -20,7 +20,7 @@ class BuildCacheServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 class BuildCacheHandler(SocketServer.BaseRequestHandler):
 
     def handle(self):
-        buffer = ''
+        buff = ''
         while True:
             try:
                 data = self.request.recv(1024)
@@ -30,12 +30,12 @@ class BuildCacheHandler(SocketServer.BaseRequestHandler):
                 raise e
             if not data:
                 return
-            buffer += data
-            while buffer:
-                line, nl, rest = buffer.partition('\n')
+            buff += data
+            while buff:
+                line, nl, rest = buff.partition('\n')
                 if not nl:
                     break
-                buffer = rest
+                buff = rest
                 line = line.strip()
                 if not line:
                     continue

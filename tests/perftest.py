@@ -15,22 +15,22 @@ from jot import jwt, jws
 
 import utils
 from build_dates import TIMESTAMP, convert_datetime_to_string
-from phonetest import PhoneTest, PhoneTestResult
+from phonetest import PhoneTest
 
-"""
-   PerfherderArtifact and PerfherderSuite are specific formats for
-   Perfherder as defined in:
-   https://bugzilla.mozilla.org/show_bug.cgi?id=1175295
+# PerfherderArtifact and PerfherderSuite are specific formats for
+# Perfherder as defined in:
+# https://bugzilla.mozilla.org/show_bug.cgi?id=1175295
 
-   These work with summarized suite values and summarized test value,
-   instead of working with raw replicates.
+# These work with summarized suite values and summarized test value,
+# instead of working with raw replicates.
 
-   In the future it would be nice to have a generic PerfData class which
-   stores the raw replicates and then the output functions can do the final
-   summarization and calculations as defined by the output medium (e.g. perfherder)
-"""
+# In the future it would be nice to have a generic PerfData class which
+# stores the raw replicates and then the output functions can do the final
+# summarization and calculations as defined by the output medium (e.g. perfherder)
+
 class PerfherderArtifact(dict):
     def __init__(self, suites=None):
+        super(PerfherderArtifact, self).__init__(self)
         self["framework"] = {'name': 'autophone'}
         if suites is None:
             suites = []
@@ -43,6 +43,7 @@ class PerfherderArtifact(dict):
 class PerfherderSuite(dict):
 
     def __init__(self, name=None, value=0, subtests=None, options=None):
+        super(PerfherderSuite, self).__init__(self)
         if subtests is None:
             self['subtests'] = []
         else:
@@ -62,7 +63,7 @@ class PerfherderSuite(dict):
 class PerfherderOptions(dict):
 
     def __init__(self, options, repo=None):
-
+        super(PerfherderOptions, self).__init__(self)
         self.update(options)
         if repo and repo in 'mozilla-beta,mozilla-release':
             # Adjust the windows to half of the normal size for
@@ -114,15 +115,18 @@ class PerfTest(PhoneTest):
             self.stderrp_attempts = 1
         self.perfherder_options = {}
         try:
-            self.perfherder_options['alert_threshold'] = self.cfg.getint('perfherder', 'alert_threshold')
+            self.perfherder_options['alert_threshold'] = self.cfg.getint('perfherder',
+                                                                         'alert_threshold')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             pass
         try:
-            self.perfherder_options['min_back_window'] = self.cfg.getint('perfherder', 'min_back_window')
+            self.perfherder_options['min_back_window'] = self.cfg.getint('perfherder',
+                                                                         'min_back_window')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             pass
         try:
-            self.perfherder_options['max_back_window'] = self.cfg.getint('perfherder', 'max_back_window')
+            self.perfherder_options['max_back_window'] = self.cfg.getint('perfherder',
+                                                                         'max_back_window')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             pass
         try:
@@ -130,6 +134,9 @@ class PerfTest(PhoneTest):
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             pass
         self._resultfile = None
+        self._resultwriter = None
+
+        self.loggerdeco.debug('PerfTest: %s', self.__dict__)
 
     def setup_job(self):
         PhoneTest.setup_job(self)
@@ -306,7 +313,7 @@ class PerfTest(PhoneTest):
                      e,
                      json.dumps(resultdata, sort_keys=True, indent=2)))
                 message = 'Error sending results to server'
-                self.test_result.status = PhoneTestResult.EXCEPTION
+                self.status = PhoneTest.EXCEPTION
                 self.message = message
                 self.update_status(message=message)
 
@@ -374,7 +381,8 @@ class PerfTest(PhoneTest):
             r['stderrp'] = 0
         else:
             r['mean'] = sum(values) / float(r['count'])
-            r['stddev'] = sqrt(sum([(value - r['mean'])**2 for value in values])/float(r['count']-1.5))
+            r['stddev'] = sqrt(sum([(value - r['mean'])**2
+                                    for value in values])/float(r['count']-1.5))
             r['stderr'] = r['stddev']/sqrt(r['count'])
             r['stderrp'] = 100.0*r['stderr']/float(r['mean'])
         return r

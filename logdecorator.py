@@ -18,21 +18,18 @@ class LogDecorator(object):
 
     def clone(self, extradict=None, extraformat=None):
         extradict = extradict or self._extradict
-        extraformat = extraformat or self.extraformat
+        extraformat = extraformat or self._extraformat
         return LogDecorator(self._logger, extradict, extraformat)
 
     def _expanded_message(self, message):
         extradict = dict(self._extradict)
         try:
-            # If the message is actualy an object, such as DMError,
-            # convert it to a string.
-            message = "%s" % message
             if isinstance(message, unicode):
                 extradict['message'] = message
             else:
                 extradict['message'] = unicode(message, errors='replace')
             extramessage = self._extraformat % extradict
-        except UnicodeDecodeError:
+        except:
             etype, evalue, etraceback = sys.exc_info()
             extramessage = ''.join(traceback.format_exception(etype, evalue, etraceback))
             print extramessage

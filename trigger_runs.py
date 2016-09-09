@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
+import errno
 import json
 import logging
 import logging.handlers
@@ -30,7 +31,7 @@ def command_str(build, test_names, devices):
     return s
 
 
-def main(args, options):
+def trigger_runs(args, options):
     # Attempt to connect to the Autophone server early, so we don't
     # waste time fetching builds if the server is not available.
     print 'Connecting to autophone server...'
@@ -79,17 +80,17 @@ def main(args, options):
 
     matching_builds = []
     if options.build_url:
-        logger.debug('cache.find_builds_by_directory(%s)' % options.build_url)
+        logger.debug('cache.find_builds_by_directory(%s)', options.build_url)
         matching_builds = cache.find_builds_by_directory(options.build_url)
     elif not args:
-        logger.debug('cache.find_builds_by_revision(%s, %s, %s)' % (
-            options.first_revision, options.last_revision,
-            options.build_location))
+        logger.debug('cache.find_builds_by_revision(%s, %s, %s)',
+                     options.first_revision, options.last_revision,
+                     options.build_location)
         matching_builds = cache.find_builds_by_revision(
             options.first_revision, options.last_revision,
             options.build_location)
     elif args[0] == 'latest':
-        logger.debug('cache.find_latest_builds(%s)' % options.build_location)
+        logger.debug('cache.find_latest_builds(%s)', options.build_location)
         matching_builds = cache.find_latest_builds(options.build_location)
     else:
         date_format, start_time = build_dates.parse_datetime(args[0])
@@ -100,8 +101,8 @@ def main(args, options):
                 date_format, end_time = build_dates.parse_datetime(args[1])
             else:
                 end_time = datetime.datetime.now(tz=PACIFIC)
-        logger.debug('cache.find_builds_by_time(%s, %s, %s)' %
-                     (start_time, end_time, options.build_location))
+        logger.debug('cache.find_builds_by_time(%s, %s, %s)',
+                     start_time, end_time, options.build_location)
         matching_builds = cache.find_builds_by_time(
             start_time, end_time, options.build_location)
 
@@ -110,20 +111,19 @@ def main(args, options):
     commands = [command_str(b, options.test_names, options.devices)
                 for b in matching_builds]
     commands.append('exit')
-    logger.info('- %s' % s.recv(1024).strip())
+    logger.info('- %s', s.recv(1024).strip())
     for c in commands:
         sc = '%s' % c
         logger.info(sc)
-        print(sc)
+        print sc
         s.sendall(c + '\n')
         sr = '- %s' % s.recv(1024).strip()
         logger.info(sr)
-        print(sr)
+        print sr
     return 0
 
 
-if __name__ == '__main__':
-    import errno
+def main():
     from optparse import OptionParser
 
     usage = '''%prog [options] <datetime, date/datetime, or date/datetime range>
@@ -211,11 +211,8 @@ If "latest" is given, test runs are initiated for the most recent build.'''
                       help='Device on which to run the job.  Defaults to all '
                       'if not specified. Can be specified multiple times.')
     (options, args) = parser.parse_args()
-    if (len(args) > 2 or
-        (options.first_revision and not options.last_revision) or
-        (not options.first_revision and options.last_revision) or
-        (options.first_revision and len(args) > 0) or
-        (options.build_url and len(args) > 0)):
+    if len(args) > 2 or (options.first_revision and not options.last_revision) or \
+       (options.build_url and len(args) > 0):
         parser.print_help()
         sys.exit(errno.EINVAL)
 
@@ -225,4 +222,8 @@ If "latest" is given, test runs are initiated for the most recent build.'''
     if not options.buildtypes:
         options.buildtypes = ['opt']
 
-    sys.exit(main(args, options))
+    sys.exit(trigger_runs(args, options))
+
+
+if __name__ == '__main__':
+    main()

@@ -18,13 +18,15 @@ import tempfile
 import time
 import traceback
 
+from time import sleep
+
 import buildserver
 import jobs
 # The following direct imports are necessary in order to reference the
 # modules when we reset their global loggers:
 import autophonetreeherder
 import builds
-import mailer
+import mailer as mailermodule
 import phonetest
 import s3
 import utils
@@ -33,14 +35,14 @@ from autophonetreeherder import AutophoneTreeherder
 from builds import BuildMetadata
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
-from phonetest import PhoneTest, PhoneTestResult, FLASH_PACKAGE
+from phonetest import PhoneTest, FLASH_PACKAGE
 from process_states import ProcessStates
 from s3 import S3Bucket
 from sensitivedatafilter import SensitiveDataFilter
 
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
-logger = logging.getLogger()
+LOGGER = logging.getLogger()
 
 class Crashes(object):
 
@@ -132,9 +134,9 @@ class PhoneWorker(object):
                                                 self.queue, logfile_prefix,
                                                 loglevel, mailer,
                                                 shared_lock)
-        self.loggerdeco = LogDecorator(logger,
+        self.loggerdeco = LogDecorator(LOGGER,
                                        {'phoneid': self.phone.id},
-                                       '%(phoneid)s|%(message)s')
+                                       'PhoneWorker|%(phoneid)s|%(message)s')
         self.loggerdeco.debug('PhoneWorker:__init__')
 
     def is_alive(self):
@@ -193,14 +195,14 @@ class PhoneWorker(object):
         """These are status messages routed back from the autophone_queue
         listener in the main AutoPhone class. There is probably a bit
         clearer way to do this..."""
-        if (not self.last_status_msg or
-            msg.phone_status != self.last_status_msg.phone_status):
+        if not self.last_status_msg or \
+           msg.phone_status != self.last_status_msg.phone_status:
             self.last_status_of_previous_type = self.last_status_msg
             self.first_status_of_type = msg
         if msg.message == 'Heartbeat':
             self.last_status_msg.timestamp = msg.timestamp
         else:
-            self.loggerdeco.debug('PhoneWorker:process_msg: %s' % msg)
+            self.loggerdeco.debug('PhoneWorker:process_msg: %s', msg)
             self.last_status_msg = msg
 
     def status(self):
@@ -233,6 +235,159 @@ class PhoneWorker(object):
                     self.last_status_of_previous_type.short_desc())
         return response
 
+class Logcat(object):
+    def __init__(self, worker_subprocess):
+        self.worker_subprocess = worker_subprocess
+        self.logger = worker_subprocess.loggerdeco
+        self._accumulated_logcat = []
+        self.logger.debug('Logcat()')
+
+    def get(self, full=False):
+        """Return the contents of logcat as list of strings.
+
+        :param full: optional boolean which defaults to False. If full
+                     is False, then get() will only return logcat
+                     output since the last call to clear(). If
+                     full is True, then get() will return all
+                     logcat output since the test was initialized or
+                     teardown_job was last called.
+        """
+
+        # Get the datetime from the last logcat message
+        # previously collected. Note that with the time
+        # format, logcat lines begin with a date time of the
+        # form: 09-17 16:45:04.370 which is the first 18
+        # characters of the line.
+        if self._accumulated_logcat:
+            logcat_datestr = self._accumulated_logcat[-1][:18]
+        else:
+            logcat_datestr = '00-00 00:00:00.000'
+
+        self.logger.debug('Logcat.get() since %s' % logcat_datestr)
+
+        # adb logcat can return lines with bogus dates where the MM-DD
+        # is not correct. This in particular has happened on a Samsung
+        # Galaxy S3 where Vold emits lines with the fixed date
+        # 11-30. It is not known if this is a general problem with
+        # other devices.
+
+        # This incorrect date causes problems when attempting to use
+        # the logcat dates to eliminate duplicates. It also conflicts
+        # with the strategy used in analyze_logcat to determine a
+        # potential year change during a test run. To distinguish
+        # between false year changes, we can decide that if the
+        # previous date and the current date are different by more
+        # than an hour, a decision must be made on which date is
+        # legitimate.
+
+        for attempt in range(1, self.worker_subprocess.options.phone_retry_limit+1):
+            try:
+                raw_logcat = [
+                    unicode(x, 'UTF-8', errors='replace').strip()
+                    for x in self.worker_subprocess.dm.get_logcat(filter_specs=['*:V'])]
+                break
+            except ADBError:
+                self.logger.exception('Attempt %d get logcat' % attempt)
+                if attempt == self.worker_subprocess.options.phone_retry_limit:
+                    raise
+                sleep(self.worker_subprocess.options.phone_retry_wait)
+
+        current_logcat = []
+        prev_line_date = None
+        curr_line_date = None
+        curr_year = datetime.datetime.utcnow().year
+        hour = datetime.timedelta(hours=1)
+
+        for line in raw_logcat:
+            try:
+                curr_line_date = datetime.datetime.strptime('%4d-%s' % (
+                    curr_year, line[:18]), '%Y-%m-%d %H:%M:%S.%f')
+            except ValueError:
+                curr_line_date = None
+            if curr_line_date and prev_line_date:
+                delta = curr_line_date - prev_line_date
+                prev_line_datestr = prev_line_date.strftime('%m-%d %H:%M:%S.%f')
+                if delta <= -hour:
+                    # The previous line's date is one or more hours in
+                    # the future compared to the current line. Keep
+                    # the current lines which are before the previous
+                    # line's date.
+                    new_current_logcat = []
+                    for x in current_logcat:
+                        if x < prev_line_datestr:
+                            self.logger.debug('Logcat.get(): Discarding future line: %s' % x)
+                        else:
+                            self.logger.debug('Logcat.get(): keeping line: %s' % x)
+                            new_current_logcat.append(x)
+                    current_logcat = new_current_logcat
+                elif delta >= hour:
+                    # The previous line's date is one or more hours in
+                    # the past compared to the current line. Keep the
+                    # current lines which are after the previous
+                    # line's date.
+                    new_current_logcat = []
+                    for x in current_logcat:
+                        if x > prev_line_datestr:
+                            self.logger.debug('Logcat.get(): Discarding past line: %s' % x)
+                        else:
+                            self.logger.debug('Logcat.get(): keeping line: %s' % x)
+                            new_current_logcat.append(x)
+                    current_logcat = new_current_logcat
+            # Keep the messages which are on or after the last accumulated
+            # logcat date.
+            if line >= logcat_datestr:
+                current_logcat.append(line)
+            prev_line_date = curr_line_date
+
+        # In order to eliminate the possible duplicate
+        # messages, partition the messages by before, on and
+        # after the logcat_datestr.
+        accumulated_logcat_before = []
+        accumulated_logcat_now = []
+        for x in self._accumulated_logcat:
+            if x < logcat_datestr:
+                accumulated_logcat_before.append(x)
+            elif x[:18] == logcat_datestr:
+                accumulated_logcat_now.append(x)
+
+        current_logcat_now = []
+        current_logcat_after = []
+        for x in current_logcat:
+            if x[:18] == logcat_datestr:
+                current_logcat_now.append(x)
+            elif x > logcat_datestr:
+                current_logcat_after.append(x)
+
+        # Remove any previously received messages from
+        # current_logcat_now for the logcat_datestr.
+        current_logcat_now = set(current_logcat_now).difference(
+            set(accumulated_logcat_now))
+        current_logcat_now = list(current_logcat_now)
+        current_logcat_now.sort()
+
+        current_logcat = current_logcat_now + current_logcat_after
+        self._accumulated_logcat += current_logcat
+
+        if full:
+            return self._accumulated_logcat
+        return current_logcat
+
+    def reset(self):
+        """Clears the Logcat buffers and the device's logcat buffer."""
+        self.logger.debug('Logcat.reset()')
+        self.__init__(self.worker_subprocess)
+        self.worker_subprocess.dm.clear_logcat()
+
+    def clear(self):
+        """Accumulates current logcat buffers, then clears the device's logcat
+        buffers. clear() is used to prevent the device's logcat buffer
+        from overflowing while not losing any output.
+        """
+        self.logger.debug('Logcat.clear()')
+        self.get()
+        self.worker_subprocess.dm.clear_logcat()
+
+
 class PhoneWorkerSubProcess(object):
 
     """Worker subprocess.
@@ -246,7 +401,9 @@ class PhoneWorkerSubProcess(object):
     def __init__(self, dm, worker_num, tests, phone, options,
                  autophone_queue, queue, logfile_prefix, loglevel, mailer,
                  shared_lock):
-        global logger
+        global LOGGER
+
+        LOGGER = logging.getLogger()
 
         self.state = ProcessStates.RUNNING
         self.worker_num = worker_num
@@ -275,49 +432,51 @@ class PhoneWorkerSubProcess(object):
         self.filehandler = None
         self.s3_bucket = None
         self.treeherder = None
+        self.loggerdeco = None
+        self.logcat = None
 
     def is_alive(self):
         """Call from main process."""
         try:
             if self.options.verbose:
-                logger.debug('is_alive: PhoneWorkerSubProcess.p %s, pid %s' % (
-                    self.p, self.p.pid if self.p else None))
+                LOGGER.debug('is_alive: PhoneWorkerSubProcess.p %s, pid %s',
+                             self.p, self.p.pid if self.p else None)
             return self.p and self.p.is_alive()
         except Exception:
-            logger.exception('is_alive: PhoneWorkerSubProcess.p %s, pid %s' % (
-                self.p, self.p.pid if self.p else None))
+            LOGGER.exception('is_alive: PhoneWorkerSubProcess.p %s, pid %s',
+                             self.p, self.p.pid if self.p else None)
         return False
 
     def start(self, phone_status=None):
         """Call from main process."""
-        logger.debug('PhoneWorkerSubProcess:starting: %s %s' % (self.phone.id,
-                                                                phone_status))
+        LOGGER.debug('PhoneWorkerSubProcess:starting: %s %s', self.phone.id,
+                     phone_status)
         if self.p:
             if self.is_alive():
-                logger.debug('PhoneWorkerSubProcess:start - %s already alive' %
+                LOGGER.debug('PhoneWorkerSubProcess:start - %s already alive',
                              self.phone.id)
                 return
             del self.p
         self.phone_status = phone_status
         self.p = multiprocessing.Process(target=self.run, name=self.phone.id)
         self.p.start()
-        logger.debug('PhoneWorkerSubProcess:started: %s %s' % (self.phone.id,
-                                                               self.p.pid))
+        LOGGER.debug('PhoneWorkerSubProcess:started: %s %s', self.phone.id,
+                     self.p.pid)
 
     def stop(self):
         """Call from main process."""
-        logger.debug('PhoneWorkerSubProcess:stopping %s' % self.phone.id)
+        LOGGER.debug('PhoneWorkerSubProcess:stopping %s', self.phone.id)
         if self.is_alive():
-            logger.debug('PhoneWorkerSubProcess:stop p.terminate() %s %s %s' %
-                         (self.phone.id, self.p, self.p.pid))
+            LOGGER.debug('PhoneWorkerSubProcess:stop p.terminate() %s %s %s',
+                         self.phone.id, self.p, self.p.pid)
             self.p.terminate()
-            logger.debug('PhoneWorkerSubProcess:stop p.join() %s %s %s' %
-                         (self.phone.id, self.p, self.p.pid))
+            LOGGER.debug('PhoneWorkerSubProcess:stop p.join() %s %s %s',
+                         self.phone.id, self.p, self.p.pid)
             self.p.join(self.options.phone_command_queue_timeout*2)
             if self.p.is_alive():
-                logger.debug('PhoneWorkerSubProcess:stop killing %s %s '
-                             'stuck process %s' %
-                             (self.phone.id, self.p, self.p.pid))
+                LOGGER.debug('PhoneWorkerSubProcess:stop killing %s %s '
+                             'stuck process %s',
+                             self.phone.id, self.p, self.p.pid)
                 os.kill(self.p.pid, 9)
 
     def is_ok(self):
@@ -345,7 +504,7 @@ class PhoneWorkerSubProcess(object):
         self.update_status(message='Heartbeat')
 
     def _check_path(self, path):
-        self.loggerdeco.debug('Checking path %s.' % path)
+        self.loggerdeco.debug('Checking path %s.', path)
         success = True
         try:
             d = posixpath.join(path, 'autophone_check_path')
@@ -359,7 +518,7 @@ class PhoneWorkerSubProcess(object):
                              posixpath.join(d, 'path_check'))
             self.dm.rm(d, recursive=True, root=True)
         except (ADBError, ADBTimeoutError):
-            self.loggerdeco.exception('Exception while checking path %s' % path)
+            self.loggerdeco.exception('Exception while checking path %s', path)
             success = False
         return success
 
@@ -377,7 +536,7 @@ class PhoneWorkerSubProcess(object):
                  self.options.usbwatchdog_poll_interval,
                  debugarg))
         except (ADBError, ADBTimeoutError):
-            logger.exception('Ignoring Exception starting USBWatchdog')
+            LOGGER.exception('Ignoring Exception starting USBWatchdog')
 
     def reboot(self):
         self.loggerdeco.debug('PhoneWorkerSubProcess:reboot')
@@ -393,7 +552,7 @@ class PhoneWorkerSubProcess(object):
     def disable_phone(self, errmsg, send_email=True):
         """Completely disable phone. No further attempts to recover it will
         be performed unless initiated by the user."""
-        self.loggerdeco.info('Disabling phone: %s.' % errmsg)
+        self.loggerdeco.info('Disabling phone: %s.', errmsg)
         if errmsg and send_email:
             self.loggerdeco.info('Sending notification...')
             self.mailer.send('%s %s was disabled' % (utils.host(),
@@ -416,7 +575,7 @@ class PhoneWorkerSubProcess(object):
         the device is rebooted in an attempt to recover.
         """
         for attempt in range(1, self.options.phone_retry_limit+1):
-            self.loggerdeco.debug('Pinging phone attempt %d' % attempt)
+            self.loggerdeco.debug('Pinging phone attempt %d', attempt)
             msg = 'Phone OK'
             phone_status = PhoneStatus.OK
             try:
@@ -508,8 +667,8 @@ class PhoneWorkerSubProcess(object):
         elif phone_status == PhoneStatus.ERROR:
             # The phone is in an error state related to its storage or
             # networking and requires user intervention.
-            self.loggerdeco.warning('Phone is in an error state %s %s.' %
-                                    (phone_status, msg))
+            self.loggerdeco.warning('Phone is in an error state %s %s.',
+                                    phone_status, msg)
             if self.is_ok():
                 msg_subject = ('%s %s is in an error state %s' %
                                (utils.host(), self.phone.id, phone_status))
@@ -522,8 +681,8 @@ class PhoneWorkerSubProcess(object):
         elif phone_status == PhoneStatus.DISCONNECTED:
             # If the phone is disconnected, there is nothing we can do
             # to recover except reboot the host.
-            self.loggerdeco.warning('Phone is in an error state %s %s.' %
-                                    (phone_status, msg))
+            self.loggerdeco.warning('Phone is in an error state %s %s.',
+                                    phone_status, msg)
             if self.is_ok():
                 msg_subject = ('%s %s is in an error state %s' %
                                (utils.host(), self.phone.id, phone_status))
@@ -559,7 +718,7 @@ class PhoneWorkerSubProcess(object):
                 if self.state == ProcessStates.SHUTTINGDOWN:
                     return {'interrupt': True,
                             'reason': 'Shutdown while charging',
-                            'test_result': PhoneTestResult.RETRY}
+                            'test_result': PhoneTest.RETRY}
 
         return {'interrupt': False, 'reason': '', 'test_result': None}
 
@@ -572,12 +731,12 @@ class PhoneWorkerSubProcess(object):
         treeherder as it will handle marking the job as cancelled.
 
         """
-        self.loggerdeco.debug('cancel_test: test.job_guid %s' % test_guid)
+        self.loggerdeco.debug('cancel_test: test.job_guid %s', test_guid)
         tests = PhoneTest.match(job_guid=test_guid)
         if tests:
             assert len(tests) == 1, "test.job_guid %s is not unique" % test_guid
             for test in tests:
-                test.test_result.status = PhoneTestResult.USERCANCEL
+                test.status = PhoneTest.USERCANCEL
         self.jobs.cancel_test(test_guid, device=self.phone.id)
 
     def install_build(self, job):
@@ -589,7 +748,7 @@ class PhoneWorkerSubProcess(object):
         self.update_status(phone_status=PhoneStatus.INSTALLING,
                            build=self.build,
                            message='%s %s' % (job['tree'], job['build_id']))
-        self.loggerdeco.info('Installing build %s.' % self.build.id)
+        self.loggerdeco.info('Installing build %s.', self.build.id)
         # Record start time for the install so can track how long this takes.
         start_time = datetime.datetime.now(tz=pytz.utc)
         message = ''
@@ -619,16 +778,11 @@ class PhoneWorkerSubProcess(object):
                     # app not being installed.
                     uninstalled = True
                 break
-                message = 'Exception uninstalling fennec attempt %d!\n\n%s' % (
-                    attempt, traceback.format_exc())
-                self.loggerdeco.exception('Exception uninstalling fennec '
-                                          'attempt %d' % attempt)
-                self.ping()
             except ADBTimeoutError, e:
                 message = 'Timed out uninstalling fennec attempt %d!\n\n%s' % (
                     attempt, traceback.format_exc())
                 self.loggerdeco.exception('Timedout uninstalling fennec '
-                                          'attempt %d' % attempt)
+                                          'attempt %d', attempt)
                 self.ping()
             time.sleep(self.options.phone_retry_wait)
 
@@ -642,22 +796,22 @@ class PhoneWorkerSubProcess(object):
                 break
             try:
                 self.dm.install_app(os.path.join(self.build.dir,
-                                                'build.apk'))
+                                                 'build.apk'))
                 stop_time = datetime.datetime.now(tz=pytz.utc)
-                self.loggerdeco.info('Install build %s elapsed time: %s' % (
-                    (job['build_url'], stop_time - start_time)))
+                self.loggerdeco.info('Install build %s elapsed time: %s',
+                                     job['build_url'], stop_time - start_time)
                 return {'success': True, 'message': ''}
             except ADBError, e:
                 message = 'Exception installing fennec attempt %d!\n\n%s' % (
                     attempt, traceback.format_exc())
                 self.loggerdeco.exception('Exception installing fennec '
-                                          'attempt %d' % attempt)
+                                          'attempt %d', attempt)
                 self.ping()
             except ADBTimeoutError, e:
                 message = 'Timed out installing fennec attempt %d!\n\n%s' % (
                     attempt, traceback.format_exc())
                 self.loggerdeco.exception('Timedout installing fennec '
-                                          'attempt %d' % attempt)
+                                          'attempt %d', attempt)
                 self.ping()
             time.sleep(self.options.phone_retry_wait)
 
@@ -682,33 +836,33 @@ class PhoneWorkerSubProcess(object):
         attempts so that jobs are not deleted due to device errors.
         """
         command = self.process_autophone_cmd(test=None)
-        if (command['interrupt'] or
-            self.state == ProcessStates.SHUTTINGDOWN or
-            self.is_disabled()):
+        if command['interrupt'] or \
+            self.state == ProcessStates.SHUTTINGDOWN or \
+            self.is_disabled():
             return False
         install_status = self.install_build(job)
         if not install_status['success']:
-            self.loggerdeco.info('Not running tests due to %s' % (
-                install_status['message']))
+            self.loggerdeco.info('Not running tests due to %s',
+                                 install_status['message'])
             return False
 
-        self.loggerdeco.info('Running tests for job %s' % job)
+        self.loggerdeco.info('Running tests for job %s', job)
         for t in job['tests']:
-            if t.test_result.status == PhoneTestResult.USERCANCEL:
-                self.loggerdeco.info('Skipping Cancelled test %s' % t.name)
+            if t.status == PhoneTest.USERCANCEL:
+                self.loggerdeco.info('Skipping Cancelled test %s', t.name)
                 continue
             command = self.process_autophone_cmd(test=t)
-            if (command['interrupt'] or
-                self.state == ProcessStates.SHUTTINGDOWN or
-                self.is_disabled()):
+            if command['interrupt'] or \
+                self.state == ProcessStates.SHUTTINGDOWN or \
+                self.is_disabled():
                 return False
-            if (self.state == ProcessStates.SHUTTINGDOWN or
-                self.is_disabled() or not self.is_ok()):
-                self.loggerdeco.info('Skipping test %s' % t.name)
+            if self.state == ProcessStates.SHUTTINGDOWN or \
+               self.is_disabled() or not self.is_ok():
+                self.loggerdeco.info('Skipping test %s', t.name)
                 job['attempts'] -= 1
                 self.jobs.set_job_attempts(job['id'], job['attempts'])
                 return False
-            self.loggerdeco.info('Running test %s' % t.name)
+            self.loggerdeco.info('Running test %s', t.name)
             is_test_completed = False
             # Save the test's job_quid since it will be reset during
             # the test's tear_down and we will need it to complete the
@@ -729,46 +883,48 @@ class PhoneWorkerSubProcess(object):
                             is_test_completed = t.run_job()
                     except (ADBError, ADBTimeoutError):
                         self.loggerdeco.exception('device error during '
-                                                  '%s.run_job' % t.name)
+                                                  '%s.run_job', t.name)
                         message = ('Uncaught device error during %s.run_job\n\n%s' % (
-                                   t.name, traceback.format_exc()))
-                        t.test_failure(
+                            t.name, traceback.format_exc()))
+                        t.add_failure(
                             t.name,
                             'TEST-UNEXPECTED-FAIL',
                             message,
-                            PhoneTestResult.EXCEPTION)
+                            PhoneTest.EXCEPTION)
                         self.ping(test=t)
             except:
                 self.loggerdeco.exception('device error during '
-                                          '%s.setup_job.' % t.name)
+                                          '%s.setup_job.', t.name)
                 message = ('Uncaught device error during %s.setup_job.\n\n%s' % (
-                           t.name, traceback.format_exc()))
-                t.test_failure(t.name, 'TEST-UNEXPECTED-FAIL',
-                               message, PhoneTestResult.EXCEPTION)
+                    t.name, traceback.format_exc()))
+                t.add_failure(
+                    t.name, 'TEST-UNEXPECTED-FAIL',
+                    message, PhoneTest.EXCEPTION)
                 self.ping(test=t)
 
-            if (t.test_result.status != PhoneTestResult.USERCANCEL and
-                not is_test_completed and
-                job['attempts'] < jobs.Jobs.MAX_ATTEMPTS):
+            if t.status != PhoneTest.USERCANCEL and \
+               not is_test_completed and \
+               job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
                 # This test did not run successfully and we have not
                 # exceeded the maximum number of attempts, therefore
                 # mark this attempt as a RETRY.
-                t.test_result.status = PhoneTestResult.RETRY
+                t.status = PhoneTest.RETRY
             try:
                 t.teardown_job()
             except:
                 self.loggerdeco.exception('device error during '
-                                          '%s.teardown_job' % t.name)
+                                          '%s.teardown_job', t.name)
                 message = ('Uncaught device error during %s.teardown_job\n\n%s' % (
-                           t.name, traceback.format_exc()))
-                t.test_failure(t.name, 'TEST-UNEXPECTED-FAIL',
-                               message, PhoneTestResult.EXCEPTION)
+                    t.name, traceback.format_exc()))
+                t.add_failure(
+                    t.name, 'TEST-UNEXPECTED-FAIL',
+                    message, PhoneTest.EXCEPTION)
             # Remove this test from the jobs database whether or not it
             # ran successfully.
             self.jobs.test_completed(test_job_guid)
-            if (t.test_result.status != PhoneTestResult.USERCANCEL and
-                not is_test_completed and
-                job['attempts'] < jobs.Jobs.MAX_ATTEMPTS):
+            if t.status != PhoneTest.USERCANCEL and \
+               not is_test_completed and \
+               job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
                 # This test did not run successfully and we have not
                 # exceeded the maximum number of attempts, therefore
                 # re-add this test with a new guid so that Treeherder
@@ -808,20 +964,19 @@ class PhoneWorkerSubProcess(object):
                 self.dm.uninstall_app(self.build.app_name)
         except:
             self.loggerdeco.exception('device error during '
-                                      'uninstall_app %s' % self.build.app_name)
+                                      'uninstall_app %s', self.build.app_name)
         return True
 
     def handle_timeout(self):
-        if (not self.is_disabled() and
-            (not self.last_ping or
-             (datetime.datetime.now(tz=pytz.utc) - self.last_ping >
-              datetime.timedelta(seconds=self.options.phone_ping_interval)))):
+        if not self.is_disabled() and \
+           (not self.last_ping or \
+            datetime.timedelta(seconds=self.options.phone_ping_interval)):
             self.ping()
 
     def handle_job(self, job):
-        self.loggerdeco.debug('PhoneWorkerSubProcess:handle_job: %s, %s' % (
-            self.phone, job))
-        self.loggerdeco.info('Checking job %s.' % job['build_url'])
+        self.loggerdeco.debug('PhoneWorkerSubProcess:handle_job: %s, %s',
+                              self.phone, job)
+        self.loggerdeco.info('Checking job %s.', job['build_url'])
         client = buildserver.BuildCacheClient(port=self.options.build_cache_port)
         self.update_status(phone_status=PhoneStatus.FETCHING,
                            message='%s %s' % (job['tree'], job['build_id']))
@@ -835,11 +990,11 @@ class PhoneWorkerSubProcess(object):
             builder_type=job['builder_type'])
         client.close()
         if not cache_response['success']:
-            self.loggerdeco.warning('Errors occured getting build %s: %s' %
-                                    (job['build_url'], cache_response['error']))
+            self.loggerdeco.warning('Errors occured getting build %s: %s',
+                                    job['build_url'], cache_response['error'])
             return
         self.build = BuildMetadata().from_json(cache_response['metadata'])
-        self.loggerdeco.info('Starting job %s.' % job['build_url'])
+        self.loggerdeco.info('Starting job %s.', job['build_url'])
         starttime = datetime.datetime.now(tz=pytz.utc)
         if self.run_tests(job):
             self.loggerdeco.info('Job completed.')
@@ -850,20 +1005,20 @@ class PhoneWorkerSubProcess(object):
             # user command.
             job['attempts'] -= 1
             self.loggerdeco.debug(
-                'Shutting down... Reset job id %d attempts to %d.' %
-                (job['id'], job['attempts']))
+                'Shutting down... Reset job id %d attempts to %d.',
+                job['id'], job['attempts'])
             self.jobs.set_job_attempts(job['id'], job['attempts'])
         for t in self.tests:
-            if t.test_result.status == PhoneTestResult.USERCANCEL:
+            if t.status == PhoneTest.USERCANCEL:
                 self.loggerdeco.warning(
                     'Job %s, Cancelled Test: %s was not reset after '
-                    'the Job completed' % (job, t))
-                t.test_result.status = PhoneTestResult.SUCCESS
+                    'the Job completed', job, t)
+                t.status = PhoneTest.SUCCESS
         if self.is_ok() and not self.is_disabled():
             self.update_status(phone_status=PhoneStatus.IDLE,
                                build=self.build)
         stoptime = datetime.datetime.now(tz=pytz.utc)
-        self.loggerdeco.info('Job elapsed time: %s' % (stoptime - starttime))
+        self.loggerdeco.info('Job elapsed time: %s', (stoptime - starttime))
 
     def handle_cmd(self, request, current_test=None):
         """Execute the command dispatched from the Autophone process.
@@ -904,30 +1059,30 @@ class PhoneWorkerSubProcess(object):
             self.reboot()
             command['interrupt'] = True
             command['reason'] = 'Worker rebooted by administrator'
-            command['test_result'] = PhoneTestResult.RETRY
+            command['test_result'] = PhoneTest.RETRY
         elif request[0] == 'disable':
             self.disable_phone("Disabled at user's request", False)
             command['interrupt'] = True
             command['reason'] = 'Worker disabled by administrator'
-            command['test_result'] = PhoneTestResult.USERCANCEL
+            command['test_result'] = PhoneTest.USERCANCEL
         elif request[0] == 'enable':
             self.loggerdeco.info("Enabling phone at user's request...")
             if self.is_disabled():
                 self.update_status(phone_status=PhoneStatus.IDLE)
                 self.last_ping = None
         elif request[0] == 'cancel_test':
-            self.loggerdeco.info('Received cancel_test request %s' % list(request))
+            self.loggerdeco.info('Received cancel_test request %s', list(request))
             (test_guid,) = request[1]
             self.cancel_test(test_guid)
             if current_test and current_test.job_guid == test_guid:
                 command['interrupt'] = True
                 command['reason'] = 'Running Job Canceled'
-                command['test_result'] = PhoneTestResult.USERCANCEL
+                command['test_result'] = PhoneTest.USERCANCEL
         elif request[0] == 'ping':
             self.loggerdeco.info("Pinging at user's request...")
             self.ping()
         else:
-            self.loggerdeco.debug('handle_cmd: Unknown request %s' % request[0])
+            self.loggerdeco.debug('handle_cmd: Unknown request %s', request[0])
         return command
 
     def process_autophone_cmd(self, test=None, wait_time=1, require_ip_address=False):
@@ -951,7 +1106,7 @@ class PhoneWorkerSubProcess(object):
                 else:
                     return {'interrupt': True,
                             'reason': reason,
-                            'test_result': PhoneTestResult.RETRY}
+                            'test_result': PhoneTest.RETRY}
 
     def main_loop(self):
         self.loggerdeco.debug('PhoneWorkerSubProcess:main_loop')
@@ -964,7 +1119,7 @@ class PhoneWorkerSubProcess(object):
             while True:
                 try:
                     (pid, status, resource) = os.wait3(os.WNOHANG)
-                    logger.debug('Reaped %s %s' % (pid, status))
+                    LOGGER.debug('Reaped %s %s', pid, status)
                 except OSError:
                     break
             try:
@@ -986,14 +1141,14 @@ class PhoneWorkerSubProcess(object):
                         if not self.is_disabled():
                             self.handle_job(job)
                         else:
-                            self.loggerdeco.info('Job skipped because device is disabled: %s' % job)
+                            self.loggerdeco.info('Job skipped because device is disabled: %s', job)
                             for t in job['tests']:
-                                if t.test_result.status != PhoneTestResult.USERCANCEL:
-                                    t.test_failure(
+                                if t.status != PhoneTest.USERCANCEL:
+                                    t.add_failure(
                                         t.name,
                                         'TEST-UNEXPECTED-FAIL',
                                         'Worker disabled by administrator',
-                                        PhoneTestResult.USERCANCEL)
+                                        PhoneTest.USERCANCEL)
                                 self.treeherder.submit_complete(
                                     t.phone.id,
                                     job['build_url'],
@@ -1017,12 +1172,12 @@ class PhoneWorkerSubProcess(object):
         while True:
             try:
                 (pid, status, resource) = os.wait3(os.WNOHANG)
-                logger.debug('Reaped %s %s' % (pid, status))
+                LOGGER.debug('Reaped %s %s', pid, status)
             except OSError:
                 break
 
     def run(self):
-        global logger
+        global LOGGER
 
         self.state = ProcessStates.RUNNING
 
@@ -1030,19 +1185,27 @@ class PhoneWorkerSubProcess(object):
         sys.stderr = sys.stdout
         # Complete initialization of PhoneWorkerSubProcess in the new
         # process.
+        have_sensitive_filter = False
+        LOGGER = logging.getLogger()
+        LOGGER.propagate = False
+        LOGGER.setLevel(self.loglevel)
+        # We only need one sensitive data filter.
+        for logfilter in LOGGER.filters:
+            if isinstance(logfilter, SensitiveDataFilter):
+                have_sensitive_filter = True
+                break
         sensitive_data_filter = SensitiveDataFilter(self.options.sensitive_data)
-        logger = logging.getLogger()
-        logger.addFilter(sensitive_data_filter)
-        logger.propagate = False
-        logger.setLevel(self.loglevel)
+        if not have_sensitive_filter:
+            LOGGER.addFilter(sensitive_data_filter)
+
         # Remove any handlers inherited from the main process.  This
         # prevents these handlers from causing the main process to log
         # the same messages.
-        for handler in logger.handlers:
+        for handler in LOGGER.handlers:
             handler.flush()
             handler.close()
-            logger.removeHandler(handler)
-        for other_logger_name, other_logger in logger.manager.loggerDict.iteritems():
+            LOGGER.removeHandler(handler)
+        for other_logger_name, other_logger in LOGGER.manager.loggerDict.iteritems():
             if not hasattr(other_logger, 'handlers'):
                 continue
             other_logger.addFilter(sensitive_data_filter)
@@ -1060,16 +1223,18 @@ class PhoneWorkerSubProcess(object):
                             '%(levelname)s|%(message)s')
         fileformatter = logging.Formatter(fileformatstring)
         self.filehandler.setFormatter(fileformatter)
-        logger.addHandler(self.filehandler)
+        LOGGER.addHandler(self.filehandler)
 
-        self.loggerdeco = LogDecorator(logger,
+        self.loggerdeco = LogDecorator(LOGGER,
                                        {'phoneid': self.phone.id},
-                                       '%(phoneid)s|%(message)s')
+                                       'PhoneWorkerSubProcess|%(phoneid)s|%(message)s')
+        self.logcat = Logcat(self)
+
         # Set the loggers for the imported modules
-        for module in (autophonetreeherder, builds, jobs, mailer, phonetest,
+        for module in (autophonetreeherder, builds, jobs, mailermodule, phonetest,
                        s3, utils):
-            module.logger = logger
-        self.loggerdeco.info('Worker: Connecting to %s...' % self.phone.id)
+            module.logger = LOGGER
+        self.loggerdeco.info('Worker: Connecting to %s...', self.phone.id)
         # Override mozlog.logger
         self.dm._logger = self.loggerdeco
 
@@ -1080,12 +1245,7 @@ class PhoneWorkerSubProcess(object):
         self.loggerdeco.info('Worker: Connected.')
 
         for t in self.tests:
-            t.loggerdeco_original = None
-            t.dm_logger_original = None
-            t.loggerdeco = self.loggerdeco
-            t.worker_subprocess = self
-            t.dm = self.dm
-            t.update_status_cb = self.update_status
+            t.set_worker_subprocess(self)
         if self.options.s3_upload_bucket:
             self.s3_bucket = S3Bucket(self.options.s3_upload_bucket,
                                       self.options.aws_access_key_id,

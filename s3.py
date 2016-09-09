@@ -15,7 +15,7 @@ import boto.s3.connection
 
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
-logger = logging.getLogger()
+LOGGER = logging.getLogger()
 
 class S3Error(Exception):
     def __init__(self, message):
@@ -42,10 +42,10 @@ class S3Bucket(object):
                 self._bucket = conn.get_bucket(self.bucket_name)
             return self._bucket
         except boto.exception.NoAuthHandlerFound:
-            logger.exception()
+            LOGGER.exception('Error accessing bucket')
             raise S3Error('Authentication failed')
         except boto.exception.S3ResponseError, e:
-            logger.exception()
+            LOGGER.exception('Error accessing bucket')
             raise S3Error('%s' % e)
 
     def ls(self, keypattern='.*', prefix=''):
@@ -63,14 +63,14 @@ class S3Bucket(object):
             for key in keys:
                 key.delete()
         except boto.exception.S3ResponseError, e:
-            logger.exception(str(e))
+            LOGGER.exception(str(e))
             raise S3Error('%s' % e)
 
     def upload(self, path, destination):
         try:
             key = self.bucket.get_key(destination)
             if not key:
-                logger.debug('Creating key: %s' % destination)
+                LOGGER.debug('Creating key: %s', destination)
                 key = self.bucket.new_key(destination)
 
             ext = os.path.splitext(path)[-1]
@@ -78,32 +78,32 @@ class S3Bucket(object):
                 key.set_metadata('Content-Type', 'text/plain')
 
             with tempfile.NamedTemporaryFile('w+b', suffix=ext) as tf:
-                logger.debug('Compressing: %s' % path)
+                LOGGER.debug('Compressing: %s', path)
                 with gzip.GzipFile(path, 'wb', fileobj=tf) as gz:
                     with open(path, 'rb') as f:
                         gz.writelines(f)
                 tf.flush()
                 tf.seek(0)
                 key.set_metadata('Content-Encoding', 'gzip')
-                logger.debug('Setting key contents from: %s' % tf.name)
+                LOGGER.debug('Setting key contents from: %s', tf.name)
                 key.set_contents_from_file(tf)
 
             url = key.generate_url(expires_in=0,
                                    query_auth=False)
         except boto.exception.S3ResponseError, e:
-            logger.exception(str(e))
+            LOGGER.exception(str(e))
             raise S3Error('%s' % e)
 
-        logger.debug('File %s uploaded to: %s' % (path, url))
+        LOGGER.debug('File %s uploaded to: %s', path, url)
         return url
 
-if __name__ == '__main__':
+def main():
     import ConfigParser
     import sys
     from optparse import OptionParser
 
     logging.basicConfig()
-    logger.setLevel(logging.INFO)
+    LOGGER.setLevel(logging.INFO)
 
     parser = OptionParser()
     parser.set_usage("""
@@ -196,9 +196,9 @@ if __name__ == '__main__':
         cmd_options.aws_access_key_id = cfg.get('settings', 'aws_access_key_id')
         cmd_options.aws_access_key = cfg.get('settings', 'aws_access_key')
 
-    if (not cmd_options.s3_upload_bucket or
-        not cmd_options.aws_access_key_id or
-        not cmd_options.aws_access_key):
+    if not cmd_options.s3_upload_bucket or \
+       not cmd_options.aws_access_key_id or \
+       not cmd_options.aws_access_key:
 
         parser.error('--s3-upload-bucket, --aws-access-key-id, --aws-access-key must be specified '
                      'together either as command line options or in the --config file.')
@@ -211,18 +211,15 @@ if __name__ == '__main__':
         parser.print_usage()
         sys.exit(1)
 
-    if (not cmd_options.s3_upload_bucket and
-        not cmd_options.aws_access_key_id and
-        not cmd_options.aws_access_key and
-        not cmd_options.config and
-        not cmd_options.ls and
-        not cmd_options.rm and
-        not cmd_options.upload and
-        not cmd_options.key):
+    if not cmd_options.s3_upload_bucket and \
+       not cmd_options.aws_access_key_id and \
+       not cmd_options.aws_access_key and \
+       not cmd_options.config and \
+       not cmd_options.key:
         parser.print_usage()
         sys.exit(1)
 
-    logger.debug('bucket %s' % cmd_options.s3_upload_bucket)
+    LOGGER.debug('bucket %s', cmd_options.s3_upload_bucket)
 
     s3bucket = S3Bucket(cmd_options.s3_upload_bucket,
                         cmd_options.aws_access_key_id,
@@ -237,3 +234,6 @@ if __name__ == '__main__':
     if cmd_options.rm:
         s3bucket.rm(prefix=cmd_options.prefix,
                     keypattern=cmd_options.rm)
+
+if __name__ == '__main__':
+    main()

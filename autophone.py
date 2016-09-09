@@ -41,8 +41,8 @@ from process_states import ProcessStates
 from sensitivedatafilter import SensitiveDataFilter
 from worker import PhoneWorker
 
-logger = None
-console_logger = None
+LOGGER = None
+CONSOLE_LOGGER = None
 
 class PhoneData(object):
     def __init__(self, phoneid, serial, machinetype, osver, abi, sdk, supported_sdks, ipaddr):
@@ -73,7 +73,7 @@ class AutoPhone(object):
 
     class CmdTCPHandler(SocketServer.BaseRequestHandler):
         def handle(self):
-            buffer = ''
+            buff = ''
             self.request.send('Hello? Yes this is Autophone.\n')
             while True:
                 try:
@@ -84,12 +84,12 @@ class AutoPhone(object):
                     raise e
                 if not data:
                     break
-                buffer += data
-                while buffer:
-                    line, nl, rest = buffer.partition('\n')
+                buff += data
+                while buff:
+                    line, nl, rest = buff.partition('\n')
                     if not nl:
                         break
-                    buffer = rest
+                    buff = rest
                     line = line.strip()
                     if not line:
                         continue
@@ -124,16 +124,16 @@ class AutoPhone(object):
                                               mailer=self.mailer,
                                               shared_lock=self.shared_lock)
 
-        console_logger.info('Starting autophone.')
+        CONSOLE_LOGGER.info('Starting autophone.')
 
         # Queue for listening to status updates from
         # PhoneWorkerSubProcess workers.
         self.queue = multiprocessing.Queue()
 
-        console_logger.info('Loading tests.')
+        CONSOLE_LOGGER.info('Loading tests.')
         self.read_tests()
 
-        console_logger.info('Initializing devices.')
+        CONSOLE_LOGGER.info('Initializing devices.')
 
         self.read_devices()
 
@@ -166,9 +166,9 @@ class AutoPhone(object):
                 verbose=options.verbose)
             self.pulse_monitor.start()
 
-        logger.debug('autophone_options: %s' % self.options)
+        LOGGER.debug('autophone_options: %s', self.options)
 
-        console_logger.info('Autophone started.')
+        CONSOLE_LOGGER.info('Autophone started.')
         if self.options.reboot_on_error:
             msg_subj = 'Starting %s' % utils.host()
             msg_body = ('Hello, this is Autophone. '
@@ -183,15 +183,15 @@ class AutoPhone(object):
         return ''.join(frames[:-2])
 
     def lock_acquire(self, data=None):
-        if logger.getEffectiveLevel() == logging.DEBUG:
+        if LOGGER.getEffectiveLevel() == logging.DEBUG:
             if self.options.verbose:
-                logger.debug('lock_acquire: %s\n%s' % (data, self._get_frames()))
+                LOGGER.debug('lock_acquire: %s\n%s', data, self._get_frames())
         self.lock.acquire()
 
     def lock_release(self, data=None):
-        if logger.getEffectiveLevel() == logging.DEBUG:
+        if LOGGER.getEffectiveLevel() == logging.DEBUG:
             if self.options.verbose:
-                logger.debug('lock_release: %s\n%s' % (data, self._get_frames()))
+                LOGGER.debug('lock_release: %s\n%s', data, self._get_frames())
         self.lock.release()
 
     @property
@@ -225,18 +225,17 @@ class AutoPhone(object):
         for worker in workers:
             if not worker.is_alive():
                 phoneid = worker.phone.id
-                logger.debug('Worker %s %s is not alive' % (phoneid, worker.state))
+                LOGGER.debug('Worker %s %s is not alive', phoneid, worker.state)
                 if phoneid in self.restart_workers:
                     initial_state = PhoneStatus.IDLE
-                    logger.info('Worker %s exited; restarting with new '
-                                 'values.' % phoneid)
+                    LOGGER.info('Worker %s exited; restarting with new values.', phoneid)
                 elif worker.state == ProcessStates.STOPPING:
                     # The device will be removed and not restarted.
                     initial_state = None
                 elif worker.state == ProcessStates.RESTARTING:
                     initial_state = PhoneStatus.IDLE
                 else:
-                    console_logger.error('Worker %s died!' % phoneid)
+                    CONSOLE_LOGGER.error('Worker %s died!', phoneid)
                     msg_subj = '%s worker %s died' % (utils.host(), phoneid)
                     msg_body = ('Hello, this is Autophone. '
                                 'Just to let you know, '
@@ -251,7 +250,7 @@ class AutoPhone(object):
                             'Sorry about that.\n\n')
                     else:
                         initial_state = PhoneStatus.DISCONNECTED
-                    logger.info('Sending notification...')
+                    LOGGER.info('Sending notification...')
                     self.mailer.send(msg_subj, msg_body)
 
                 # Have to remove the tests for the worker prior to
@@ -265,7 +264,7 @@ class AutoPhone(object):
                 # monitor locking the shared lock?
 
                 if worker.state == ProcessStates.STOPPING:
-                    console_logger.info('Worker %s stopped' % phoneid)
+                    CONSOLE_LOGGER.info('Worker %s stopped', phoneid)
                     del self.phone_workers[phoneid]
                 else:
                     if worker.state == ProcessStates.RESTARTING:
@@ -288,7 +287,7 @@ class AutoPhone(object):
                     # since we need to recreate the
                     # multiprocessing.Process object before we can
                     # call start on it again.
-                    console_logger.info('Worker %s restarting' % phoneid)
+                    CONSOLE_LOGGER.info('Worker %s restarting', phoneid)
                     # Save the record of crashes before recreating the
                     # Worker, then restore it afterwards.
                     crashes = worker.crashes
@@ -297,7 +296,7 @@ class AutoPhone(object):
                         new_worker.crashes = crashes
                         new_worker.start(initial_state)
                     except Exception, e:
-                        console_logger.info('Worker %s failed to restart' %
+                        CONSOLE_LOGGER.info('Worker %s failed to restart',
                                             phoneid)
                         msg_subj = ('%s worker %s failed to restart' %
                                     (utils.host(), phoneid))
@@ -327,8 +326,8 @@ class AutoPhone(object):
             # is currently downloading a build due to the size
             # of the downloads and the unknown network speed.
             elapsed = datetime.datetime.now(tz=pytz.utc) - worker.last_status_msg.timestamp
-            if (worker.last_status_msg.phone_status != PhoneStatus.FETCHING and
-                elapsed > datetime.timedelta(seconds=self.options.maximum_heartbeat)):
+            if worker.last_status_msg.phone_status != PhoneStatus.FETCHING and \
+               elapsed > datetime.timedelta(seconds=self.options.maximum_heartbeat):
                 self.unrecoverable_error = True
                 worker.stop()
 
@@ -338,12 +337,11 @@ class AutoPhone(object):
             while self.phone_workers and self.state != ProcessStates.STOPPING:
                 if self.options.reboot_on_error:
                     self.check_for_unrecoverable_errors()
-                    if (self.unrecoverable_error and
-                        self.state != ProcessStates.SHUTTINGDOWN):
+                    if self.unrecoverable_error and self.state != ProcessStates.SHUTTINGDOWN:
                         self.shutdown()
                 self.check_for_dead_workers()
-                if (self.state == ProcessStates.RUNNING and
-                    self.pulse_monitor and not self.pulse_monitor.is_alive()):
+                if self.state == ProcessStates.RUNNING and self.pulse_monitor and \
+                   not self.pulse_monitor.is_alive():
                     self.pulse_monitor.start()
                 # Temporarily release the lock while we are waiting
                 # for a message from the workers.
@@ -359,8 +357,8 @@ class AutoPhone(object):
                     # Reacquire the lock.
                     self.lock_acquire()
                 if msg.phone.id not in self.phone_workers:
-                    logger.warning('Received message %s '
-                                   'from Non-existent worker' % msg)
+                    LOGGER.warning('Received message %s '
+                                   'from Non-existent worker', msg)
                     continue
                 self.phone_workers[msg.phone.id].process_msg(msg)
                 if msg.phone_status == PhoneStatus.SHUTDOWN:
@@ -378,7 +376,7 @@ class AutoPhone(object):
                         # dictionary. Otherwise, the phone will be
                         # detected as dead and will be restarted.
                         del self.phone_workers[msg.phone.id]
-                    console_logger.info('Worker %s shutdown' % msg.phone.id)
+                    CONSOLE_LOGGER.info('Worker %s shutdown', msg.phone.id)
         except KeyboardInterrupt:
             pass
         finally:
@@ -398,7 +396,7 @@ class AutoPhone(object):
             self.lock_release()
 
         if self.unrecoverable_error and self.options.reboot_on_error:
-            console_logger.info('Rebooting due to unrecoverable errors')
+            CONSOLE_LOGGER.info('Rebooting due to unrecoverable errors')
             msg_subj = 'Rebooting %s due to unrecoverable errors' % utils.host()
             msg_body = ('Hello, this is Autophone. '
                         'Just to let you know, I have experienced '
@@ -429,7 +427,7 @@ class AutoPhone(object):
             while True:
                 try:
                     (pid, status, resource) = os.wait3(os.WNOHANG)
-                    logger.debug('Reaped %s %s' % (pid, status))
+                    LOGGER.debug('Reaped %s %s', pid, status)
                 except OSError:
                     break
 
@@ -437,14 +435,14 @@ class AutoPhone(object):
 
     # Start the phones for testing
     def new_job(self, job_data):
-        logger.debug('new_job: %s' % job_data)
+        LOGGER.debug('new_job: %s', job_data)
         build_url = job_data['build']
         tests = job_data['tests']
 
         phoneids = set([test.phone.id for test in tests])
         for phoneid in phoneids:
             p = self.phone_workers[phoneid]
-            logger.debug('new_job: worker phoneid %s' % phoneid)
+            LOGGER.debug('new_job: worker phoneid %s', phoneid)
             # Determine if we will test this build, which tests to run and if we
             # need to enable unittests.
             runnable_tests = PhoneTest.match(tests=tests,
@@ -454,7 +452,7 @@ class AutoPhone(object):
                                              build_abi=job_data['abi'],
                                              build_sdk=job_data['sdk'])
             if not runnable_tests:
-                logger.debug('new_job: Ignoring build %s for phone %s' % (build_url, phoneid))
+                LOGGER.debug('new_job: Ignoring build %s for phone %s', build_url, phoneid)
                 continue
             enable_unittests = False
             for t in runnable_tests:
@@ -485,10 +483,10 @@ class AutoPhone(object):
                                                job_data['sdk'],
                                                job_data['builder_type'],
                                                tests=new_tests)
-                logger.info('new_job: Notifying device %s of new job '
-                                 '%s for tests %s, enable_unittests=%s.' %
-                                 (phoneid, build_url, runnable_tests,
-                                  enable_unittests))
+                LOGGER.info('new_job: Notifying device %s of new job '
+                            '%s for tests %s, enable_unittests=%s.',
+                            phoneid, build_url, runnable_tests,
+                            enable_unittests)
                 p.new_job()
 
     def route_cmd(self, data):
@@ -507,7 +505,7 @@ class AutoPhone(object):
         # It would be possible but nontrivial for the workers to put responses
         # onto a queue and have them routed to the proper connection by using
         # request IDs or something like that.
-        logger.debug('route_cmd: %s' % data)
+        LOGGER.debug('route_cmd: %s', data)
         data = data.strip()
         cmd, space, params = data.partition(' ')
         cmd = cmd.lower()
@@ -526,9 +524,8 @@ class AutoPhone(object):
                 phoneid, space, params = params.partition(' ')
                 response = 'error: phone not found'
                 for worker in self.phone_workers.values():
-                    if (phoneid.lower() == 'all' or
-                        worker.phone.serial == phoneid or
-                        worker.phone.id == phoneid):
+                    if phoneid.lower() == 'all' or worker.phone.serial == phoneid or \
+                       worker.phone.id == phoneid:
                         f = getattr(worker, cmd)
                         if params:
                             value = f(params)
@@ -543,23 +540,23 @@ class AutoPhone(object):
             phoneid, space, serialno = params.partition(' ')
             if phoneid in self.phone_workers:
                 response = 'device %s already exists' % phoneid
-                console_logger.warning(response)
+                CONSOLE_LOGGER.warning(response)
             else:
                 self.read_devices(new_device_name=phoneid)
                 self.phone_workers[phoneid].start()
         elif cmd == 'autophone-restart':
             self.state = ProcessStates.RESTARTING
-            console_logger.info('Restarting Autophone...')
+            CONSOLE_LOGGER.info('Restarting Autophone...')
             for worker in self.phone_workers.values():
                 worker.shutdown()
         elif cmd == 'autophone-stop':
-            console_logger.info('Stopping Autophone...')
+            CONSOLE_LOGGER.info('Stopping Autophone...')
             self.stop()
         elif cmd == 'autophone-shutdown':
-            console_logger.info('Shutting down Autophone...')
+            CONSOLE_LOGGER.info('Shutting down Autophone...')
             self.shutdown()
         elif cmd == 'autophone-log':
-            logger.info(params)
+            LOGGER.info(params)
         elif cmd == 'autophone-triggerjobs':
             response = self.trigger_jobs(params)
         elif cmd == 'autophone-status':
@@ -636,12 +633,12 @@ ok
         return response
 
     def create_worker(self, phone):
-        logger.info('Creating worker for %s: %s.' % (phone, self.options))
+        LOGGER.info('Creating worker for %s: %s.', phone, self.options)
         dm = self._devices[phone.id]['dm']
         tests = []
         for test_class, config_file, test_devices_repos in self._tests:
-            logger.debug('create_worker: %s %s %s' % (
-                test_class, config_file, test_devices_repos))
+            LOGGER.debug('create_worker: %s %s %s',
+                         test_class, config_file, test_devices_repos)
             skip_test = True
             if not test_devices_repos:
                 # There is no restriction on this test being run by
@@ -661,7 +658,7 @@ ok
                                   repos=repos)
                 tests.append(test)
                 for chunk in range(2, test.chunks+1):
-                    logger.debug('Creating chunk %d/%d' % (chunk, test.chunks))
+                    LOGGER.debug('Creating chunk %d/%d', chunk, test.chunks)
                     tests.append(test_class(dm=dm,
                                             phone=phone,
                                             options=self.options,
@@ -669,9 +666,9 @@ ok
                                             chunk=chunk,
                                             repos=repos))
         if not tests:
-            logger.warning('Not creating worker: No tests defined for '
-                                'worker for %s: %s.' %
-                                (phone, self.options))
+            LOGGER.warning('Not creating worker: No tests defined for '
+                           'worker for %s: %s.',
+                           phone, self.options)
             return
         logfile_prefix = os.path.splitext(self.options.logfile)[0]
         worker = PhoneWorker(dm, self.next_worker_num,
@@ -704,30 +701,27 @@ ok
             data['sdk'],
             data['supported_sdks'],
             self.options.ipaddr) # XXX IPADDR no longer needed?
-        if logger.getEffectiveLevel() == logging.DEBUG:
-            logger.debug('register_cmd: phone: %s' % phone)
+        if LOGGER.getEffectiveLevel() == logging.DEBUG:
+            LOGGER.debug('register_cmd: phone: %s', phone)
         if phoneid in self.phone_workers:
-            logger.debug('Received registration message for known phone '
-                              '%s.' % phoneid)
+            LOGGER.debug('Received registration message for known phone %s.', phoneid)
             worker = self.phone_workers[phoneid]
             if worker.phone.__dict__ != phone.__dict__:
                 # This won't update the subprocess, but it will allow
                 # us to write out the updated values right away.
                 worker.phone = phone
-                logger.info('Registration info has changed; restarting '
-                                 'worker.')
+                LOGGER.info('Registration info has changed; restarting worker.')
                 if phoneid in self.restart_workers:
-                    logger.info('Phone worker is already scheduled to be '
-                                 'restarted!')
+                    LOGGER.info('Phone worker is already scheduled to be restarted!')
                 else:
                     self.restart_workers[phoneid] = phone
                     worker.stop()
         else:
             try:
                 self.create_worker(phone)
-                logger.info('Registered phone %s.' % phone.id)
+                LOGGER.info('Registered phone %s.', phone.id)
             except Exception:
-                console_logger.info('Worker %s failed to register' % phoneid)
+                CONSOLE_LOGGER.info('Worker %s failed to register', phoneid)
                 self.purge_worker(phoneid)
                 raise
 
@@ -761,7 +755,7 @@ ok
             else:
                 test_root = self.options.device_test_root
 
-            console_logger.info("Initializing device name=%s, serialno=%s" % (device_name, serialno))
+            CONSOLE_LOGGER.info("Initializing device name=%s, serialno=%s", device_name, serialno)
             try:
                 dm = ADBAndroid(
                     device=serialno,
@@ -791,8 +785,8 @@ ok
                     self.read_tests()
                 self.register_cmd(device)
             except Exception, e:
-                console_logger.error('Unable to initialize device %s due to %s.' %
-                                     (device_name, e))
+                CONSOLE_LOGGER.error('Unable to initialize device %s due to %s.',
+                                     device_name, e)
                 msg_subj = '%s unable to initialize device %s' % (utils.host(),
                                                                   device_name)
                 msg_body = ('Hello, this is Autophone. '
@@ -820,9 +814,8 @@ ok
             tests = []
             for member_name, member_value in inspect.getmembers(__import__(t['name']),
                                                                 inspect.isclass):
-                if (member_name != 'PhoneTest' and
-                    member_name != 'PerfTest' and
-                    issubclass(member_value, PhoneTest)):
+                if member_name != 'PhoneTest' and member_name != 'PerfTest' and \
+                   issubclass(member_value, PhoneTest):
                     config = t.get('config', '')
                     # config is a space separated list of config
                     # files.  The test will be instantiated for each
@@ -844,12 +837,12 @@ ok
                     devices = [device for device in t if device not in
                                ('name', 'here', 'manifest', 'path', 'config',
                                 'relpath', 'unittests', 'subsuite')]
-                    logger.debug('read_tests: test: %s, class: %s, '
-                                      'config: %s, devices: %s' % (
-                                          member_name,
-                                          member_value,
-                                          config,
-                                          devices))
+                    LOGGER.debug('read_tests: test: %s, class: %s, '
+                                 'config: %s, devices: %s',
+                                 member_name,
+                                 member_value,
+                                 config,
+                                 devices)
                     test_devices_repos = {}
                     for device in devices:
                         test_devices_repos[device] = t[device].split()
@@ -864,7 +857,7 @@ ok
 
 
     def trigger_jobs(self, data):
-        logger.info('Received user-specified job: %s' % data)
+        LOGGER.info('Received user-specified job: %s', data)
         trigger_data = json.loads(data)
         if 'build_data' not in trigger_data:
             return 'invalid args'
@@ -881,12 +874,12 @@ ok
         # If we can not determine the sdk, default to all, abi to arm.
         if not sdk:
             sdk = 'api-9,api-10,api-11,api-15'
-            logger.warning('trigger_jobs: default sdks: %s' % sdk)
+            LOGGER.warning('trigger_jobs: default sdks: %s', sdk)
         if not abi:
             abi = 'arm'
-            logger.warning('trigger_jobs: default abi: %s' % abi)
-        logger.info('trigger_jobs: using repo %s, build_type %s, abi %s, sdk %s' %
-                    (repo, build_type, abi, sdk))
+            LOGGER.warning('trigger_jobs: default abi: %s', abi)
+        LOGGER.info('trigger_jobs: using repo %s, build_type %s, abi %s, sdk %s',
+                    repo, build_type, abi, sdk)
         tests = []
         if not test_names:
             # No test names specified, force PhoneTest.match
@@ -925,7 +918,7 @@ ok
         return 'ok'
 
     def reset_phones(self):
-        logger.info('Resetting phones...')
+        LOGGER.info('Resetting phones...')
         for phoneid, phone in self.phone_workers.iteritems():
             phone.reboot()
 
@@ -934,7 +927,7 @@ ok
         try:
             if self.state != ProcessStates.RUNNING:
                 return
-            logger.debug('PULSE BUILD FOUND %s' % build_data)
+            LOGGER.debug('PULSE BUILD FOUND %s', build_data)
             build_url = build_data['url']
             platform = build_data['platform']
             repo = build_data['repo']
@@ -948,7 +941,8 @@ ok
             sdk = build_data['sdk']
             comments = build_data['comments']
             if repo != 'try':
-                tests = PhoneTest.match(repo=repo, build_type=build_type, build_abi=abi, build_sdk=sdk, changeset_dirs=changeset_dirs)
+                tests = PhoneTest.match(repo=repo, build_type=build_type, build_abi=abi,
+                                        build_sdk=sdk, changeset_dirs=changeset_dirs)
             else:
                 # Autophone try builds will have a comment of the form:
                 # try: -b o -p android-api-9,android-api-15 -u autophone-smoke,autophone-s1s2 -t none
@@ -988,14 +982,13 @@ ok
     def on_jobaction(self, job_action):
         self.lock_acquire()
         try:
-            if (self.state != ProcessStates.RUNNING or
-                job_action['job_group_name'] != 'Autophone'):
+            if self.state != ProcessStates.RUNNING or job_action['job_group_name'] != 'Autophone':
                 return
             machine_name = job_action['machine_name']
             if machine_name not in self.phone_workers:
-                logger.warning('on_jobaction: unknown device %s' % machine_name)
+                LOGGER.warning('on_jobaction: unknown device %s', machine_name)
                 return
-            logger.debug('on_jobaction: found %s' % job_action)
+            LOGGER.debug('on_jobaction: found %s', job_action)
 
             p = self.phone_workers[machine_name]
             if job_action['action'] == 'cancel':
@@ -1007,14 +1000,16 @@ ok
                     job_action['config_file'],
                     job_action['chunk'])
                 if not test:
-                    logger.warning(
-                        'on_jobaction: No test found for %s' %
+                    LOGGER.warning(
+                        'on_jobaction: No test found for %s',
                         json.dumps(job_action, sort_keys=True, indent=4))
                 else:
                     build_url = job_action['build_url']
-                    build_data = utils.get_build_data(build_url, builder_type=job_action['builder_type'])
+                    build_data = utils.get_build_data(build_url,
+                                                      builder_type=job_action['builder_type'])
                     if not build_data:
-                        logger.debug('on_jobaction: ignoring missing build_data on url %s' % build_url)
+                        LOGGER.debug('on_jobaction: ignoring missing build_data on url %s',
+                                     build_url)
                     else:
                         job_data = {
                             'build': build_data['url'],
@@ -1032,8 +1027,8 @@ ok
                         }
                         self.new_job(job_data)
             else:
-                logger.warning('on_jobaction: unknown action %s' %
-                                    job_action['action'])
+                LOGGER.warning('on_jobaction: unknown action %s',
+                               job_action['action'])
         finally:
             self.lock_release()
 
@@ -1041,17 +1036,17 @@ ok
         self.state = ProcessStates.STOPPING
 
     def shutdown(self):
-        logger.debug('AutoPhone.shutdown: enter')
+        LOGGER.debug('AutoPhone.shutdown: enter')
         self.state = ProcessStates.SHUTTINGDOWN
         if self.pulse_monitor:
-            logger.debug('AutoPhone.shutdown: stopping pulse monitor')
+            LOGGER.debug('AutoPhone.shutdown: stopping pulse monitor')
             self.pulse_monitor.stop()
             self.pulse_monitor = None
-        logger.debug('AutoPhone.shutdown: shutting down workers')
+        LOGGER.debug('AutoPhone.shutdown: shutting down workers')
         for p in self.phone_workers.values():
-            logger.debug('AutoPhone.shutdown: shutting down worker %s' % p.phone.id)
+            LOGGER.debug('AutoPhone.shutdown: shutting down worker %s', p.phone.id)
             p.shutdown()
-        logger.debug('AutoPhone.shutdown: exit')
+        LOGGER.debug('AutoPhone.shutdown: exit')
 
 def load_autophone_options(cmd_options):
     options = AutophoneOptions()
@@ -1100,8 +1095,8 @@ def load_autophone_options(cmd_options):
     return options
 
 
-def main(options):
-    global logger, console_logger
+def autophone_runner(options):
+    global LOGGER, CONSOLE_LOGGER
 
     def sigterm_handler(signum, frame):
         autophone.stop()
@@ -1119,9 +1114,9 @@ def main(options):
     sensitive_data_filter = SensitiveDataFilter(options.sensitive_data)
     logging.captureWarnings(True)
 
-    logger = logging.getLogger()
-    logger.addFilter(sensitive_data_filter)
-    logger.setLevel(loglevel)
+    LOGGER = logging.getLogger()
+    LOGGER.addFilter(sensitive_data_filter)
+    LOGGER.setLevel(loglevel)
 
     filehandler = logging.handlers.TimedRotatingFileHandler(options.logfile,
                                                             when='midnight',
@@ -1130,20 +1125,20 @@ def main(options):
                         '%(levelname)s|%(message)s')
     fileformatter = logging.Formatter(fileformatstring)
     filehandler.setFormatter(fileformatter)
-    logger.addHandler(filehandler)
+    LOGGER.addHandler(filehandler)
 
-    console_logger = logging.getLogger('console')
-    console_logger.setLevel(loglevel)
+    CONSOLE_LOGGER = logging.getLogger('console')
+    CONSOLE_LOGGER.setLevel(loglevel)
     streamhandler = logging.StreamHandler(stream=sys.stderr)
     streamformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
                           '%(levelname)s|%(message)s')
     streamformatter = logging.Formatter(streamformatstring)
     streamhandler.setFormatter(streamformatter)
-    console_logger.addHandler(streamhandler)
+    CONSOLE_LOGGER.addHandler(streamhandler)
 
-    for other_logger_name, other_logger in logger.manager.loggerDict.iteritems():
-        if ((other_logger_name == 'root' or other_logger_name == 'console')
-            or not hasattr(other_logger, 'handlers')):
+    for other_logger_name, other_logger in LOGGER.manager.loggerDict.iteritems():
+        if (other_logger_name == 'root' or other_logger_name == 'console') or \
+           not hasattr(other_logger, 'handlers'):
             continue
         other_logger.addFilter(sensitive_data_filter)
         for other_handler in other_logger.handlers:
@@ -1151,12 +1146,12 @@ def main(options):
             other_handler.close()
             other_logger.removeHandler(other_handler)
         other_logger.addHandler(logging.NullHandler())
-        logger.debug('Library logger %s' % other_logger_name)
+        LOGGER.debug('Library logger %s', other_logger_name)
         if options.verbose:
             other_logger.setLevel(loglevel)
 
-    console_logger.info('Starting server on port %d.' % options.port)
-    console_logger.info('Starting build-cache server on port %d.' %
+    CONSOLE_LOGGER.info('Starting server on port %d.', options.port)
+    CONSOLE_LOGGER.info('Starting build-cache server on port %d.',
                         options.build_cache_port)
 
     # By starting adb server before the build cache, we prevent adb
@@ -1217,7 +1212,7 @@ unpacked tests package for the build.
     while True:
         try:
             msg = autophone.queue.get_nowait()
-            logger.debug('Dropping autphone.queue: %s' % msg)
+            LOGGER.debug('Dropping autphone.queue: %s', msg)
         except Queue.Empty:
             break
 
@@ -1226,26 +1221,26 @@ unpacked tests package for the build.
         while True:
             try:
                 msg = worker.queue.get_nowait()
-                logger.debug('Dropping phone %s worker.queue: %s' % (phoneid, msg))
+                LOGGER.debug('Dropping phone %s worker.queue: %s', phoneid, msg)
             except Queue.Empty:
                 break
 
     while True:
         try:
             (pid, status, resource) = os.wait3(os.WNOHANG)
-            logger.debug('Reaped %s %s' % (pid, status))
+            LOGGER.debug('Reaped %s %s', pid, status)
         except OSError:
             break
 
-    console_logger.info('AutoPhone terminated.')
-    console_logger.info('Shutting down build-cache server...')
+    CONSOLE_LOGGER.info('AutoPhone terminated.')
+    CONSOLE_LOGGER.info('Shutting down build-cache server...')
     build_cache_server.shutdown()
     build_cache_server_thread.join()
-    console_logger.info('Done.')
+    CONSOLE_LOGGER.info('Done.')
     return 0
 
 
-if __name__ == '__main__':
+def main():
     from optparse import OptionParser
 
     parser = OptionParser()
@@ -1271,7 +1266,8 @@ if __name__ == '__main__':
                       help='path to test manifest')
     parser.add_option('--minidump-stackwalk', action='store', type='string',
                       dest='minidump_stackwalk', default='/usr/local/bin/minidump_stackwalk',
-                      help='Path to minidump_stackwalk executable; defaults to /usr/local/bin/minidump_stackwalk.')
+                      help='Path to minidump_stackwalk executable; '
+                      'defaults to /usr/local/bin/minidump_stackwalk.')
     parser.add_option('--emailcfg', action='store', type='string',
                       dest='emailcfg', default='',
                       help='config file for email settings; defaults to none')
@@ -1491,22 +1487,24 @@ if __name__ == '__main__':
 
     (cmd_options, args) = parser.parse_args()
     options = load_autophone_options(cmd_options)
-    if (options.treeherder_url or
-        options.treeherder_client_id or
-        options.treeherder_secret):
-        if (not options.treeherder_url or
-            not options.treeherder_client_id or
-            not options.treeherder_secret):
+    if options.treeherder_url or options.treeherder_client_id or options.treeherder_secret:
+        if not options.treeherder_url or \
+           not options.treeherder_client_id or \
+           not options.treeherder_secret:
             raise Exception('Inconsistent treeherder options')
-    if ((options.s3_upload_bucket or
-         options.aws_access_key_id or
-         options.aws_access_key) and (
-             not options.s3_upload_bucket or
-             not options.aws_access_key_id or
-             not options.aws_access_key)):
+    if (options.s3_upload_bucket or \
+        options.aws_access_key_id or \
+        options.aws_access_key) and \
+        (not options.s3_upload_bucket or \
+         not options.aws_access_key_id or \
+         not options.aws_access_key):
         raise Exception('--s3-upload-bucket, --aws-access-key-id, '
                         '--aws-access-key must be specified together')
 
-    exit_code = main(options)
+    exit_code = autophone_runner(options)
 
     sys.exit(exit_code)
+
+
+if __name__ == '__main__':
+    main()

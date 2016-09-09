@@ -19,10 +19,10 @@ from adb import ADBError
 
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
-logger = logging.getLogger()
+LOGGER = logging.getLogger()
 
-traces = "/data/anr/traces.txt"
-tombstones = "/data/tombstones"
+TRACES = "/data/anr/traces.txt"
+TOMBSTONES = "/data/tombstones"
 
 StackInfo = namedtuple("StackInfo",
                        ["minidump_path",
@@ -42,8 +42,6 @@ class AutophoneCrashProcessor(object):
         mozcrash.
 
         :param adbdevice: instance of ADBDevice used to manage the device.
-        :param logger: instance of a logger supporting info, warning, debug,
-            error, exception methods.
         :param remote_profile_dir: path on device to the Firefox
             profile.
         :param upload_dir: path to a host directory to be used to contain
@@ -72,11 +70,11 @@ class AutophoneCrashProcessor(object):
     def delete_anr_traces(self, root=True):
         """Empty ANR traces.txt file."""
         try:
-            self.adb.rm(traces, root=root)
-            self.adb.shell_output('echo > %s' % traces, root=root)
-            self.adb.chmod(traces, mask='666', root=root)
+            self.adb.rm(TRACES, root=root)
+            self.adb.shell_output('echo > %s' % TRACES, root=root)
+            self.adb.chmod(TRACES, mask='666', root=root)
         except ADBError, e:
-            logger.warning("Could not initialize ANR traces %s, %s" % (traces, e))
+            LOGGER.warning("Could not initialize ANR traces %s, %s", TRACES, e)
 
     def check_for_anr_traces(self, root=True):
         """Reports the ANR traces file from the device.
@@ -86,26 +84,26 @@ class AutophoneCrashProcessor(object):
         host before truncating the contents of the ANR traces file on
         the device.
         """
-        if self.adb.exists(traces, root=root):
+        if self.adb.exists(TRACES, root=root):
             try:
-                t = self.adb.shell_output("cat %s" % traces, root=root)
-                logger.info("Contents of %s:" % traces)
-                logger.info(t)
+                t = self.adb.shell_output("cat %s" % TRACES, root=root)
+                LOGGER.info("Contents of %s:", TRACES)
+                LOGGER.info(t)
                 f = open(os.path.join(self.upload_dir, 'traces.txt', 'wb'))
                 f.write(t)
                 f.close()
                 # Once reported, delete traces
                 self.delete_anr_traces()
             except ADBError, e:
-                logger.warning("Error %s pulling %s" % (e, traces))
+                LOGGER.warning("Error %s pulling %s", e, TRACES)
             except IOError, e:
-                logger.warning("Error %s pulling %s" % (e, traces))
+                LOGGER.warning("Error %s pulling %s", e, TRACES)
         else:
-            logger.info("%s not found" % traces)
+            LOGGER.info("%s not found", TRACES)
 
     def delete_tombstones(self, root=True):
         """Deletes any existing tombstone files from device."""
-        self.adb.rm(tombstones, force=True, recursive=True, root=root)
+        self.adb.rm(TOMBSTONES, force=True, recursive=True, root=root)
 
     def delete_crash_dumps(self, root=True):
         """Deletes any existing crash dumps in the Firefox profile."""
@@ -125,21 +123,21 @@ class AutophoneCrashProcessor(object):
         Each copied tombstone filename will be renamed to have a
         unique integer suffix with a .txt extension.
         """
-        if self.adb.exists(tombstones, root=root):
-            self.adb.chmod(tombstones, root=root)
-            self.adb.chmod(os.path.join(tombstones, '*'), mask='666', root=root)
-            self.adb.pull(tombstones, self.upload_dir)
+        if self.adb.exists(TOMBSTONES, root=root):
+            self.adb.chmod(TOMBSTONES, root=root)
+            self.adb.chmod(os.path.join(TOMBSTONES, '*'), mask='666', root=root)
+            self.adb.pull(TOMBSTONES, self.upload_dir)
             self.delete_tombstones()
             for f in glob.glob(os.path.join(self.upload_dir, "tombstone_??")):
                 for i in xrange(1, sys.maxint):
                     newname = "%s.%d.txt" % (f, i)
                     if not os.path.exists(newname):
                         os.rename(f, newname)
-                        logger.debug('AutophoneCrashProcessor.'
-                                          'check_for_tombstones: %s' % newname)
+                        LOGGER.debug('AutophoneCrashProcessor.'
+                                     'check_for_tombstones: %s', newname)
                         break
         else:
-            logger.warning("%s does not exist; tombstone check skipped" % tombstones)
+            LOGGER.warning("%s does not exist; tombstone check skipped", TOMBSTONES)
 
     def get_java_exception(self):
         """Returns a summary of the first fatal Java exception found in
@@ -180,7 +178,7 @@ class AutophoneCrashProcessor(object):
                                      'signature': "%s %s" % (
                                          exception_type, exception_location)}
                 else:
-                    logger.warning("Automation Error: check_for_java_exceptions: Logcat is truncated!")
+                    LOGGER.warning("Automation Error: check_for_java_exceptions: Logcat is truncated!")
                 break
         return exception
 
@@ -205,17 +203,16 @@ class AutophoneCrashProcessor(object):
                                      stackwalk being launched.
                    extra: Path of the extra file.
         """
-        logger.debug('AutophoneCrashProcessor.'
-                          '_process_dump_file: %s %s %s %s' % (
-                              path, extra, symbols_path, stackwalk_binary))
+        LOGGER.debug('AutophoneCrashProcessor.'
+                     '_process_dump_file: %s %s %s %s',
+                     path, extra, symbols_path, stackwalk_binary)
         errors = []
         signature = None
         include_stderr = False
         out = None
         err = None
         retcode = None
-        if (symbols_path and stackwalk_binary and
-            os.path.exists(stackwalk_binary)):
+        if symbols_path and stackwalk_binary and os.path.exists(stackwalk_binary):
             # run minidump_stackwalk
             p = subprocess.Popen([stackwalk_binary, path, symbols_path],
                                  stdout=subprocess.PIPE,
@@ -254,10 +251,10 @@ class AutophoneCrashProcessor(object):
             if os.path.exists(extra):
                 os.unlink(extra)
 
-        logger.debug('AutophoneCrashProcessor.'
-                          '_process_dump_file: %s %s signature: %s '
-                          'stdout: %s stderr: %s return code: %s errors: %s' %(
-                              path, extra, signature, out, err, retcode, errors))
+        LOGGER.debug('AutophoneCrashProcessor.'
+                     '_process_dump_file: %s %s signature: %s '
+                     'stdout: %s stderr: %s return code: %s errors: %s',
+                     path, extra, signature, out, err, retcode, errors)
 
         return StackInfo(path,
                          signature,
@@ -292,17 +289,17 @@ class AutophoneCrashProcessor(object):
         self.check_for_tombstones()
 
         crashes = []
-        if (not self.remote_dump_dir or
-            not self.adb.is_dir(self.remote_dump_dir, root=root)):
+        if not self.remote_dump_dir or \
+           not self.adb.is_dir(self.remote_dump_dir, root=root):
             # If crash reporting is enabled (MOZ_CRASHREPORTER=1), the
             # minidumps directory is automatically created when Fennec
             # (first) starts, so its lack of presence is a hint that
             # something went wrong.
-            logger.warning("Automation Error: No crash directory (%s) "
-                                "found on remote device" % self.remote_dump_dir)
-            crashes.append({'reason': 'PROFILE-ERROR',
-                            'signature': "No crash directory (%s) found on remote device" %
-                            self.remote_dump_dir})
+            LOGGER.warning("Automation Error: No crash directory (%s) "
+                           "found on remote device", self.remote_dump_dir)
+            crashes.append(
+                {'reason': 'PROFILE-ERROR',
+                 'signature': "No crash directory (%s) found on remote device" % self.remote_dump_dir})
             return crashes
         self.adb.chmod(self.remote_dump_dir, recursive=True, root=root)
         self.adb.pull(self.remote_dump_dir, self.upload_dir)
@@ -314,9 +311,9 @@ class AutophoneCrashProcessor(object):
                       glob.glob(os.path.join(self.upload_dir, '*.dmp'))]
         max_dumps = 10
         if len(dump_files) > max_dumps:
-            logger.warning("Found %d dump files -- limited to %d!" % (len(dump_files), max_dumps))
+            LOGGER.warning("Found %d dump files -- limited to %d!", len(dump_files), max_dumps)
             del dump_files[max_dumps:]
-        logger.debug('AutophoneCrashProcessor.dump_files: %s' % dump_files)
+        LOGGER.debug('AutophoneCrashProcessor.dump_files: %s', dump_files)
         for path, extra in dump_files:
             info = self._process_dump_file(path, extra, symbols_path, stackwalk_binary, clean=clean)
             stackwalk_output = ["Crash dump filename: %s" % info.minidump_path]
@@ -329,7 +326,7 @@ class AutophoneCrashProcessor(object):
                 stackwalk_output.append("minidump_stackwalk exited with return code %d" %
                                         info.stackwalk_retcode)
             signature = info.signature if info.signature else "unknown top frame"
-            logger.info("application crashed [%s]" % signature)
+            LOGGER.info("application crashed [%s]", signature)
             crashes.append(
                 {'reason': 'PROCESS-CRASH',
                  'signature': signature,

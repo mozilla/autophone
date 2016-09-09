@@ -4,7 +4,6 @@
 
 import ConfigParser
 import datetime
-import logging
 import os
 import re
 import urlparse
@@ -14,11 +13,7 @@ from time import sleep
 import utils
 
 from perftest import PerfTest, PerfherderArtifact, PerfherderSuite, PerfherderOptions
-from phonetest import PhoneTestResult
-
-# Set the logger globally in the file, but this must be reset when
-# used in a child process.
-logger = logging.getLogger()
+from phonetest import PhoneTest
 
 
 class S1S2Test(PerfTest):
@@ -56,6 +51,8 @@ class S1S2Test(PerfTest):
                      self._tests[test_name], test_url))
                 self._urls["%s-%s" % (test_location, test_name)] = test_url
 
+        self.loggerdeco.debug('S1S2Test: %s', self.__dict__)
+
     @property
     def name(self):
         return 'autophone-s1s2%s' % self.name_suffix
@@ -70,31 +67,31 @@ class S1S2Test(PerfTest):
         is_test_completed = False
 
         if not self.install_local_pages():
-            self.test_failure(
+            self.add_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not install local pages on phone.',
-                PhoneTestResult.EXCEPTION)
+                PhoneTest.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile():
-            self.test_failure(
+            self.add_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not run Fennec.',
-                PhoneTestResult.BUSTED)
+                PhoneTest.BUSTED)
             return is_test_completed
 
         perfherder_options = PerfherderOptions(self.perfherder_options,
                                                repo=self.build.tree)
         is_test_completed = True
         testcount = len(self._urls.keys())
-        for testnum,(testname,url) in enumerate(self._urls.iteritems(), 1):
+        for testnum, (testname, url) in enumerate(self._urls.iteritems(), 1):
             if self.fennec_crashed:
                 break
             self.loggerdeco = self.loggerdeco.clone(
                 extradict={'phoneid': self.phone.id,
                            'buildid': self.build.id,
                            'testname': testname},
-                extraformat='%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
+                extraformat='S1S2TestJob|%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
                                  (testnum, testcount, self._iterations))
@@ -120,6 +117,7 @@ class S1S2Test(PerfTest):
                 # value if the cached test failed to record the
                 # values.
 
+                iteration = 0
                 dataset = []
                 for iteration in range(1, self._iterations+1):
                     # Calling svc power stayon true will turn on the
@@ -141,15 +139,16 @@ class S1S2Test(PerfTest):
                                         testnum, testcount, iteration, url))
 
                     if not self.create_profile():
-                        self.test_failure(url,
-                                          'TEST-UNEXPECTED-FAIL',
-                                          'Failed to create profile',
-                                          PhoneTestResult.TESTFAILED)
+                        self.add_failure(
+                            url,
+                            'TEST-UNEXPECTED-FAIL',
+                            'Failed to create profile',
+                            PhoneTest.TESTFAILED)
                         continue
 
                     measurement = self.runtest(url)
                     if measurement:
-                        self.test_pass(url)
+                        self.add_pass(url)
                     else:
                         self.loggerdeco.warning(
                             '%s Failed to get uncached measurement.' % url)
@@ -159,7 +158,7 @@ class S1S2Test(PerfTest):
 
                     measurement = self.runtest(url)
                     if measurement:
-                        self.test_pass(url)
+                        self.add_pass(url)
                     else:
                         self.loggerdeco.warning(
                             '%s Failed to get cached measurement.' % url)
@@ -184,12 +183,12 @@ class S1S2Test(PerfTest):
                     # but treat the case where we got at least one
                     # measurement but failed to get two or more
                     # measurements as a reportable failure.
-                    self.test_failure(
+                    self.add_failure(
                         url,
                         'TEST-UNEXPECTED-FAIL',
                         'Failed to get %s measurements' % (
                             self._iterations - measurements),
-                        PhoneTestResult.TESTFAILED)
+                        PhoneTest.TESTFAILED)
                 if not success:
                     # If we have not gotten a single measurement at this point,
                     # just bail and report the failure rather than wasting time
@@ -202,7 +201,7 @@ class S1S2Test(PerfTest):
                     self.worker_subprocess.mailer.send(
                         '%s %s failed for Build %s %s on %s %s' %
                         (self.__class__.__name__, testname, self.build.tree,
-                         self.build.id, utils.host(),  self.phone.id),
+                         self.build.id, utils.host(), self.phone.id),
                         'No measurements were detected for test %s.\n\n'
                         'Job        %s\n'
                         'Host       %s\n'
@@ -217,9 +216,10 @@ class S1S2Test(PerfTest):
                          self.build.tree,
                          self.build.id,
                          self.build.changeset))
-                    self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
-                                      'No measurements detected.',
-                                      PhoneTestResult.BUSTED)
+                    self.add_failure(
+                        self.name, 'TEST-UNEXPECTED-FAIL',
+                        'No measurements detected.',
+                        PhoneTest.BUSTED)
                     break
 
                 if self.is_stderr_below_threshold(
@@ -256,7 +256,7 @@ class S1S2Test(PerfTest):
                             tstrt=throbberstart,
                             tstop=throbberstop,
                             testname=testname,
-                            cache_enabled=(cache_key=='cached'),
+                            cache_enabled=(cache_key == 'cached'),
                             rejected=rejected)
                         perfherder_values['throbberstart'][cache_key]['values'].append(
                             throbberstart - starttime)
@@ -282,9 +282,10 @@ class S1S2Test(PerfTest):
                     for cache_key in cache_keys:
                         cache_name = cache_names[cache_key]
                         subtest_name = "%s %s" % (metric_key, cache_name)
-                        perfherder_suite.add_subtest(subtest_name,
-                                                     perfherder_values[metric_key][cache_key]['median'],
-                                                     options=perfherder_options)
+                        perfherder_suite.add_subtest(
+                            subtest_name,
+                            perfherder_values[metric_key][cache_key]['median'],
+                            options=perfherder_options)
 
                 self.perfherder_artifact = PerfherderArtifact()
                 self.perfherder_artifact.add_suite(perfherder_suite)
@@ -302,7 +303,7 @@ class S1S2Test(PerfTest):
 
     def runtest(self, url):
         # Clear logcat
-        self.logcat.clear()
+        self.worker_subprocess.logcat.clear()
 
         # Run test
         self.run_fennec_with_profile(self.build.app_name, url)
@@ -315,7 +316,7 @@ class S1S2Test(PerfTest):
 
         # Ensure we succeeded - no 0's reported
         datapoint = {}
-        if (throbberstart and throbberstop):
+        if throbberstart and throbberstop:
             datapoint['starttime'] = starttime
             datapoint['throbberstart'] = throbberstart
             datapoint['throbberstop'] = throbberstop
@@ -325,10 +326,10 @@ class S1S2Test(PerfTest):
     def analyze_logcat(self):
         self.loggerdeco.debug('analyzing logcat')
 
-        logcat_prefix = '(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})'
-        throbber_prefix = '..GeckoToolbarDisplayLayout.*zerdatime (\d+) - Throbber'
-        re_base_time = re.compile('%s' % logcat_prefix)
-        re_gecko_time = re.compile('%s .*([Gg]ecko)' % logcat_prefix)
+        logcat_prefix = r'(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})'
+        throbber_prefix = r'..GeckoToolbarDisplayLayout.*zerdatime (\d+) - Throbber'
+        re_base_time = re.compile(r'%s' % logcat_prefix)
+        re_gecko_time = re.compile(r'%s .*([Gg]ecko)' % logcat_prefix)
         re_start_time = re.compile(
             '%s .*('
             'Start proc .*%s.* for activity %s|'
@@ -353,7 +354,7 @@ class S1S2Test(PerfTest):
 
         while (attempt <= max_attempts and (throbber_start_time == 0 or
                                             throbber_stop_time == 0)):
-            buf = self.logcat.get()
+            buf = self.worker_subprocess.logcat.get()
             for line in buf:
                 self.loggerdeco.debug('analyze_logcat: %s' % line)
                 match = re_base_time.match(line)
@@ -433,9 +434,9 @@ class S1S2Test(PerfTest):
                 # If fennec crashed, don't bother looking for the Throbbers
                 self.loggerdeco.warning('analyze_logcat: fennec crashed.')
                 break
-            if (start_time == 0 or
-                throbber_start_time == 0 or
-                throbber_stop_time == 0):
+            if start_time == 0 or \
+               throbber_start_time == 0 or \
+               throbber_stop_time == 0:
                 sleep(wait_time)
                 attempt += 1
         if throbber_start_time and throbber_stop_time == 0:
@@ -451,7 +452,8 @@ class S1S2Test(PerfTest):
         # year.
 
         if base_time and start_time and throbber_start_time and throbber_stop_time:
-            parse = lambda y, t: datetime.datetime.strptime('%4d-%s' % (y, t), '%Y-%m-%d %H:%M:%S.%f')
+            parse = lambda y, t: datetime.datetime.strptime('%4d-%s' % (y, t),
+                                                            '%Y-%m-%d %H:%M:%S.%f')
             year = datetime.datetime.utcnow().year
             base_time = parse(year, base_time)
             start_time = parse(year, start_time)
@@ -494,15 +496,15 @@ class S1S2Test(PerfTest):
                                    throbber_start_time, throbber_stop_time,
                                    throbber_stop_time - throbber_start_time))
 
-            if (start_time > throbber_start_time or
-                start_time > throbber_stop_time or
-                throbber_start_time > throbber_stop_time):
+            if start_time > throbber_start_time or \
+               start_time > throbber_stop_time or \
+               throbber_start_time > throbber_stop_time:
                 self.loggerdeco.warning('analyze_logcat: inconsistent measurements: '
                                         'start: %s, '
-                                        'throbber start: %s, throbber stop: %s ' %
-                                      (start_time,
-                                       throbber_start_time,
-                                       throbber_stop_time))
+                                        'throbber start: %s, throbber stop: %s ',
+                                        start_time,
+                                        throbber_start_time,
+                                        throbber_stop_time)
                 start_time = throbber_start_time = throbber_stop_time = 0
         else:
             self.loggerdeco.warning(

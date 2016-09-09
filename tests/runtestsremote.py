@@ -13,11 +13,7 @@ import tempfile
 import time
 import traceback
 
-from phonetest import PhoneTest, PhoneTestResult, FLASH_PACKAGE
-
-# Set the logger globally in the file, but this must be reset when
-# used in a child process.
-logger = logging.getLogger()
+from phonetest import PhoneTest, FLASH_PACKAGE
 
 
 class UnitTest(PhoneTest):
@@ -66,6 +62,10 @@ class UnitTest(PhoneTest):
 
         if self.cfg.has_option('runtests', 'total_chunks'):
             self.chunks = self.cfg.getint('runtests', 'total_chunks')
+
+        self.phone_ip_address = None
+
+        self.loggerdeco.debug('UnitTest: %s', self.__dict__)
 
     @property
     def name(self):
@@ -143,7 +143,7 @@ class UnitTest(PhoneTest):
         self.loggerdeco.debug('runtestsremote.py run_job start')
         self.update_status(message='runtestsremote.py run_job start')
 
-        if logger.getEffectiveLevel() == logging.DEBUG:
+        if self.loggerdeco.getEffectiveLevel() == logging.DEBUG:
             self.loggerdeco.debug('phone = %s' % self.phone)
 
         if not self.cfg.has_option('runtests', 'test_name'):
@@ -262,7 +262,7 @@ class UnitTest(PhoneTest):
             raise Exception('Unknown test_name %s' % self.parms['test_name'])
 
         if self.parms['iterations'] > 1:
-                test_args.append('--repeat=%d' % (self.parms['iterations']-1))
+            test_args.append('--repeat=%d' % (self.parms['iterations']-1))
 
         self.parms['http_port'] = self.parms['port_manager'].reserve()
         self.parms['ssl_port'] = self.parms['port_manager'].reserve()
@@ -317,7 +317,7 @@ class UnitTest(PhoneTest):
             extradict={'phoneid': self.phone.id,
                        'buildid': self.parms['buildid'],
                        'testname': self.parms['test_name']},
-            extraformat='%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
+            extraformat='UnitTestJob|%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
 
         self.loggerdeco.info('runtestsremote.py runtest start')
         for key in self.parms.keys():
@@ -337,7 +337,7 @@ class UnitTest(PhoneTest):
                 self.dm.install_app(robocop_apk_path)
             except Exception, e:
                 self.loggerdeco.exception('runtestsremote.py:runtest: Exception running test.')
-                self.test_result.status = PhoneTestResult.EXCEPTION
+                self.status = PhoneTest.EXCEPTION
                 self.message = 'Exception installing robocop.apk: %s' % e
                 with open(self.unittest_logpath, "w") as logfilehandle:
                     logfilehandle.write('%s\n' % self.message)
@@ -356,7 +356,7 @@ class UnitTest(PhoneTest):
         # Create PYTHONPATH to point the test runner to the test's
         # mozbase packages.  Be certain this contains absolute paths.
         build_path = os.path.abspath(self.parms['build_dir'])
-        python_path =  ':'.join(
+        python_path = ':'.join(
             [pkg for pkg in
              glob.glob('%s/tests/mozbase/*' % build_path)
              if os.path.isdir(pkg)])
@@ -379,6 +379,7 @@ class UnitTest(PhoneTest):
                                (self.parms['test_name'],
                                 self.chunk, self.chunks))
             if self.dm.process_exist(self.parms['app_name']):
+                kill_attempt = 0
                 max_kill_attempts = 3
                 for kill_attempt in range(1, max_kill_attempts+1):
                     self.loggerdeco.debug(
@@ -425,7 +426,7 @@ class UnitTest(PhoneTest):
                 # the data should be complete while the version
                 # collected by the unit test framework may be
                 # missing the initial portions.
-                self.logcat.get()
+                self.worker_subprocess.logcat.get()
 
             logfilehandle.close()
             logfilehandle = open(self.unittest_logpath)
@@ -435,17 +436,17 @@ class UnitTest(PhoneTest):
             for logline in logfilehandle:
                 match = passedRe.search(logline)
                 if match:
-                    self.test_result.passed += int(match.group(4))
+                    self.passed += int(match.group(4))
                 match = failedRe.search(logline)
                 if match:
-                    self.test_result.failed += int(match.group(4))
+                    self.failed += int(match.group(4))
                 match = todoRe.search(logline)
                 if match:
-                    self.test_result.todo += int(match.group(4))
+                    self.todo += int(match.group(4))
             logfilehandle.close()
             logfilehandle = None
-            if self.test_result.failed > 0:
-                self.test_result.status = PhoneTestResult.TESTFAILED
+            if self.failed > 0:
+                self.status = PhoneTest.TESTFAILED
 
             if proc.returncode != 0:
                 self.message = ('Test exited with return code %d' %
@@ -453,11 +454,11 @@ class UnitTest(PhoneTest):
                 # Only track the non zero return code as an error
                 # if no other failures were detected. Otherwise we
                 # would be counting an error twice.
-                if self.test_result.failed == 0:
-                    self.test_failure(
+                if self.failed == 0:
+                    self.add_failure(
                         self.name, 'TEST-UNEXPECTED-FAIL',
                         self.message,
-                        PhoneTestResult.TESTFAILED)
+                        PhoneTest.TESTFAILED)
 
             self.loggerdeco.info('runtestsremote.py return code %d' %
                                  proc.returncode)
@@ -473,7 +474,7 @@ class UnitTest(PhoneTest):
                              traceback.format_exc()))
             self.update_status(message=self.message)
             self.loggerdeco.error(self.message)
-            self.test_result.status = PhoneTestResult.EXCEPTION
+            self.status = PhoneTest.EXCEPTION
         finally:
             if logfilehandle:
                 logfilehandle.close()

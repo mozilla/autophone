@@ -3,16 +3,13 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
-import logging
 import os
 import re
 from time import sleep
 
 from perftest import PerfTest, PerfherderArtifact, PerfherderSuite, PerfherderOptions
-from phonetest import PhoneTestResult
+from phonetest import PhoneTest
 from utils import median, geometric_mean, host
-
-logger = logging.getLogger()
 
 
 class TalosTest(PerfTest):
@@ -89,6 +86,8 @@ class TalosTest(PerfTest):
                         (test_location, test_name, test_path, manifest))
                     raise
 
+        self.loggerdeco.debug('TalosTest: %s', self.__dict__)
+
 
     @property
     def name(self):
@@ -99,17 +98,17 @@ class TalosTest(PerfTest):
         custom_addons = ['pageloader.xpi']
 
         if not self.install_local_pages():
-            self.test_failure(
+            self.add_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not install local pages on phone.',
-                PhoneTestResult.EXCEPTION)
+                PhoneTest.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile(custom_addons=custom_addons):
-            self.test_failure(
+            self.add_failure(
                 self.name, 'TEST-UNEXPECTED-FAIL',
                 'Aborting test - Could not run Fennec.',
-                PhoneTestResult.BUSTED)
+                PhoneTest.BUSTED)
             return is_test_completed
 
         perfherder_options = PerfherderOptions(self.perfherder_options,
@@ -124,7 +123,7 @@ class TalosTest(PerfTest):
                 extradict={'phoneid': self.phone.id,
                            'buildid': self.build.id,
                            'testname': testname},
-                extraformat='%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
+                extraformat='TalosTestJob|%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d)' %
                                  (testnum, testcount))
@@ -148,10 +147,11 @@ class TalosTest(PerfTest):
                                (testnum, testcount, test_args))
 
             if not self.create_profile(custom_addons=custom_addons):
-                self.test_failure(test_args,
-                                  'TEST-UNEXPECTED-FAIL',
-                                  'Failed to create profile',
-                                  PhoneTestResult.TESTFAILED)
+                self.add_failure(
+                    test_args,
+                    'TEST-UNEXPECTED-FAIL',
+                    'Failed to create profile',
+                    PhoneTest.TESTFAILED)
             else:
                 measurement = self.runtest(test_args)
                 if measurement:
@@ -161,14 +161,14 @@ class TalosTest(PerfTest):
                                               testname,
                                               options=perfherder_options)
                     self.perfherder_artifact.add_suite(suite)
-                    self.test_pass(test_args)
+                    self.add_pass(test_args)
                     success = True
                 else:
-                    self.test_failure(
+                    self.add_failure(
                         test_args,
                         'TEST-UNEXPECTED-FAIL',
                         'Failed to get measurement.',
-                        PhoneTestResult.TESTFAILED)
+                        PhoneTest.TESTFAILED)
 
             if not success:
                 # If we have not gotten a single measurement at this point,
@@ -194,9 +194,10 @@ class TalosTest(PerfTest):
                      self.build.tree,
                      self.build.id,
                      self.build.changeset))
-                self.test_failure(self.name, 'TEST-UNEXPECTED-FAIL',
-                                  'No measurements detected.',
-                                  PhoneTestResult.BUSTED)
+                self.add_failure(
+                    self.name, 'TEST-UNEXPECTED-FAIL',
+                    'No measurements detected.',
+                    PhoneTest.BUSTED)
 
                 self.loggerdeco.debug('publishing results')
 
@@ -209,7 +210,7 @@ class TalosTest(PerfTest):
 
     def runtest(self, extra_args):
         # Clear logcat
-        self.logcat.clear()
+        self.worker_subprocess.logcat.clear()
 
         # Run test
         self.run_fennec_with_profile(self.build.app_name, "",
@@ -250,8 +251,8 @@ I/GeckoDump( 2284): __startTimestamp1433438438092__endTimestamp
         """
         self.loggerdeco.debug('analyzing logcat')
 
-        re_page_data = re.compile('.*\|[0-9];([a-zA-Z0-9\.\/\-]+);([0-9;]+).*')
-        re_end_report = re.compile('.*__end_tp_report.*')
+        re_page_data = re.compile(r'.*\|[0-9];([a-zA-Z0-9\.\/\-]+);([0-9;]+).*')
+        re_end_report = re.compile(r'.*__end_tp_report.*')
 
         attempt = 1
         max_time = 180  # maximum time to wait for tp report
@@ -261,7 +262,7 @@ I/GeckoDump( 2284): __startTimestamp1433438438092__endTimestamp
         results = {}
         pageload_metric = {'summary': 0}
         while attempt <= max_attempts and pageload_metric['summary'] == 0:
-            buf = self.logcat.get()
+            buf = self.worker_subprocess.logcat.get()
             for line in buf:
                 self.loggerdeco.debug('analyze_logcat: %s' % line)
                 if re_end_report.match(line):
