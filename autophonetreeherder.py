@@ -465,29 +465,28 @@ class AutophoneTreeherder(object):
                 # results for a single test run with possibly an error
                 # message from the previous test if the previous log
                 # upload failed.
-                if t.test_logfile:
-                    try:
-                        t.test_logfilehandler.flush()
-                        # Force the OS to flush its buffers to disk
-                        os.fsync(t.test_logfilehandler.stream.fileno())
-                        fname = '%s-autophone.log' % log_identifier
-                        lname = 'Autophone Log'
-                        key = "%s/%s" % (key_prefix, fname)
-                        url = self.s3_bucket.upload(t.test_logfile, key)
-                        t.job_details.append({
-                            'url': url,
-                            'value': lname,
-                            'title': 'artifact uploaded'})
-                        if not logurl:
-                            tj.add_log_reference('buildbot_text', url,
-                                                 parse_status='pending')
-                            logurl = url
-                    except Exception, e:
-                        LOGGER.exception('Error %s uploading %s',
-                                         e, fname)
-                        t.job_details.append({
-                            'value': 'Failed to upload Autophone log: %s' % e,
-                            'title': 'Error'})
+                try:
+                    t.worker_subprocess.filehandler.flush()
+                    # Force the OS to flush its buffers to disk
+                    os.fsync(t.worker_subprocess.filehandler.stream.fileno())
+                    fname = '%s-autophone.log' % log_identifier
+                    lname = 'Autophone Log'
+                    key = "%s/%s" % (key_prefix, fname)
+                    url = self.s3_bucket.upload(t.worker_subprocess.logfile, key)
+                    t.job_details.append({
+                        'url': url,
+                        'value': lname,
+                        'title': 'artifact uploaded'})
+                    if not logurl:
+                        tj.add_log_reference('buildbot_text', url,
+                                             parse_status='pending')
+                        logurl = url
+                except Exception, e:
+                    LOGGER.exception('Error %s uploading %s',
+                                     e, fname)
+                    t.job_details.append({
+                        'value': 'Failed to upload Autophone log: %s' % e,
+                        'title': 'Error'})
 
             tj.add_artifact('Job Info', 'json', {'job_details': t.job_details})
 

@@ -23,7 +23,6 @@ from autophonecrash import AutophoneCrashProcessor
 from adb import ADBError
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
-from sensitivedatafilter import SensitiveDataFilter
 
 # Define the Adobe Flash Player package name as a constant for reuse.
 FLASH_PACKAGE = 'com.adobe.flashplayer'
@@ -172,17 +171,12 @@ class PhoneTest(object):
         self.failed = 0
         self.todo = 0
 
-        # test_logfilehandler is used by running tests to save log
-        # messages to a separate file which can be reset at the
-        # beginning of each test independently of the worker's log.
-        self.test_logfilehandler = None
         self._base_device_path = ''
         if self.dm:
             self.profile_path = '%s/profile' % self.base_device_path
         else:
             self.profile_path = '/data/local/tests/autophone/profile'
         self.repos = repos
-        self.test_logfile = None
         self.unittest_logpath = None
         # Treeherder related items.
         self._job_name = None
@@ -782,34 +776,7 @@ class PhoneTest(object):
         # self.dm._logger can raise ADBTimeoutError due to the
         # property dm therefore place it after the initialization.
         self.dm_logger_original = self.dm._logger
-        # Create a test run specific log handler for
-        # the root logger in the worker which runs in the same
-        # process. This log will be uploaded to Treeherder if
-        # Treeherder submission is enabled and will be cleared at the
-        # beginning of each test run.
-
-        sensitive_data_filter = SensitiveDataFilter(self.options.sensitive_data)
-
-        self.test_logfile = (self.worker_subprocess.logfile_prefix +
-                             '-' + self.name + '.log')
-        self.test_logfilehandler = logging.FileHandler(
-            self.test_logfile, mode='w')
-        self.test_logfilehandler.addFilter(sensitive_data_filter)
-
-        fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
-                            '%(levelname)s|%(message)s')
-        fileformatter = logging.Formatter(fileformatstring)
-        self.test_logfilehandler.setFormatter(fileformatter)
         logger = logging.getLogger()
-        # Check for an Ubuntu 16 issue where we have stray FileHandlers
-        for handler in logger.handlers:
-            if type(handler) == logging.FileHandler:
-                logger.error('PhoneTest.setup_job: removing unexpected logger file handler: %s %s',
-                             handler, handler.__dict__)
-                logger.removeHandler(handler)
-        handler = None
-        logger.addHandler(self.test_logfilehandler)
-
         self.loggerdeco = LogDecorator(logger,
                                        {'phoneid': self.phone.id,
                                         'buildid': self.build.id,
@@ -913,20 +880,11 @@ class PhoneTest(object):
             self.dm._logger = self.dm_logger_original
             self.dm_logger_original = None
         self.reset_result()
-
-        self.test_logfilehandler.close()
-        logger = logging.getLogger()
-        logger.removeHandler(self.test_logfilehandler)
-        self.test_logfilehandler = None
-        os.unlink(self.test_logfile)
-        self.test_logfile = None
-        # Check for an Ubuntu 16 issue where we have stray FileHandlers
-        for handler in logger.handlers:
-            if type(handler) == logging.FileHandler:
-                logger.error('PhoneTest.setup_job: removing unexpected logger file handler: %s %s',
-                             handler, handler.__dict__)
-                logger.removeHandler(handler)
-        handler = None
+        if self.options.treeherder_url:
+            # If the log is being submitted to Treeherder, it will be
+            # truncated after each test. Otherwise it will grow
+            # indefinitely.
+            self.worker_subprocess.filehandler.close()
 
     def update_status(self, phone_status=None, message=None):
         if self.update_status_cb:

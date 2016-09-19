@@ -1215,10 +1215,10 @@ class PhoneWorkerSubProcess(object):
                 other_logger.removeHandler(other_handler)
             other_logger.addHandler(logging.NullHandler())
 
-        self.filehandler = logging.handlers.TimedRotatingFileHandler(
-            self.logfile,
-            when='midnight',
-            backupCount=7)
+        # Create the worker's log filehandler so that it will not open
+        # the log file until the first emit message, and so it will
+        # truncate the log file when it is opened.
+        self.filehandler = logging.FileHandler(self.logfile, mode='w', delay=True)
         fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
                             '%(levelname)s|%(message)s')
         fileformatter = logging.Formatter(fileformatstring)
@@ -1233,7 +1233,7 @@ class PhoneWorkerSubProcess(object):
         # Set the loggers for the imported modules
         for module in (autophonetreeherder, builds, jobs, mailermodule, phonetest,
                        s3, utils):
-            module.logger = LOGGER
+            module.LOGGER = LOGGER
         self.loggerdeco.info('Worker: Connecting to %s...', self.phone.id)
         # Override mozlog.logger
         self.dm._logger = self.loggerdeco
