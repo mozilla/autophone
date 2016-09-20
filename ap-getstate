@@ -1,0 +1,22 @@
+#!/bin/bash
+
+if [[ -z "$1" ]]; then
+    if echo $VIRTUAL_ENV | grep -q autophone; then
+        true
+    else
+        . $ACTIVATE_AUTOPHONE
+    fi
+
+    adb devices | grep -v List | grep -v ^$ | sed "s|[^a-zA-Z0-9][^a-zA-Z0-9]*[a-z]*||g" | while read s; do
+        if [[ -z "$s" ]]; then
+            continue
+        fi
+        echo $(ap-inventory --match=serialno=$s --output="%(id)s")=$(adb -s $s get-state)
+    done | sort
+else
+    for m in $@; do
+        echo "========== $m =========="
+        ssh $m ". ~/.profile; ap-getstate"
+    done
+fi
+

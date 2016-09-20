@@ -1,13 +1,23 @@
 # Autophone Production Configuration
 
-These are the configuration files used to run the production instance
-of Autophone reporting to phonedash.mozilla.org. Note that several
-security-sensitive parameters have been replaced with XXXXX.
+These are the configuration files used to run the production instances
+of Autophone reporting to phonedash.mozilla.org.
 
-## [production-autophone.ini](production-autophone.ini)
-
-## [production-devices.ini](production-devices.ini)
-
-## [tests/production-manifest.ini](tests/production-manifest.ini)
-
+## [production-email.ini](production-email.ini)
 ## [configs/](configs/)
+
+## autophone-1
+### [production-autophone-1-devices.ini](production-autophone-1-devices.ini)
+### [production-autophone-1.ini](production-autophone-1.ini)
+### [tests/production-autophone-1.ini](tests/production-autophone-1.ini)
+
+
+## autophone-2
+### [production-autophone-2.ini](production-autophone-2.ini)
+### [production-autophone-2-devices.ini](production-autophone-2-devices.ini)
+### [tests/production-autophone-2.ini](tests/production-autophone-2.ini)
+
+## autophone-3
+### [production-autophone-3.ini](production-autophone-3.ini)
+### [production-autophone-3-devices.ini](production-autophone-3-devices.ini)
+### [tests/production-autophone-3.ini](tests/production-autophone-3.ini)

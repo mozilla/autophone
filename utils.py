@@ -7,16 +7,18 @@
 import httplib
 import json
 import logging
+import math
 import os
+import os.path
 import random
 import re
+import sys
 import time
 import traceback
 import urllib
 import urllib2
 import urlparse
 import uuid
-import math
 
 from ssl import SSLError
 
@@ -451,3 +453,15 @@ def taskcluster_artifacts(task_id, run_id):
                      task_id, run_id)
         response = queue.listArtifacts(task_id, run_id, {
             'continuationToken': response['continationToken']})
+
+_AUTOPHONE_PATH = None
+
+def autophone_path():
+    global _AUTOPHONE_PATH
+
+    if not _AUTOPHONE_PATH:
+        _AUTOPHONE_PATH = os.path.dirname(sys.argv[0])
+        if not os.path.isabs(_AUTOPHONE_PATH):
+            _AUTOPHONE_PATH = os.path.join(os.getcwd(), _AUTOPHONE_PATH)
+        _AUTOPHONE_PATH = os.path.normpath(_AUTOPHONE_PATH)
+    return _AUTOPHONE_PATH

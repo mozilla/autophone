@@ -1,0 +1,4 @@
+#!/bin/env python
+
+import utils
+print utils.autophone_path()

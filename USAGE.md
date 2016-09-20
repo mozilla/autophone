@@ -1,3 +1,5 @@
+<!-- markdown-extras: code-friendly, toc --> <!-- md-toc -->
+
 # Using Autophone
 
 ## tl;dr
@@ -730,24 +732,165 @@ tests for specific builds.
           --device=DEVICES      Device on which to run the job.  Defaults to all if
                                 not specified. Can be specified multiple times.
 
-## Controlling Autophone
+## Autophone Administration
+
+Production Autophone consists of 3 Ubuntu 16 servers:
+autophone-{1,2,3}.qa.mtv2.mozilla.com which are located in the QA Lab
+in Mountain View. You may find it convenient to create aliases for the
+Autophone servers in your `/etc/hosts` file so that you can refer to
+them simply as autophone-{1,2,3}.
+
+Each server runs two services: autophone and phonedash which start
+when the servers boot which can be controlled via the normal systemd
+commands:
+
+    sudo systemctl start autophone.service
+    sudo systemctl stop autophone.service
+    sudo systemctl status autophone.service
+
+    sudo systemctl start phonedash.service
+    sudo systemctl stop phonedash.service
+    sudo systemctl status phonedash.service
+
+While the Autophone service can be stopped using the normal systemd
+command, the preferred method of shutting down Autophone is to tell it
+to shut down cleanly using either the
+[Autophone autophone-shutdown command message](#autophone-command-help)
+or the more user friendly [ap-shutdown](#ap-shutdown) script. This
+allows the devices which are currently running tests to complete them
+before stopping the Autophone process.
+
+[Scripts](#administrative-scripts) which can be used to administer an
+Autophone instance are located in the Autophone source directory. You
+can run these scripts against the production Autophone servers from a
+local installation of Autophone. They will "dispatch" the commands to
+the remote servers as needed. In order to for this to work you will
+need to add the following to the `~/.profile` file in your account.
+
+    export AUTOPHONE_PATH=<path to autophone source directory>
+    export ACTIVATE_AUTOPHONE=<path to autophone virtual environment activate script>
+    export PATH=$AUTOPHONE_PATH:$PATH
+
+On the production servers, these values will be
+
+    export AUTOPHONE_PATH=/mozilla/autophone/autophone
+    export ACTIVATE_AUTOPHONE=mozilla/autophone/venv/bin/activate
+    export PATH=$AUTOPHONE_PATH:$PATH
+
+
+### Deploying Code Changes
+
+If the test manifests are changed, you must wait for all jobs to be
+completed before deploying the change. You can display a report on the
+pending jobs on the various Autophone servers via:
+
+    ap-jobs autophone-{1,2,3}
+
+Once there are no more pending jobs, you can shut down the Autophone
+processes via:
+
+    ap-shutdown autophone-{1,2,3}
+
+You can check on the status of the Autophone processes via:
+
+    ap-status autophone-{1,2,3}
+
+If the Autophone processes have stopped, you will see the following
+message for the server:
+
+    Ncat: Connection refused.
+
+You can alternatively get the console messages for the server via:
+
+    ap-console autophone-{1,2,3}
+
+Once the server has shut down, the consoles will show a message
+similar to the following at the end of the log:
+
+    2016-09-22 08:31:34,370|23990|Thread-3|console|INFO|Shutting down Autophone...
+
+Once the Autophone processes are shut down on each server, you can ssh
+to the server, change to the autophone directory and pull the changes
+from the github repository. The servers, code and adb debugger
+connections were deployed using user bclary. Until we can get on-site
+time to reauthorise the adb connections under the autophone user, we
+must stay with the original user. Therefore you must deploy the code
+changes as the bclary user.
+
+    ssh autophone-1
+    sudo su bclary
+    cd /mozilla/autophone/autophone
+    git pull
+
+If there are no operating system updates, you can simply start the
+service again via:
+
+    sudo systemctl start autophone.service
+
+However, if there are pending updates to the system packages, you
+should update them then reboot the server to make sure all in use
+packages are updated.
+
+    sudo aptitude safe-upgrade
+    sudo reboot
+
+### Adding a device which failed to initialize
+
+When an Autophone server detects that one of its connected Android
+devices has disconnected and is no longer visible via `adb`, it will
+reboot in the hope that the device will become visible after the
+reboot. If the device remains disconnected after the server reboots
+and Autophone completes starting, you will need to file an Autophone
+bug asking for someone in Mountain View to reconnect the USB cable or
+otherwise intervene with the device. Make your bug block the
+[autophone-devices](https://bugzilla.mozilla.org/show_bug.cgi?id=autophone-devices)
+bug. You can find recent examples as dependencies of that bug and
+clone them. Be sure to NEEDINFO van, stephend, and uber and ask one of
+them to intervene.
+
+Once they have reconnected the device, you can check on its status via
+the `ap-getstate` script which lists the connected devices for an
+Autophone server. For example, if nexus-6p-1 connected to autophone-3
+had disconnected you could check if the intervention succeeded via
+
+ap-getstate autophone-3
+
+You should see it in the output:
+
+    nexus-4-4=device
+    nexus-4-7=device
+    nexus-5-2=device
+    nexus-6-2=device
+    nexus-6p-1=device
+    nexus-6p-2=device
+    nexus-6p-3=device
+    nexus-6p-4=device
+    nexus-6p-5=device
+    nexus-6p-8=device
+    nexus-9-2=device
+
+Once it is reconnected, you can add it to the already running Autophone instance via:
+
+    ap-add-device -s autophone-3 -d nexus-6p-1
+
+### Autophone Command Server
 
 Autophone listens by default on port 28001 for commands. You can send
-commands to Autophone using the script ap.sh. You will need the
-program ncat/nc installed. On Fedora ncat can be installed via `sudo
-yum install nmap-ncat` and on Ubuntu it can be installed via
-`sudo apt install nmap`.
+commands to Autophone using the the program ncat/nc:
 
-./ap.sh [command [arguments]]
+echo command | nc server port
 
-Without any arguments, ap.sh will generate a help message.
+where command is one of the [supported Autophone commands](#autophone-command-help).
 
-By default, ap.sh will send commands to the local ip address 127.0.0.1
-and port 28001. You can customize the ip address and port where
-commands are sent, you can set the environment variables
-`AUTOPHONE_PORT` and `AUTOPHONE_IP`.
+On Fedora ncat can be installed via `sudo yum install nmap-ncat`.
+On Ubuntu it can be installed via `sudo apt install nmap`.
 
-### Autophone command help:
+Many but not all of these commands are also implemented in helper
+scripts in [Administrative Scripts](#administrative-scripts). If a
+helper script is not available, you can manually invoke one of the
+following commands using [ap](#ap).
+
+#### Autophone command help:
 
         autophone-help
             Generate this message.
@@ -804,3 +947,204 @@ commands are sent, you can set the environment variables
 
            Immediately stop the device's worker process and remove it from the
            list of active workers.
+
+### Administrative Scripts
+
+#### ap
+
+ap is used to send commands to an autophone instance. Without any
+arguments, ap will send autophone-status to the local autophone
+instance.
+
+    $ ap -h
+    usage: ./ap [-s server] [-p port] [command]
+
+    optional arguments:
+      -h
+                 show this help message
+      -s server
+                 autophone server to contact. (default: localhost)
+      -p port
+                 autophone server port to contact (default: 28001)
+      command
+                 command. (default: autophone-status)
+                 Use autophone-help to get help on autophone commands.
+
+#### ap-add-device
+
+ap-add-device adds a device to an already running autophone instance.
+
+    $ ap-add-device -h
+    usage: ap-add-device [-h] [-s server] [-d device]
+
+    optional arguments:
+      -h
+                 show this help message
+      -s server
+                 autophone server to contact. (default: localhost)
+      -p port
+                 autophone server port to contact (default: 28001)
+      -d device
+                 device name to add
+
+#### ap-assignments
+
+ap-assignments reads the production manifests and produces several reports showing
+the assignments of devices to repositories, to build types and to tests.
+
+`ap-assignments` is a shell wrapper around the python script
+`ap-assignments.py` which ensures the Autophone virtual environment is
+set up prior to starting `ap-assignents.py`.
+
+`ap-assignments` is helpful in determining if a test has sufficient
+coverage or if a device will be able to complete its expected test
+load in a timely fashion. You can add new tests, repositories, devices
+and timing data by editing ap-assignments.py.
+
+
+#### ap-battery
+
+ap-battery reports on the battery status of the devices connected to
+the specified hosts.
+
+Usage:
+
+    ap-battery [host1...]
+
+#### ap-console
+
+ap-console displays the console messages for the autophone process for
+the specified hosts. If no host is specified, the local host is used.
+
+Usage:
+
+    ap-console [host1...]
+
+#### ap-errors
+
+ap-errors displays the error messages from the log for the autophone
+process for the specified hosts. If no host is specified, the local
+host is used.
+
+Usage:
+
+    ap-errors [host1...]
+
+#### ap-getlogs
+
+ap-getlogs downloads logs from either the production or staging
+instance of Autophone's AWS storage into a directory hierarchy which
+matches that found on AWS.
+
+    $ ap-getlogs
+    usage: ap-getlogs [-h] [-t [production|staging]] [-p prefix]
+
+    optional arguments:
+      -h
+                 show this help message
+      -s [production|staging]
+                 Download logs from either production or staging AWS. (default: production)
+      -p prefix
+                 Path prefix used to select logs to download.
+
+For example, to download the logs corresponding to the production run
+https://treeherder.mozilla.org/#/jobs?repo=autoland&revision=6957fdb6a7128810bc9a8ba1f871eede183dd9f2
+you would find an example log such as https://autophone.s3.amazonaws.com/pub/mobile/tinderbox-builds/autoland-android-api-15/1474488360/autophone-s1s2-s1s2-twitter-local.ini-1-nexus-4-5-e27764e7-8db1-4c65-9919-afdf32b09258-autophone.log
+
+The prefix is that part of the url following the host name up to the
+point where you wish to match. For example to download all logs for
+this build, you would run:
+
+    ap-getlogs -p pub/mobile/tinderbox-builds/autoland-android-api-15/1474488360/
+
+#### ap-getstate
+
+ap-getstate displays a list of device=serialno messages for the
+android devices attached to the specified hosts. If no host is
+specified, the local host is used.
+
+Usage:
+
+    ap-getstate [host1...]
+
+#### ap-inventory
+
+    $ ap-inventory --help
+    usage: ap-inventory [-h] [--device-manifests DEVICE_MANIFEST_PATTERN]
+                        [--match MATCH_RULES] [--output-format OUTPUT_FORMAT]
+
+    Query device manifests.
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --device-manifests DEVICE_MANIFEST_PATTERN
+                            File glob pattern matching device manifests. (default:
+                            *-devices.ini)
+      --match MATCH_RULES   Match devices by attribute=regexp. (default: match all
+                            devices)
+      --output-format OUTPUT_FORMAT
+                            Output format. raw - output python dict, attribute
+                            format string.
+
+#### ap-jobs
+
+ap-jobs generates a report of the pending jobs, tests and treeherder
+submissions for the specified hosts. If no host is specified, the
+local host is used.
+
+Usage:
+
+    ap-jobs [host1...]
+
+#### ap-pushes
+
+
+    $ ap-pushes --help
+    usage: ap-pushes [-h] [--date DATE] [--repo REPO]
+
+    Count pushes to a repository on a date.
+
+    optional arguments:
+      -h, --help   show this help message and exit
+      --date DATE  start date CCYY-MM-DD. (default: today's date).
+      --repo REPO  repository. (default: mozilla-central)
+
+`ap-pushes` is a shell wrapper around the python script
+`ap-pushes.py` which ensures the Autophone virtual environment is
+set up prior to starting `ap-pushes.py`.
+
+#### ap-restart
+
+ap-restart restarts the autophone process for the specified hosts. If
+no host is specified, the local host is used.
+
+Usage:
+
+    ap-restart [host1...]
+
+#### ap-shutdown
+
+ap-shutdown cleanly shuts down the autophone process for the specified hosts. If
+no host is specified, the local host is used.
+
+Usage:
+
+    ap-shutdown [host1...]
+
+#### ap-status
+
+ap-status generates a report of the autophone status for the specified
+hosts. If no host is specified, the local host is used.
+
+Usage:
+
+    ap-status [host1...]
+
+#### ap-wifi
+
+ap-wifi reports on the status of the wifi connection for devices
+connected to the specified hosts.
+
+Usage:
+
+    ap-wifi [host1...]

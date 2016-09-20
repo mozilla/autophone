@@ -1,0 +1,46 @@
+#!/bin/bash
+
+options="d:s:p:h"
+function usage()
+{
+    cat<<EOF
+usage: $(basename $0) [-h] [-s server] [-d device]
+
+optional arguments:
+  -h
+             show this help message
+  -s server
+             autophone server to contact. (default: localhost)
+  -p port
+             autophone server port to contact (default: 28001)
+  -d device
+             device name to add
+EOF
+    exit 0
+}
+
+port=28001
+server=127.0.0.1
+
+let nshift=0
+while getopts $options optname; do
+    case $optname in
+        h) usage;;
+        s) server="$OPTARG"
+           let nshift=nshift+2
+           ;;
+        p) port="$OPTARG"
+           let nshift=nshift+2
+           ;;
+        d) device="$OPTARG"
+           let nshift=nshift+2
+           ;;
+    esac
+done
+shift $nshift
+
+if [[ -z "$server" || -z "$device" ]]; then
+    usage
+fi
+
+ap -s $server -p $port autophone-add-device $device $(ap-inventory --match=id=$device --output="%(serialno)s")

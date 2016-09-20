@@ -1,0 +1,14 @@
+#!/bin/bash
+
+if [[ -z "$1" ]]; then
+    ap-getstate | grep "=device" | sed -r "s|=device||" | while read n; do
+        echo ============== $n ===========
+        adb -s $(ap-inventory --match=id=$n --output="%(serialno)s") shell "dumpsys battery"
+    done
+else
+    for m in $@; do
+        echo "========== $m =========="
+        ssh $m ". ~/.profile; ap-battery"
+    done
+fi
+

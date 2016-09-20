@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if [[ -z "$1" ]]; then
+    grep ^ $AUTOPHONE_PATH/*.out
+    egrep -a 'mozdevice ERROR|    raise |OSError|ADBError|ADBTimeoutError|ADBRootError|DMError|\|ERROR\||Could not run Fennec|not killed|^Traceback|^  File "|Uncaught device error' $AUTOPHONE_PATH/*.log*
+
+else
+    for m in $@; do
+        echo ================= $m =====================
+        ssh $m ". ~/.profile; ap-errors"
+    done
+fi

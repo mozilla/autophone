@@ -1,0 +1,65 @@
+#!/bin/bash
+
+options="s:p:h"
+function usage()
+{
+    cat<<EOF
+usage: $(basename $0) [-h] [-t [production|staging]] [-p prefix]
+
+optional arguments:
+  -h
+             show this help message
+  -s [production|staging]
+             Download logs from either production or staging AWS. (default: production)
+  -p prefix
+             Path prefix used to select logs to download.
+EOF
+    exit 0
+}
+
+server=https://autophone.s3.amazonaws.com
+credentials=production-autophone-1-credentials.ini
+
+let nshift=0
+while getopts $options optname; do
+    case $optname in
+        h) usage;;
+        s) if [[ "$OPTARG" == "staging" ]]; then
+               server=https://autophone-dev.s3.amazonaws.com
+               credentials=developer-credentials.ini
+           fi
+           let nshift=nshift+2
+           ;;
+        p) prefix="$OPTARG"
+           let nshift=nshift+2
+           ;;
+    esac
+done
+shift $nshift
+
+if [[ -z "$prefix" ]]; then
+    usage
+fi
+
+if echo $VIRTUAL_ENV | grep -q autophone; then
+    true
+else
+    . $ACTIVATE_AUTOPHONE
+fi
+
+cd $AUTOPHONE_PATH
+
+python s3.py --config $credentials --prefix "$prefix" --ls "$prefix" | while read filepath; do
+    if [[ -e $filepath ]]; then
+        true
+        continue
+    else
+        echo filepath=$filepath
+    fi
+    dirpath=$(dirname $filepath)
+    echo dirpath=$dirpath
+    url="$server/$filepath"
+    echo url=$url
+    curl --create-dirs -o $filepath.gz $url
+    gunzip $filepath.gz
+done

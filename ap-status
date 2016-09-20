@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if [[ -z "$1" ]]; then
+    ap
+else
+    for m in $@; do
+        echo ================= $m =====================
+        ap -s $m
+    done
+fi

@@ -1,0 +1,19 @@
+#!/bin/bash
+
+if [[ -z "$1" ]]; then
+    ap-getstate | grep "=device" | sed -r "s|=device||" | while read n; do
+        echo ============== $n ===========
+        if [[ $n == nexus-s-* ]]; then
+            interface=eth0
+        else
+            interface=wlan0
+        fi
+        adb -s $(ap-inventory --match=id=$n --output="%(serialno)s") wait-for-device shell "uptime; ifconfig $interface"
+    done
+else
+    for m in $@; do
+        echo "========== $m =========="
+        ssh $m ". ~/.profile; ap-wifi"
+    done
+fi
+

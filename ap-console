@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if [[ -z "$1" ]]; then
+    grep console $AUTOPHONE_PATH/autophone.log
+else
+    for m in $@; do
+        echo ================= $m =====================
+        ssh $m ". ~/.profile; ap-console"
+    done
+fi

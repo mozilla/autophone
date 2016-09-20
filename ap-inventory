@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if echo $VIRTUAL_ENV | grep -q autophone; then
+   true
+else
+    . $ACTIVATE_AUTOPHONE
+fi
+
+python $AUTOPHONE_PATH/ap-inventory.py $@

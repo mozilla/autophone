@@ -1,0 +1,17 @@
+#!/bin/bash
+
+if [[ -z "$1" ]]; then
+    echo Pending Jobs by device
+    sqlite3 $AUTOPHONE_PATH/jobs.sqlite 'select count(device) || " " || device from jobs group by device;'
+    echo
+    echo Pending Jobs by date
+    sqlite3 $AUTOPHONE_PATH/jobs.sqlite 'select count(build_id) || " " || build_id from jobs group by build_id, build_url;'
+    echo
+    echo Pending Tests: $(sqlite3 jobs.sqlite 'select * from jobs, tests where tests.jobid = jobs.id;' | wc -l)
+    echo Pending submissions to Treeherder: $(sqlite3 jobs.sqlite 'select * from treeherder' | wc -l)
+else
+    for m in $@; do
+        echo "========== $m =========="
+        ssh $m ". ~/.profile; ap-jobs"
+    done
+fi
