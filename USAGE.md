@@ -1,5 +1,3 @@
-<!-- markdown-extras: code-friendly, toc --> <!-- md-toc -->
-
 # Using Autophone
 
 ## tl;dr
