@@ -47,11 +47,6 @@ def architecture(abi):
     return 'unknown'
 
 
-def buildername(platform_name, tree, build_type, test_name):
-    return "%s %s %s %s" % (
-        platform_name, tree, build_type, test_name)
-
-
 class TestState(object):
     COMPLETED = 'completed'
     PENDING = 'pending'
@@ -188,9 +183,6 @@ class AutophoneTreeherder(object):
         tj.add_machine_info('android', machine_platform, machine_architecture)
         tj.add_option_collection({build_type: True})
 
-        # Fake the buildername from buildbot...
-        tj.add_artifact('buildapi', 'json', {
-            'buildername': buildername(machine_platform, project, build_type, t.name)})
         # Create a 'privatebuild' artifact for storing information
         # regarding the build.
         tj.add_artifact('privatebuild', 'json', {
