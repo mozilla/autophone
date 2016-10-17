@@ -215,7 +215,7 @@ class ADBAndroid(ADBDevice):
                             failure = data
                             success = False
                             break
-            except ADBError, e:
+            except ADBError as e:
                 success = False
                 failure = e.message
 
@@ -244,7 +244,7 @@ class ADBAndroid(ADBDevice):
             self.shell_output('svc power stayon true',
                               timeout=timeout,
                               root=True)
-        except ADBError, e:
+        except ADBError as e:
             # Executing this via adb shell errors, but not interactively.
             # Any other exitcode is a real error.
             if 'exitcode: 137' not in e.message:
