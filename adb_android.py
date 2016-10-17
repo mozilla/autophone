@@ -156,7 +156,7 @@ class ADBAndroid(ADBDevice):
                 elif parameter == 'scale':
                     scale = float(value)
                 if parameter is not None and scale is not None:
-                    percentage = 100.0*level/scale
+                    percentage = 100.0 * level / scale
                     break
         return percentage
 
@@ -221,7 +221,7 @@ class ADBAndroid(ADBDevice):
 
             if not success:
                 self._logger.debug('Attempt %s of %s device not ready: %s' % (
-                    attempt+1, self._device_ready_retry_attempts,
+                    attempt + 1, self._device_ready_retry_attempts,
                     failure))
                 time.sleep(self._device_ready_retry_wait)
 
