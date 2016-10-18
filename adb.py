@@ -1651,7 +1651,7 @@ class ADBDevice(ADBCommand):
             if not line:
                 parent = ''
                 continue
-            if line.endswith(':'): # This is a directory
+            if line.endswith(':'):  # This is a directory
                 parent = line.replace(':', '/')
                 entry = parent
                 # Remove earlier entry which is marked as a file.
