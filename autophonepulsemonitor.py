@@ -373,16 +373,13 @@ class AutophonePulseMonitor(object):
                          'ignoring build type %s on tree %s', build_type, project)
             return
 
-        build_artifact = self.get_treeherder_privatebuild_artifact(job)
-        if not build_artifact:
+        build_info = self.get_treeherder_privatebuild_info(project, job)
+        if not build_info:
             LOGGER.debug('AutophonePulseMonitor.handle_jobaction_event: '
-                         'ignoring missing privatebuild artifact on tree %s', project)
+                         'ignoring missing build info on tree %s', project)
             return
-        build_url = build_artifact['blob']['build_url']
-        if 'builder_type' not in build_artifact['blob']:
-            builder_type = 'buildbot'
-        else:
-            builder_type = build_artifact['blob']['builder_type']
+        build_url = build_info['build_url']
+        builder_type = build_info['builder_type']
 
         build_data = utils.get_build_data(build_url, builder_type=builder_type)
         if not build_data:
@@ -418,8 +415,8 @@ class AutophonePulseMonitor(object):
             'job_type_name': job['job_type_name'],
             'job_type_symbol': job['job_type_symbol'],
             'result': job['result'],
-            'config_file': build_artifact['blob']['config_file'],
-            'chunk': build_artifact['blob']['chunk'],
+            'config_file': build_info['config_file'],
+            'chunk': int(build_info['chunk']),
             'builder_type': builder_type,
         }
         jobaction_data.update(build_data)
@@ -521,14 +518,31 @@ class AutophonePulseMonitor(object):
             self.treeherder_url, project, job_id)
         return utils.get_remote_json(url)
 
-    def get_treeherder_privatebuild_artifact(self, job):
-        if job:
-            for artifact in job['artifacts']:
-                if artifact['name'] == 'privatebuild':
-                    url = '%s%s' % (
-                        self.treeherder_url, artifact['resource_uri'])
-                    return utils.get_remote_json(url)
-        return None
+    def get_treeherder_privatebuild_info(self, project, job):
+        url = '%s/api/jobdetail/?repository=%s&job_id=%s' % (
+            self.treeherder_url, project, job['id'])
+        data = utils.get_remote_json(url)
+        privatebuild_keys = set(['build_url', 'config_file', 'chunk',
+                                 'builder_type'])
+        info = {}
+        for detail in data['results']:
+            if detail['title'] in privatebuild_keys:
+                # the build_url property is too long to fit into "value"
+                if detail.get('url'):
+                    value = detail['url']
+                else:
+                    value = detail['value']
+                info[detail['title']] = value
+
+        # If we're missing a privatebuild key for some reason
+        # return None to avoid errors.
+        missing_keys = privatebuild_keys - set(info.keys())
+        if missing_keys:
+            LOGGER.warning("get_treeherder_privatebuild_info: privatebuild "
+                           "info missing keys: %s", missing_keys)
+            return None
+
+        return info
 
 
 def main():
