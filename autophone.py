@@ -923,6 +923,9 @@ ok
             phone.reboot()
 
     def on_build(self, build_data):
+        if self.pulse_monitor._stopping.is_set():
+            LOGGER.debug('on_build: shutting down: ignoring %s', build_data)
+            return
         self.lock_acquire()
         try:
             if self.state != ProcessStates.RUNNING:
@@ -980,6 +983,9 @@ ok
             self.lock_release()
 
     def on_jobaction(self, job_action):
+        if self.pulse_monitor._stopping.is_set():
+            LOGGER.debug('on_jobaction: shutting down: ignoring %s', job_action)
+            return
         self.lock_acquire()
         try:
             if self.state != ProcessStates.RUNNING or job_action['job_group_name'] != 'Autophone':
