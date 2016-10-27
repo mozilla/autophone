@@ -219,7 +219,7 @@ for test_name in test_sections:
         if test_option == 'config':
             # config is required and is the first option in the section.
             test_config = ConfigParser.RawConfigParser()
-            test_config.read("%s/tests/%s" % (autophone_path,
+            test_config.read("%s/tests/%s" % (autophone_path(),
                                               test_value))
             try:
                 test_build_types = test_config.get('builds', 'buildtypes').split()
