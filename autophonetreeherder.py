@@ -185,16 +185,12 @@ class AutophoneTreeherder(object):
 
         # Add job details for storing information regarding the build (so we can
         # retrigger them)
-        # also, for backwards compatibility, store an artifact with the same
-        # information (can remove this soon)
-        privatebuild = {
-            'config_file': t.config_file,
-            'chunk': t.chunk,
-            'builder_type': builder_type
-        }
         job_details = [
-            {'title': k, 'value': str(v)} for
-            (k, v) in privatebuild.iteritems()
+            {'title': title, 'value': str(value)} for (title, value) in [
+                ('config_file', t.config_file),
+                ('chunk', t.chunk),
+                ('builder_type', builder_type)
+            ]
         ]
         job_details.append({'title': 'build_url',
                             'value': 'build_url',
@@ -202,7 +198,6 @@ class AutophoneTreeherder(object):
         tj.add_artifact('Job Info', 'json', {
             'job_details': job_details
         })
-        tj.add_artifact('privatebuild', 'json', privatebuild)
 
         return tj
 
