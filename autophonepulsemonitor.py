@@ -158,7 +158,11 @@ class AutophonePulseMonitor(object):
                                      durable=durable_queues,
                                      auto_delete=not durable_queues))
         taskcompleted_exchange = Exchange(name=taskcompleted_exchange_name, type='topic')
-        for platform in self.platforms:
+        # Add the new workerType names to the routing key...
+        # See https://bugzilla.mozilla.org/show_bug.cgi?id=1307771
+        platforms = list(self.platforms)
+        platforms.extend(['gecko-%s-b-android' % level for level in [1,2,3]])
+        for platform in platforms:
             # Create a queue for each platform
             self.queues.append(Queue(name='queue/%s/%s' % (userid, taskcompleted_queue_name),
                                      exchange=taskcompleted_exchange,
