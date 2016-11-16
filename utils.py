@@ -344,7 +344,7 @@ def get_changeset_dirs(changeset_url, max_changesets=32):
             LOGGER.debug('get_changeset_dirs: diff url: %s', url)
             diff = get_remote_text(url)
             if diff:
-                for line in diff.split('\n'):
+                for line in diff.splitlines():
                     if line.find('/dev/null') != -1:
                         continue
                     if line.startswith('+++') or line.startswith('---'):
