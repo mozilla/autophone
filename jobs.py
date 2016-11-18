@@ -19,7 +19,7 @@ LOGGER = logging.getLogger()
 class Jobs(object):
 
     MAX_ATTEMPTS = 3
-    SQL_RETRY_DELAY = 60
+    SQL_RETRY_DELAY = 6
     SQL_MAX_RETRIES = 10
 
     def __init__(self, mailer, default_device=None, allow_duplicates=False):
@@ -74,12 +74,11 @@ class Jobs(object):
             email_subject = '%s jobs SQL Error' % utils.host()
             email_body = (
                 'Attempt %d to execute %s failed.\n'
-                '%s'
-                'Waiting for %d seconds.' %
-                (attempt, message, traceback.format_exc(), self.SQL_RETRY_DELAY))
+                '%s' %
+                (attempt, message, traceback.format_exc()))
             self.mailer.send(email_subject, email_body)
             LOGGER.info('Sent mail notification about jobs database sql error.')
-            time.sleep(self.SQL_RETRY_DELAY)
+        time.sleep(self.SQL_RETRY_DELAY)
         return email_sent
 
     def _conn(self):
