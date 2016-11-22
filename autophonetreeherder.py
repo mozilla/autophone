@@ -103,7 +103,7 @@ class AutophoneTreeherder(object):
         except Exception, e:
             LOGGER.exception('Error submitting request to Treeherder, attempt=%d, last=%s',
                              attempts, last_attempt)
-            if self.mailer:
+            if attempts > 1 and self.mailer:
                 if hasattr(e, 'response') and e.response:
                     response_json = json.dumps(e.response.json(),
                                                indent=2, sort_keys=True)
