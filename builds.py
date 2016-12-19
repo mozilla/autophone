@@ -449,7 +449,7 @@ class TaskClusterBuilds(BuildLocation):
                                     break # artifacts
                     except StopIteration:
                         pass
-        LOGGER.debug('_find_builds_by_task_ids: %s', builds)
+            LOGGER.debug('_find_builds_by_task_ids: %s', builds)
         return builds_by_repo
 
     def _find_latest_task_ids(self):
@@ -506,21 +506,36 @@ class TaskClusterBuilds(BuildLocation):
         """Return an object keyed by repository name. Each item in the object
         is a list of the revisions found from start_revision to
         end_revision for that repo. If inclusive is True, the
-        end_revision is included in the list.
+        start_revision is included in the list.
 
         """
         revisions_by_repo = {}
         for repo in self.repos:
-            if start_revision != end_revision:
+            # Look up the start_revision in the pushlog to make sure
+            # the revision belongs to the repo and to convert it to 40
+            # bytes if necessary since the 40 byte revision is
+            # required for taskcluster routes.
+            parameters = {'changeset': start_revision[:12]}
+            revisions = get_push_revisions(repo, parameters)
+            if not revisions:
+                LOGGER.warning('_find_revisions_by_revisions: start_revision '
+                               '%s not found in repo %s', start_revision, repo)
+                continue
+            start_revision = revisions[0]
+            # start_revision is guaranteed to be 40 bytes and to
+            # belong to the repo's pushlog. If start_revision and
+            # end_revision are different we need to look up the full
+            # set of revisions. Since end_revision may be either 12 or
+            # 40 bytes, consider start_revision and end_revision the
+            # same if end_revision is a prefix of start_revision.
+            if not start_revision.startswith(end_revision):
                 parameters = {'fromchange': start_revision[:12], 'tochange': end_revision[:12]}
-            else:
-                parameters = {'changeset': start_revision[:12]}
-            revisions_by_repo[repo] = revisions = get_push_revisions(repo, parameters)
-            # If inclusive is True, include the end_revision since the json-pushes does not
-            # include it. Although we return the end_revision for each
-            # repo, it may not be valid for all of them.
-            if inclusive and (start_revision != end_revision or len(revisions) > 0):
-                revisions.append(end_revision)
+                revisions = get_push_revisions(repo, parameters)
+                # If inclusive is True, include the start_revision since
+                # json-pushes fromchange does not include it.
+                if inclusive:
+                    revisions.insert(0, start_revision)
+            revisions_by_repo[repo] = revisions
         LOGGER.debug('_find_revisions_by_revisions: %s', revisions_by_repo)
         return revisions_by_repo
 
@@ -560,9 +575,14 @@ class TaskClusterBuilds(BuildLocation):
 
         task_ids_by_repo = {}
 
+        LOGGER.debug('_find_task_ids_by_revisions: revisions_by_repo: %s',
+                     revisions_by_repo)
+
         for repo in revisions_by_repo:
             task_ids_by_repo[repo] = task_ids = []
             for revision in revisions_by_repo[repo]:
+                LOGGER.debug('_find_task_ids_by_revisions: repo: %s, revision: %s',
+                             repo, revision)
                 # We could iterate over the build_platforms by adding
                 # the build_platform to the routing key, but that will
                 # end up paying a cost of looking up obsolete
@@ -587,12 +607,25 @@ class TaskClusterBuilds(BuildLocation):
                     platform = build_type = None
                     if builder_type == 'buildbot':
                         (platform, build_type) = parse_taskcluster_namespace(task_namespace)
-                    elif 'build_type' in task_definition['extra']:
-                        platform = task_definition['workerType']
-                        build_type = task_definition['extra']['build_type']
                     else:
-                        LOGGER.warning('_find_task_ids_by_revisions: missing build_type '
-                                       'in task_definition["extra"] %s', task_definition)
+                        if 'metadata' in task_definition and \
+                           'name' in task_definition['metadata']:
+                            LOGGER.debug('_find_task_ids_by_revisions: '
+                                         'using task_definition["metadata"]["name"]')
+                            # task_definition['metadata']['name'] has the form:
+                            # 'build-<platform>/<buildtype>'. For example:
+                            # 'build-android-api-15/debug'
+                            (platform, build_type) = task_definition['metadata']['name'].split('/')
+                            platform = platform.replace('build-', '')
+                        if build_type is None and 'extra' in task_definition and \
+                           'build_type' in task_definition['extra']:
+                            LOGGER.debug('_find_task_ids_by_revisions: '
+                                         'using task_definition["workerType"] and '
+                                         'task_definition["extra"]["build_type"]')
+                            platform = task_definition['workerType']
+                            build_type = task_definition['extra']['build_type']
+                        if build_type is None:
+                            LOGGER.warning('_find_task_ids_by_revisions: could not determine build_type')
                     LOGGER.debug('_find_task_ids_by_revisions: worker_type: %s, platform: %s, '
                                  'build_type: %s, tier: %s',
                                  worker_type, platform, build_type, tier)
