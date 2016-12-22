@@ -3,6 +3,8 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
+import errno
+import fcntl
 import glob
 import logging
 import os
@@ -149,6 +151,34 @@ class UnitTest(PhoneTest):
         if not self.cfg.has_option('runtests', 'test_name'):
             raise Exception('Job configuration %s does not specify a test' %
                             self.config_file)
+        lock_file = None
+        lock_filehandle = None
+        try:
+            lock_file = self.cfg.get('runtests', 'lock_file')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            pass
+        if lock_file:
+            self.update_status(message='runtestsremote.py run_job obtaining lock %s' % lock_file)
+            locked = False
+            lock_filehandle = open('/tmp/%s' % lock_file, 'a')
+            while not locked:
+                try:
+                    fcntl.lockf(lock_filehandle, fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    locked = True
+                except IOError, e:
+                    if e.errno != errno.EACCES and e.errno != errno.EAGAIN:
+                        raise # propagate unexpected IOError
+                    self.loggerdeco.warning('Failed to lock %s.', lock_file)
+                    time.sleep(60)
+                    command = self.worker_subprocess.process_autophone_cmd(
+                        test=self, require_ip_address=True)
+                    if command['interrupt']:
+                        self.handle_test_interrupt(command['reason'],
+                                                   command['test_result'])
+                        lock_filehandle.close()
+                        self.update_status(message='runtestsremote.py run_job '
+                                           'interrupted during locking')
+                        return False # test not completed
         try:
             is_test_completed = self.runtest()
         except:
@@ -162,6 +192,10 @@ class UnitTest(PhoneTest):
             # give the phone a minute to recover
             time.sleep(60)
             self.worker_subprocess.ping()
+        finally:
+            if lock_file:
+                fcntl.lockf(lock_filehandle, fcntl.LOCK_UN)
+                lock_filehandle.close()
 
         self.loggerdeco.debug('runtestsremote.py run_job exit')
         self.update_status(message='runtestsremote.py run_job exit')
