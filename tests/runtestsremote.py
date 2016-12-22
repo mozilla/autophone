@@ -295,8 +295,8 @@ class UnitTest(PhoneTest):
             '--utility-path=%s' % self.parms['utility_path'],
             '--timeout=%d' % self.parms['time_out'],
             '--remote-webserver=%s' % self.parms['host_ip_address'],
-            '--http-port=%s' % self.parms['port_manager'].use(self.parms['http_port']),
-            '--ssl-port=%s' % self.parms['port_manager'].use(self.parms['ssl_port']),
+            '--http-port=%s' % self.parms['http_port'],
+            '--ssl-port=%s' % self.parms['ssl_port'],
             '--total-chunks=%d' % self.chunks,
             '--this-chunk=%d' % self.chunk,
             '--pidfile=%s' % pid_file,
@@ -394,6 +394,12 @@ class UnitTest(PhoneTest):
                         'Could not kill process %s.' % (
                             self.parms['app_name']))
             logfilehandle = open(self.unittest_logpath, 'wb')
+            # Release the reserved ports for use by the Unittest
+            # process. This will reduce though not eliminate the
+            # possibility of socket contention between worker
+            # processes.
+            self.parms['port_manager'].release(self.parms['http_port'])
+            self.parms['port_manager'].release(self.parms['ssl_port'])
             proc = subprocess.Popen(
                 args,
                 cwd=os.path.join(self.parms['build_dir'],
@@ -475,6 +481,8 @@ class UnitTest(PhoneTest):
             self.update_status(message=self.message)
             self.loggerdeco.error(self.message)
             self.status = PhoneTest.EXCEPTION
+            self.parms['port_manager'].release(self.parms['http_port'])
+            self.parms['port_manager'].release(self.parms['ssl_port'])
         finally:
             if logfilehandle:
                 logfilehandle.close()
@@ -503,7 +511,9 @@ class PortManager(object):
     usage:
            port_manager = PortManager(ipaddress)
            port = port_manager.reserve()
-           port_manager.use(port)
+           # ...
+           port_manager.release(port)
+           # open port for use
 
     See
     http://docs.python.org/library/socket.html
@@ -533,11 +543,9 @@ class PortManager(object):
             self.reserved_ports[port] = sock
             return port
 
-    def use(self, port):
+    def release(self, port):
         '''
-        Prepare a reserved port for use by closing its socket and
-        returning the port.
+        Prepare a reserved port for use by closing its socket.
         '''
         sock = self.reserved_ports[port]
         sock.close()
-        return port
