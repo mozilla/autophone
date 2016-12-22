@@ -609,7 +609,8 @@ class TaskClusterBuilds(BuildLocation):
                         (platform, build_type) = parse_taskcluster_namespace(task_namespace)
                     else:
                         if 'metadata' in task_definition and \
-                           'name' in task_definition['metadata']:
+                           'name' in task_definition['metadata'] and \
+                           '/' in task_definition['metadata']['name']:
                             LOGGER.debug('_find_task_ids_by_revisions: '
                                          'using task_definition["metadata"]["name"]')
                             # task_definition['metadata']['name'] has the form:
