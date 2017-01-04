@@ -328,8 +328,11 @@ class AutoPhone(object):
             elapsed = datetime.datetime.now(tz=pytz.utc) - worker.last_status_msg.timestamp
             if worker.last_status_msg.phone_status != PhoneStatus.FETCHING and \
                elapsed > datetime.timedelta(seconds=self.options.maximum_heartbeat):
+                LOGGER.warning('check_for_unrecoverable_errors: '
+                               'Purging hung phone %s', worker.phone.id)
                 self.unrecoverable_error = True
                 worker.stop()
+                self.purge_worker(worker.phone.id)
 
     def worker_msg_loop(self):
         self.lock_acquire()
@@ -393,6 +396,7 @@ class AutoPhone(object):
                     self.treeherder_thread.join()
             for p in self.phone_workers.values():
                 p.stop()
+                self.purge_worker(p.phone.id)
             self.lock_release()
 
         if self.unrecoverable_error and self.options.reboot_on_error:
@@ -651,20 +655,32 @@ ok
                 repos = test_devices_repos[phone.id]
                 skip_test = False
             if not skip_test:
-                test = test_class(dm=dm,
-                                  phone=phone,
-                                  options=self.options,
-                                  config_file=config_file,
-                                  repos=repos)
-                tests.append(test)
-                for chunk in range(2, test.chunks+1):
-                    LOGGER.debug('Creating chunk %d/%d', chunk, test.chunks)
-                    tests.append(test_class(dm=dm,
-                                            phone=phone,
-                                            options=self.options,
-                                            config_file=config_file,
-                                            chunk=chunk,
-                                            repos=repos))
+                try:
+                    test = test_class(dm=dm,
+                                      phone=phone,
+                                      options=self.options,
+                                      config_file=config_file,
+                                      repos=repos)
+                    tests.append(test)
+                    for chunk in range(2, test.chunks+1):
+                        LOGGER.debug('Creating chunk %d/%d', chunk, test.chunks)
+                        tests.append(test_class(dm=dm,
+                                                phone=phone,
+                                                options=self.options,
+                                                config_file=config_file,
+                                                chunk=chunk,
+                                                repos=repos))
+                except Exception, e:
+                    CONSOLE_LOGGER.error('Unable to create worker for device %s due to %s.',
+                                         phone.id, e)
+                    msg_subj = '%s unable to create worker for device %s' % (utils.host(),
+                                                                             phone.id)
+                    msg_body = ('Hello, this is Autophone. '
+                                'Just to let you know, '
+                                'I failed to create worker %s due to %s.\n' %
+                                (phone.id, e))
+                    self.mailer.send(msg_subj, msg_body)
+                    self.purge_worker(phone.id)
         if not tests:
             LOGGER.warning('Not creating worker: No tests defined for '
                            'worker for %s: %s.',
@@ -1218,7 +1234,7 @@ unpacked tests package for the build.
     while True:
         try:
             msg = autophone.queue.get_nowait()
-            LOGGER.debug('Dropping autphone.queue: %s', msg)
+            LOGGER.debug('Dropping autophone.queue: %s', msg)
         except Queue.Empty:
             break
 

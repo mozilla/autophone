@@ -263,7 +263,7 @@ class Logcat(object):
         else:
             logcat_datestr = '00-00 00:00:00.000'
 
-        self.logger.debug('Logcat.get() since %s' % logcat_datestr)
+        self.logger.debug('Logcat.get() since %s', logcat_datestr)
 
         # adb logcat can return lines with bogus dates where the MM-DD
         # is not correct. This in particular has happened on a Samsung
@@ -287,7 +287,7 @@ class Logcat(object):
                     for x in self.worker_subprocess.dm.get_logcat(filter_specs=['*:V'])]
                 break
             except ADBError:
-                self.logger.exception('Attempt %d get logcat' % attempt)
+                self.logger.exception('Attempt %d get logcat', attempt)
                 if attempt == self.worker_subprocess.options.phone_retry_limit:
                     raise
                 sleep(self.worker_subprocess.options.phone_retry_wait)
@@ -315,9 +315,9 @@ class Logcat(object):
                     new_current_logcat = []
                     for x in current_logcat:
                         if x < prev_line_datestr:
-                            self.logger.debug('Logcat.get(): Discarding future line: %s' % x)
+                            self.logger.debug('Logcat.get(): Discarding future line: %s', x)
                         else:
-                            self.logger.debug('Logcat.get(): keeping line: %s' % x)
+                            self.logger.debug('Logcat.get(): keeping line: %s', x)
                             new_current_logcat.append(x)
                     current_logcat = new_current_logcat
                 elif delta >= hour:
@@ -328,9 +328,9 @@ class Logcat(object):
                     new_current_logcat = []
                     for x in current_logcat:
                         if x > prev_line_datestr:
-                            self.logger.debug('Logcat.get(): Discarding past line: %s' % x)
+                            self.logger.debug('Logcat.get(): Discarding past line: %s', x)
                         else:
-                            self.logger.debug('Logcat.get(): keeping line: %s' % x)
+                            self.logger.debug('Logcat.get(): keeping line: %s', x)
                             new_current_logcat.append(x)
                     current_logcat = new_current_logcat
             # Keep the messages which are on or after the last accumulated
@@ -653,6 +653,7 @@ class PhoneWorkerSubProcess(object):
                 try:
                     self.reboot()
                 except (ADBError, ADBTimeoutError):
+                    phone_status = PhoneStatus.DISCONNECTED
                     msg2 = 'Exception rebooting device: %s' % traceback.format_exc()
                     self.loggerdeco.warning(msg2)
                     msg += '\n\n' + msg2
@@ -1041,7 +1042,7 @@ class PhoneWorkerSubProcess(object):
                    'reason': message to be used to indicate reason for interruption,
                    'test_result': PhoneTestResult to be used for the test result}
         """
-        self.loggerdeco.debug('PhoneWorkerSubProcess:handle_cmd')
+        self.loggerdeco.debug('PhoneWorkerSubProcess:handle_cmd: %s', request)
         command = {'interrupt': False, 'reason': '', 'test_result': None}
         if not request:
             self.loggerdeco.debug('handle_cmd: No request')
@@ -1056,10 +1057,13 @@ class PhoneWorkerSubProcess(object):
             self.loggerdeco.debug('Received job command request...')
         elif request[0] == 'reboot':
             self.loggerdeco.info("Rebooting at user's request...")
-            self.reboot()
-            command['interrupt'] = True
-            command['reason'] = 'Worker rebooted by administrator'
-            command['test_result'] = PhoneTest.RETRY
+            try:
+                self.reboot()
+                command['interrupt'] = True
+                command['reason'] = 'Worker rebooted by administrator'
+                command['test_result'] = PhoneTest.RETRY
+            except (ADBError, ADBTimeoutError):
+                self.loggerdeco.error("Exception rebooting device")
         elif request[0] == 'disable':
             self.disable_phone("Disabled at user's request", False)
             command['interrupt'] = True
@@ -1169,6 +1173,15 @@ class PhoneWorkerSubProcess(object):
                             request = None
                             self.handle_timeout()
 
+        # Clean up before exiting worker process.
+        # Clear pending messages from Autophone.
+        while True:
+            try:
+                request = self.queue.get_nowait()
+                LOGGER.debug('PhoneWorkerSubProcess:main_loop dropping request: %s', request)
+            except Queue.Empty:
+                break
+        # Reap child processes.
         while True:
             try:
                 (pid, status, resource) = os.wait3(os.WNOHANG)

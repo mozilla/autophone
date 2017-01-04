@@ -73,7 +73,7 @@ class PhoneTest(object):
             # This is safer in terms of catching regressions and extra tests
             # being run are more likely to be noticed and fixed than tests
             # not being run that should have been.
-            if test.run_if_changed and changeset_dirs:
+            if hasattr(test, 'run_if_changed') and test.run_if_changed and changeset_dirs:
                 matched = False
                 for cd in changeset_dirs:
                     if matched:
@@ -132,6 +132,11 @@ class PhoneTest(object):
         return matches
 
     def __init__(self, dm=None, phone=None, options=None, config_file=None, chunk=1, repos=[]):
+        # The PhoneTest constructor may raise exceptions due to issues with
+        # the device. Creators of PhoneTest objects are responsible
+        # for catching these exceptions and cleaning up any previously
+        # created tests for the device.
+        #
         # Ensure that repos is a list and that it is sorted in order
         # for comparisons with the tests loaded from the jobs database
         # to work.
@@ -171,11 +176,6 @@ class PhoneTest(object):
         self.failed = 0
         self.todo = 0
 
-        self._base_device_path = ''
-        if self.dm:
-            self.profile_path = '%s/profile' % self.base_device_path
-        else:
-            self.profile_path = '/data/local/tests/autophone/profile'
         self.repos = repos
         self.unittest_logpath = None
         # Treeherder related items.
@@ -210,6 +210,17 @@ class PhoneTest(object):
         # chosen.
 
         # [paths]
+
+        # base_device_path accesses the device to determine the
+        # appropriate path and can therefore fail and raise an
+        # exception which will not be caught in the PhoneTest
+        # constructor. Creators of PhoneTest objects are responsible
+        # for catching these exceptions and cleaning up any previously
+        # created tests for the device.
+        self._base_device_path = ''
+        self.profile_path = '/data/local/tests/autophone/profile'
+        if self.dm:
+            self.profile_path = '%s/profile' % self.base_device_path
         self.autophone_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
         self._paths = {}
         try:
@@ -308,7 +319,7 @@ class PhoneTest(object):
                                        {'phoneid': self.phone.id},
                                        'PhoneTestSubProcess|%(phoneid)s|%(message)s')
 
-        self.loggerdeco.info('PhoneTest.set_worker_subprocess')
+        self.loggerdeco.debug('PhoneTest.set_worker_subprocess')
 
         self.loggerdeco_original = None
         self.dm_logger_original = None
@@ -505,25 +516,25 @@ class PhoneTest(object):
             return self._base_device_path
         success = False
         for attempt in range(1, self.options.phone_retry_limit+1):
-            self._base_device_path = self.dm.test_root + '/autophone'
-            self.loggerdeco.debug('Attempt %d creating base device path %s' % (
-                attempt, self._base_device_path))
             try:
+                self._base_device_path = self.dm.test_root + '/autophone'
                 if not self.dm.is_dir(self._base_device_path, root=True):
+                    self.loggerdeco.debug('Attempt %d creating base device path %s',
+                                          attempt, self._base_device_path)
                     self.dm.mkdir(self._base_device_path, parents=True, root=True)
                     self.dm.chmod(self._base_device_path, recursive=True, root=True)
                 success = True
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d creating base device '
-                                          'path %s' % (
-                                              attempt, self._base_device_path))
+                                          'path %s',
+                                          attempt, self._base_device_path)
                 sleep(self.options.phone_retry_wait)
 
         if not success:
             raise Exception('Failed to determine base_device_path')
 
-        self.loggerdeco.debug('base_device_path is %s' % self._base_device_path)
+        self.loggerdeco.debug('base_device_path is %s', self._base_device_path)
 
         return self._base_device_path
 
@@ -597,7 +608,7 @@ class PhoneTest(object):
     def add_pass(self, testpath):
         testpath = _normalize_testpath(testpath)
         self.passed += 1
-        self.loggerdeco.info(' TEST-PASS | %s | Ok.' % testpath)
+        self.loggerdeco.info(' TEST-PASS | %s | Ok.', testpath)
 
     def add_failure(self, testpath, test_status, text, testresult_status):
         self.message = text
@@ -606,7 +617,7 @@ class PhoneTest(object):
         if testresult_status:
             self.status = testresult_status
         self.failed += 1
-        self.loggerdeco.info(' %s | %s | %s' % (test_status, testpath, text))
+        self.loggerdeco.info(' %s | %s | %s', test_status, testpath, text)
 
     def reset_result(self):
         self.status = PhoneTest.SUCCESS
@@ -642,7 +653,7 @@ class PhoneTest(object):
                 self.loggerdeco.info(error['stackwalk_output'])
                 self.loggerdeco.info(error['stackwalk_errors'])
             else:
-                self.loggerdeco.warning('Unknown error reason: %s' % error['reason'])
+                self.loggerdeco.warning('Unknown error reason: %s', error['reason'])
 
     def create_profile(self, custom_addons=[], custom_prefs=None, root=True):
         # Create, install and initialize the profile to be
@@ -666,7 +677,7 @@ class PhoneTest(object):
 
         success = False
         for attempt in range(1, self.options.phone_retry_limit+1):
-            self.loggerdeco.debug('Attempt %d Initializing profile' % attempt)
+            self.loggerdeco.debug('Attempt %d Initializing profile', attempt)
             self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
 
             if self.wait_for_fennec():
@@ -711,7 +722,7 @@ class PhoneTest(object):
     def install_local_pages(self):
         success = False
         for attempt in range(1, self.options.phone_retry_limit+1):
-            self.loggerdeco.debug('Attempt %d Installing local pages' % attempt)
+            self.loggerdeco.debug('Attempt %d Installing local pages', attempt)
             try:
                 self.dm.rm(self._paths['dest'], recursive=True, force=True, root=True)
                 self.dm.mkdir(self._paths['dest'], parents=True, root=True)
@@ -725,7 +736,7 @@ class PhoneTest(object):
                 success = True
                 break
             except ADBError:
-                self.loggerdeco.exception('Attempt %d Installing local pages' % attempt)
+                self.loggerdeco.exception('Attempt %d Installing local pages', attempt)
                 sleep(self.options.phone_retry_wait)
 
         if not success:
@@ -738,7 +749,7 @@ class PhoneTest(object):
             try:
                 return self.dm.process_exist(appname)
             except ADBError:
-                self.loggerdeco.exception('Attempt %d is fennec running' % attempt)
+                self.loggerdeco.exception('Attempt %d is fennec running', attempt)
                 if attempt == self.options.phone_retry_limit:
                     raise
                 sleep(self.options.phone_retry_wait)
@@ -805,8 +816,8 @@ class PhoneTest(object):
     def teardown_job(self):
         self.loggerdeco.debug('PhoneTest.teardown_job')
         self.stop_time = datetime.datetime.utcnow()
-        self.loggerdeco.info('Test %s elapsed time: %s' % (
-            self.name, self.stop_time - self.start_time))
+        self.loggerdeco.info('Test %s elapsed time: %s',
+                             self.name, self.stop_time - self.start_time)
         try:
             if self.worker_subprocess.is_ok():
                 # Do not attempt to process crashes if the device is
@@ -900,7 +911,7 @@ class PhoneTest(object):
         success = False
         for attempt in range(1, self.options.phone_retry_limit+1):
             try:
-                self.loggerdeco.debug('Attempt %d installing profile' % attempt)
+                self.loggerdeco.debug('Attempt %d installing profile', attempt)
                 if self.dm.exists(self.profile_path, root=root):
                     # If the profile already exists, chmod it to make sure
                     # we have permission to delete it.
@@ -921,7 +932,7 @@ class PhoneTest(object):
                 sleep(self.options.phone_retry_wait)
 
         if not success:
-            self.loggerdeco.error('Failure installing profile to %s' % self.profile_path)
+            self.loggerdeco.error('Failure installing profile to %s', self.profile_path)
 
         return success
 
