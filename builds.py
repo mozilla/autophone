@@ -35,15 +35,15 @@ from build_dates import (TIMESTAMP, DIRECTORY_DATE, DIRECTORY_DATETIME,
 LOGGER = logging.getLogger()
 
 REPO_URLS = {
-    'autoland': 'http://hg.mozilla.org/integration/autoland/',
-    'b2g-inbound': 'http://hg.mozilla.org/integration/b2g-inbound/',
-    'fx-team': 'http://hg.mozilla.org/integration/fx-team/',
-    'mozilla-aurora': 'http://hg.mozilla.org/releases/mozilla-aurora/',
-    'mozilla-beta': 'http://hg.mozilla.org/releases/mozilla-beta/',
-    'mozilla-central': 'http://hg.mozilla.org/mozilla-central/',
-    'mozilla-inbound': 'http://hg.mozilla.org/integration/mozilla-inbound/',
-    'mozilla-release': 'http://hg.mozilla.org/releases/mozilla-release/',
-    'try': 'http://hg.mozilla.org/try/',
+    'autoland': 'https://hg.mozilla.org/integration/autoland/',
+    'b2g-inbound': 'https://hg.mozilla.org/integration/b2g-inbound/',
+    'fx-team': 'https://hg.mozilla.org/integration/fx-team/',
+    'mozilla-aurora': 'https://hg.mozilla.org/releases/mozilla-aurora/',
+    'mozilla-beta': 'https://hg.mozilla.org/releases/mozilla-beta/',
+    'mozilla-central': 'https://hg.mozilla.org/mozilla-central/',
+    'mozilla-inbound': 'https://hg.mozilla.org/integration/mozilla-inbound/',
+    'mozilla-release': 'https://hg.mozilla.org/releases/mozilla-release/',
+    'try': 'https://hg.mozilla.org/try/',
 }
 
 URLS_REPOS = dict([(URL, REPO) for REPO, URL in REPO_URLS.items()])
