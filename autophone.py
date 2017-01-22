@@ -681,11 +681,13 @@ ok
                                 (phone.id, e))
                     self.mailer.send(msg_subj, msg_body)
                     self.purge_worker(phone.id)
+                    raise
         if not tests:
             LOGGER.warning('Not creating worker: No tests defined for '
                            'worker for %s: %s.',
                            phone, self.options)
-            return
+            raise Exception('create_worker: No tests for %s %s' % (
+                phone, self.options))
         logfile_prefix = os.path.splitext(self.options.logfile)[0]
         worker = PhoneWorker(dm, self.next_worker_num,
                              tests, phone, self.options,
