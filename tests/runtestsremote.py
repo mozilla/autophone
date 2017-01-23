@@ -239,12 +239,14 @@ class UnitTest(PhoneTest):
             os.unlink(temppath)
             self.parms['testrun_manifest_file'] = temppath
             temppath = os.path.basename(temppath)
+            self.parms['turn_port'] = self.parms['port_manager'].reserve()
             test_args = [
                 'mochitest/runtestsremote.py',
                 '--manifest=%s' % self.parms['test_manifest'],
                 '--testrun-manifest-file=%s' % temppath,
                 '--certificate-path=certs',
                 '--console-level=%s' % self.parms['console_level'],
+                '--websocket-process-bridge-port=%s' % self.parms['turn_port'],
             ]
             # Check if the test manifest defines a subsuite which
             # should be specified. Although we normally parse these
@@ -434,6 +436,8 @@ class UnitTest(PhoneTest):
             # processes.
             self.parms['port_manager'].release(self.parms['http_port'])
             self.parms['port_manager'].release(self.parms['ssl_port'])
+            if 'turn_port' in self.parms:
+                self.parms['port_manager'].release(self.parms['turn_port'])
             proc = subprocess.Popen(
                 args,
                 cwd=os.path.join(self.parms['build_dir'],
@@ -517,6 +521,8 @@ class UnitTest(PhoneTest):
             self.status = PhoneTest.EXCEPTION
             self.parms['port_manager'].release(self.parms['http_port'])
             self.parms['port_manager'].release(self.parms['ssl_port'])
+            if 'turn_port' in self.parms:
+                self.parms['port_manager'].release(self.parms['turn_port'])
         finally:
             if logfilehandle:
                 logfilehandle.close()
