@@ -985,7 +985,7 @@ class FtpNightly(FtpBuildLocation):
         y = start_time.year
         m = start_time.month
         while y < end_time.year or (y == end_time.year and m <= end_time.month):
-            yield None, 'http://ftp.mozilla.org/pub/mobile/nightly/%d/%02d/' % (y, m)
+            yield None, 'https://ftp.mozilla.org/pub/mobile/nightly/%d/%02d/' % (y, m)
             if m == 12:
                 y += 1
                 m = 1
@@ -1017,7 +1017,7 @@ class FtpNightly(FtpBuildLocation):
 
 class FtpTinderbox(FtpBuildLocation):
 
-    main_http_url = 'http://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/'
+    main_http_url = 'https://ftp.mozilla.org/pub/mozilla.org/mobile/tinderbox-builds/'
 
     def __init__(self, repos, buildtypes,
                  product, build_platforms, buildfile_ext):
