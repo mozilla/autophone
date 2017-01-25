@@ -816,7 +816,7 @@ class PhoneWorkerSubProcess(object):
                 self.ping()
             time.sleep(self.options.phone_retry_wait)
 
-        self.loggerdeco.warning('Failed to uninstall fennec.')
+        self.loggerdeco.warning('Failed to install fennec.')
         return {'success': False, 'message': message}
 
     def run_tests(self, job):
@@ -845,6 +845,11 @@ class PhoneWorkerSubProcess(object):
         if not install_status['success']:
             self.loggerdeco.info('Not running tests due to %s',
                                  install_status['message'])
+            # We have to bump the attempts in the event of an installation
+            # failure so that we don't reset the attempts back to 1 when
+            # run_tests returns False.
+            job['attempts'] += 1
+            self.jobs.set_job_attempts(job['id'], job['attempts'])
             return False
 
         self.loggerdeco.info('Running tests for job %s', job)
@@ -854,14 +859,9 @@ class PhoneWorkerSubProcess(object):
                 continue
             command = self.process_autophone_cmd(test=t)
             if command['interrupt'] or \
-                self.state == ProcessStates.SHUTTINGDOWN or \
-                self.is_disabled():
-                return False
-            if self.state == ProcessStates.SHUTTINGDOWN or \
+               self.state == ProcessStates.SHUTTINGDOWN or \
                self.is_disabled() or not self.is_ok():
                 self.loggerdeco.info('Skipping test %s', t.name)
-                job['attempts'] -= 1
-                self.jobs.set_job_attempts(job['id'], job['attempts'])
                 return False
             self.loggerdeco.info('Running test %s', t.name)
             is_test_completed = False
@@ -903,9 +903,10 @@ class PhoneWorkerSubProcess(object):
                     message, PhoneTest.EXCEPTION)
                 self.ping(test=t)
 
-            if t.status != PhoneTest.USERCANCEL and \
-               not is_test_completed and \
-               job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
+            if job['attempts'] >= jobs.Jobs.MAX_ATTEMPTS:
+                t.status = PhoneTest.BUSTED
+            elif t.status != PhoneTest.USERCANCEL and \
+               not is_test_completed:
                 # This test did not run successfully and we have not
                 # exceeded the maximum number of attempts, therefore
                 # mark this attempt as a RETRY.
@@ -1001,14 +1002,22 @@ class PhoneWorkerSubProcess(object):
             self.loggerdeco.info('Job completed.')
             self.jobs.job_completed(job['id'])
         else:
-            # Decrement the job attempts so that the remaining
-            # tests aren't dropped simply due to a device error or
-            # user command.
-            job['attempts'] -= 1
-            self.loggerdeco.debug(
-                'Shutting down... Reset job id %d attempts to %d.',
-                job['id'], job['attempts'])
-            self.jobs.set_job_attempts(job['id'], job['attempts'])
+            if job['attempts'] >= jobs.Jobs.MAX_ATTEMPTS:
+                for t in job['tests']:
+                    t.status = PhoneTest.BUSTED
+                    t.teardown_job()
+                self.loggerdeco.warning(
+                    'Job aborted: Exceeded maximum number of attempts: %s', job)
+                self.jobs.job_completed(job['id'])
+            else:
+                # Decrement the job attempts so that the remaining
+                # tests aren't dropped simply due to a device error or
+                # user command.
+                self.loggerdeco.debug(
+                    'run_tests Failed. Reset job id %d attempts to %d.',
+                    job['id'], job['attempts'])
+                job['attempts'] -= 1
+                self.jobs.set_job_attempts(job['id'], job['attempts'])
         for t in self.tests:
             if t.status == PhoneTest.USERCANCEL:
                 self.loggerdeco.warning(

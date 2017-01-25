@@ -816,8 +816,9 @@ class PhoneTest(object):
     def teardown_job(self):
         self.loggerdeco.debug('PhoneTest.teardown_job')
         self.stop_time = datetime.datetime.utcnow()
-        self.loggerdeco.info('Test %s elapsed time: %s',
-                             self.name, self.stop_time - self.start_time)
+        if self.stop_time and self.start_time:
+            self.loggerdeco.info('Test %s elapsed time: %s',
+                                 self.name, self.stop_time - self.start_time)
         try:
             if self.worker_subprocess.is_ok():
                 # Do not attempt to process crashes if the device is
