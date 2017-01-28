@@ -2,12 +2,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import calendar
 import ConfigParser
 import datetime
 import glob
 import logging
 import os
 import posixpath
+import pytz
 import urlparse
 import re
 import sys
@@ -897,6 +899,12 @@ class PhoneTest(object):
             # truncated after each test. Otherwise it will grow
             # indefinitely.
             self.worker_subprocess.filehandler.close()
+            if self.loggerdeco.getEffectiveLevel() == logging.DEBUG:
+                saved_log_file = "%s.%s" % (
+                    self.worker_subprocess.logfile,
+                    calendar.timegm(
+                        datetime.datetime.now(tz=pytz.utc).timetuple()))
+                shutil.copy(self.worker_subprocess.logfile, saved_log_file)
 
     def update_status(self, phone_status=None, message=None):
         if self.update_status_cb:

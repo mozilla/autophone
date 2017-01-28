@@ -408,9 +408,9 @@ class AutophoneTreeherder(object):
                 # Upload directory containing ANRs, tombstones and other items
                 # to be uploaded.
                 if t.upload_dir:
-                    for f in glob.glob(os.path.join(t.upload_dir, '*')):
+                    for f in utils.find_files(t.upload_dir):
                         try:
-                            lname = os.path.basename(f)
+                            lname = os.path.relpath(f, t.upload_dir)
                             try:
                                 fname = '%s-%s' % (log_identifier, lname)
                             except UnicodeDecodeError, e:
@@ -424,7 +424,7 @@ class AutophoneTreeherder(object):
                                 'url': url,
                                 'value': lname,
                                 'title': 'artifact uploaded'})
-                        except S3Error, e:
+                        except (S3Error, IOError), e:
                             LOGGER.exception('Error uploading artifact %s', fname)
                             t.job_details.append({
                                 'value': 'Failed to upload artifact %s: %s' % (fname, e),

@@ -465,3 +465,17 @@ def autophone_path():
             _AUTOPHONE_PATH = os.path.join(os.getcwd(), _AUTOPHONE_PATH)
         _AUTOPHONE_PATH = os.path.normpath(_AUTOPHONE_PATH)
     return _AUTOPHONE_PATH
+
+def find_files(path):
+    """Return list of all files contained in path"""
+
+    def add_file(files, dir_name, file_names):
+        for file_name in file_names:
+            file_path = os.path.join(dir_name, file_name)
+            if os.path.isdir(file_path):
+                continue
+            files.append(file_path)
+
+    files = []
+    os.path.walk(path, add_file, files)
+    return files
