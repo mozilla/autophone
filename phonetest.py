@@ -487,6 +487,7 @@ class PhoneTest(object):
                 'MOZ_CRASHREPORTER_NO_REPORT': '1',
                 'MOZ_CRASHREPORTER_SHUTDOWN': '1',
                 'MOZ_DISABLE_NONLOCAL_CONNECTIONS': '1',
+                'MOZ_IN_AUTOMATION': '1',
                 'NO_EM_RESTART': '1',
                 'MOZ_DISABLE_SWITCHBOARD': '1',
                 #'NSPR_LOG_MODULES': 'all:5',
