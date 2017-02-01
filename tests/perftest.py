@@ -5,6 +5,8 @@
 import ConfigParser
 import csv
 import json
+import os
+import re
 import time
 import urllib
 import urllib2
@@ -167,15 +169,28 @@ class PerfTest(PhoneTest):
                     'machineid'])
 
     def _phonedash_url(self, testname):
-        if not self.result_server or not self.build:
+        # Map the config filename to the test name used on phonedash.
+        # This depends on the config file naming scheme for the s1s2
+        # test configuration files following this pattern.
+        re_test = re.compile(r's1s2-([^-]+)-(.*)[.]ini')
+        config = os.path.basename(self.config_file)
+        match = re_test.match(config)
+        if match:
+            test_name = match.group(2) + '-' + match.group(1)
+        if not self.result_server or not self.build or not match:
             return 'http://phonedash.mozilla.org/'
-        trybuild = 'try' if 'try-builds' in self.build.url else 'notry'
         buildday = (self.build.id[0:4] + '-' + self.build.id[4:6] + '-' +
                     self.build.id[6:8])
-        url = ('%s/#/%s/throbberstart/%s/norejected/%s/%s/notcached/'
-               'noerrorbars/standarderror/%s' % (
-                   self.result_server, self.build.app_name, testname,
-                   buildday, buildday, trybuild))
+        url = ('%s/#/%s/%s/'
+               'binning=repo-phonetype-phoneid-test_name-cached_label-metric&'
+               '%s=on&%s=on&'
+               '%s=on&'
+               'throbberstart=on&throbberstop=on&first=on&second=on&'
+               'rejected=norejected&'
+               'errorbars=errorbars&errorbartype=standarderror&'
+               'valuetype=median' % (
+                   self.result_server, buildday, buildday,
+                   self.build.tree, self.phone.id, test_name))
         return url
 
     @property
