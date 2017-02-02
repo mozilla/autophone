@@ -10,7 +10,7 @@ mozprofile
 mozillapulse >= 1.0
 requests
 pytz
-taskcluster
+taskcluster >= 1.0.2
 Twisted
 txWS
 psutil

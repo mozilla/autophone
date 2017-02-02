@@ -18,7 +18,7 @@ import urlparse
 import zipfile
 
 import slugid
-import taskcluster.client
+import taskcluster
 from thclient import TreeherderClient
 
 from bs4 import BeautifulSoup
@@ -225,8 +225,8 @@ class TaskClusterBuilds(BuildLocation):
         BuildLocation.__init__(self, repos, buildtypes,
                                product, build_platforms, buildfile_ext)
         self.nightly = nightly
-        self.index = taskcluster.client.Index()
-        self.queue = taskcluster.client.Queue()
+        self.index = taskcluster.index.Index()
+        self.queue = taskcluster.queue.Queue()
 
     def find_latest_builds(self):
         task_ids_by_repo = self._find_latest_task_ids()

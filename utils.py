@@ -22,7 +22,7 @@ import uuid
 
 from ssl import SSLError
 
-import taskcluster.client
+import taskcluster
 
 import build_dates
 
@@ -436,7 +436,7 @@ def urlretrieve(url, dest, max_attempts=3):
 
 
 def taskcluster_artifacts(task_id, run_id):
-    queue = taskcluster.client.Queue()
+    queue = taskcluster.queue.Queue()
     response = queue.listArtifacts(task_id, run_id)
     while True:
         if 'artifacts' not in response:

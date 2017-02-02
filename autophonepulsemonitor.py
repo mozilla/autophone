@@ -9,7 +9,7 @@ import threading
 import time
 
 from kombu import Connection, Exchange, Queue
-import taskcluster.client
+import taskcluster
 
 import utils
 from builds import get_treeherder_tier
@@ -169,7 +169,7 @@ class AutophonePulseMonitor(object):
                                      routing_key='primary.#.#.#.#.#.%s.#.#.#' % platform,
                                      durable=durable_queues,
                                      auto_delete=not durable_queues))
-        self.taskcluster_queue = taskcluster.client.Queue()
+        self.taskcluster_queue = taskcluster.queue.Queue()
 
     def start(self):
         """Runs the `listen` method on a new thread."""
