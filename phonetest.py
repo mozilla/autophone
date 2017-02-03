@@ -306,7 +306,8 @@ class PhoneTest(object):
     def remove(self):
         key = '%s:%s:%s' % (self.phone.id, self.config_file, self.chunk)
         if key in PhoneTest.instances:
-            had_run_if_changed = PhoneTest.instances[key].run_if_changed
+            had_run_if_changed = hasattr(PhoneTest.instances[key], 'run_if_changed') and \
+                                 PhoneTest.instances[key].run_if_changed
             del PhoneTest.instances[key]
             if had_run_if_changed:
                 PhoneTest.has_run_if_changed = False
