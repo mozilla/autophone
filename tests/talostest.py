@@ -8,7 +8,7 @@ import re
 from time import sleep
 
 from perftest import PerfTest, PerfherderArtifact, PerfherderSuite, PerfherderOptions
-from phonetest import PhoneTest
+from phonetest import TreeherderStatus, TestStatus
 from utils import median, geometric_mean, host
 
 
@@ -99,16 +99,16 @@ class TalosTest(PerfTest):
 
         if not self.install_local_pages():
             self.add_failure(
-                self.name, 'TEST-UNEXPECTED-FAIL',
+                self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Aborting test - Could not install local pages on phone.',
-                PhoneTest.EXCEPTION)
+                TreeherderStatus.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile(custom_addons=custom_addons):
             self.add_failure(
-                self.name, 'TEST-UNEXPECTED-FAIL',
+                self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Aborting test - Could not run Fennec.',
-                PhoneTest.BUSTED)
+                TreeherderStatus.BUSTED)
             return is_test_completed
 
         perfherder_options = PerfherderOptions(self.perfherder_options,
@@ -117,8 +117,6 @@ class TalosTest(PerfTest):
         testcount = len(self._test_args.keys())
         test_items = enumerate(self._test_args.iteritems(), 1)
         for testnum, (testname, test_args) in test_items:
-            if self.fennec_crashed:
-                break
             self.loggerdeco = self.loggerdeco.clone(
                 extradict={'phoneid': self.phone.id,
                            'buildid': self.build.id,
@@ -148,10 +146,10 @@ class TalosTest(PerfTest):
 
             if not self.create_profile(custom_addons=custom_addons):
                 self.add_failure(
-                    test_args,
-                    'TEST-UNEXPECTED-FAIL',
+                    self.name,
+                    TestStatus.TEST_UNEXPECTED_FAIL,
                     'Failed to create profile',
-                    PhoneTest.TESTFAILED)
+                    TreeherderStatus.TESTFAILED)
             else:
                 measurement = self.runtest(test_args)
                 if measurement:
@@ -165,10 +163,10 @@ class TalosTest(PerfTest):
                     success = True
                 else:
                     self.add_failure(
-                        test_args,
-                        'TEST-UNEXPECTED-FAIL',
+                        self.name,
+                        TestStatus.TEST_UNEXPECTED_FAIL,
                         'Failed to get measurement.',
-                        PhoneTest.TESTFAILED)
+                        TreeherderStatus.TESTFAILED)
 
             if not success:
                 # If we have not gotten a single measurement at this point,
@@ -195,9 +193,9 @@ class TalosTest(PerfTest):
                      self.build.id,
                      self.build.changeset))
                 self.add_failure(
-                    self.name, 'TEST-UNEXPECTED-FAIL',
+                    self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                     'No measurements detected.',
-                    PhoneTest.BUSTED)
+                    TreeherderStatus.BUSTED)
 
                 self.loggerdeco.debug('publishing results')
 
@@ -284,7 +282,7 @@ I/GeckoDump( 2284): __startTimestamp1433438438092__endTimestamp
                         numbers = [float(x) for x in numbers.split(';')]
                         results[page_name] = numbers
 
-            if self.fennec_crashed:
+            if self.handle_crashes():
                 # If fennec crashed, don't bother looking for pageload metric
                 break
             if pageload_metric['summary'] == 0:

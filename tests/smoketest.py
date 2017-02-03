@@ -5,7 +5,7 @@
 import datetime
 from time import sleep
 
-from phonetest import PhoneTest
+from phonetest import PhoneTest, TreeherderStatus, TestStatus
 
 
 class SmokeTest(PhoneTest):
@@ -24,16 +24,16 @@ class SmokeTest(PhoneTest):
 
         if not self.install_local_pages():
             self.add_failure(
-                self.name, 'TEST-UNEXPECTED-FAIL',
+                self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Aborting test - Could not install local pages on phone.',
-                PhoneTest.EXCEPTION)
+                TreeherderStatus.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile():
             self.add_failure(
-                self.name, 'TEST-UNEXPECTED-FAIL',
+                self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Aborting test - Could not run Fennec.',
-                PhoneTest.BUSTED)
+                TreeherderStatus.BUSTED)
             return is_test_completed
 
         # Run test
@@ -66,18 +66,18 @@ class SmokeTest(PhoneTest):
             is_test_completed = False
             self.handle_test_interrupt(command['reason'],
                                        command['test_result'])
-        elif self.fennec_crashed:
+        elif self.handle_crashes():
             pass # Handle the crash in teardown_job
         elif not fennec_launched:
             self.add_failure(
-                self.name, 'TEST-UNEXPECTED-FAIL',
+                self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Failed to launch Fennec',
-                PhoneTest.BUSTED)
+                TreeherderStatus.BUSTED)
         elif not found_throbber:
             self.add_failure(
-                self.name, 'TEST-UNEXPECTED-FAIL',
+                self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Failed to find Throbber',
-                PhoneTest.TESTFAILED)
+                TreeherderStatus.TESTFAILED)
         else:
             self.add_pass(self.name)
 

@@ -12,10 +12,13 @@ import logging
 import os
 import subprocess
 import re
+import shutil
 import sys
+import tempfile
 from collections import namedtuple
 
 from adb import ADBError
+from phonestatus import TestStatus
 
 # Set the logger globally in the file, but this must be reset when
 # used in a child process.
@@ -182,7 +185,7 @@ class AutophoneCrashProcessor(object):
                 break
         return exception
 
-    def _process_dump_file(self, path, extra, symbols_path, stackwalk_binary, clean=True):
+    def _process_dump_file(self, path, extra, symbols_path, stackwalk_binary):
         """Process a single dump file using stackwalk_binary, and return a
         tuple containing properties of the crash dump.
 
@@ -190,7 +193,6 @@ class AutophoneCrashProcessor(object):
         :param extra: Path to the extra file to analyse.
         :param symbols_path: Path to the directory containing symbols.
         :param stackwalk_binary: Path to the minidump_stackwalk binary.
-        :param clean: If True, remove dump file after processing.
         :return: A StackInfo tuple with the fields::
                    minidump_path: Path of the dump file
                    signature: The top frame of the stack trace, or None if it
@@ -245,12 +247,6 @@ class AutophoneCrashProcessor(object):
             elif stackwalk_binary and not os.path.exists(stackwalk_binary):
                 errors.append("MINIDUMP_STACKWALK binary not found: %s" % stackwalk_binary)
 
-        if clean:
-            if os.path.exists(path):
-                os.unlink(path)
-            if os.path.exists(extra):
-                os.unlink(extra)
-
         LOGGER.debug('AutophoneCrashProcessor.'
                      '_process_dump_file: %s %s signature: %s '
                      'stdout: %s stderr: %s return code: %s errors: %s',
@@ -273,12 +269,12 @@ class AutophoneCrashProcessor(object):
             containing the symbols for the Firefox build being tested.
         :param stackwalk_binary: path on host to the
             minidump_stackwalk binary to be used to parse the dump files.
-        :param clean: If True, remove dump files after processing.
+        :param clean: If True, remove dump files from the device after processing.
 
         Example:
         [
           {
-            'reason': 'PROCESS-CRASH',
+            'reason': TestStatus.PROCESS_CRASH,
             'signature': 'libmm-color-convertor.so + 0x1232',
             'stackwalk_output': '...',
             'stackwalk_errors': '...'
@@ -298,24 +294,45 @@ class AutophoneCrashProcessor(object):
             LOGGER.warning("Automation Error: No crash directory (%s) "
                            "found on remote device", self.remote_dump_dir)
             crashes.append(
-                {'reason': 'PROFILE-ERROR',
+                {'reason': TestStatus.TEST_UNEXPECTED_FAIL,
                  'signature': "No crash directory (%s) found on remote device" % self.remote_dump_dir})
             return crashes
+        # Create a temporary directory to hold the dump files from the
+        # device.  This will allow us to accumulate a number of
+        # crashes into the upload directory while ensuring that we
+        # only process them once.
+        temp_upload_dir = tempfile.mkdtemp()
         self.adb.chmod(self.remote_dump_dir, recursive=True, root=root)
-        self.adb.pull(self.remote_dump_dir, self.upload_dir)
+        self.adb.pull(self.remote_dump_dir, temp_upload_dir)
+        if clean:
+            self.adb.rm(self.remote_dump_dir + "/*", force=True, root=True)
         if self.adb.is_dir(self.remote_pending_crashreports_dir, root=root):
             self.adb.chmod(self.remote_pending_crashreports_dir, recursive=True,
                            root=root)
-            self.adb.pull(self.remote_pending_crashreports_dir, self.upload_dir)
+            self.adb.pull(self.remote_pending_crashreports_dir, temp_upload_dir)
+            if clean:
+                self.adb.rm(self.remote_pending_crashreports_dir + "/*", force=True, root=True)
         dump_files = [(path, os.path.splitext(path)[0] + '.extra') for path in
-                      glob.glob(os.path.join(self.upload_dir, '*.dmp'))]
+                      glob.glob(os.path.join(temp_upload_dir, '*.dmp'))]
         max_dumps = 10
         if len(dump_files) > max_dumps:
             LOGGER.warning("Found %d dump files -- limited to %d!", len(dump_files), max_dumps)
             del dump_files[max_dumps:]
         LOGGER.debug('AutophoneCrashProcessor.dump_files: %s', dump_files)
         for path, extra in dump_files:
-            info = self._process_dump_file(path, extra, symbols_path, stackwalk_binary, clean=clean)
+            try:
+                if os.path.exists(path):
+                    shutil.copy(path, self.upload_dir)
+            except:
+                LOGGER.exception('Attempting to copy %s to upload directory %s',
+                                 path, self.upload_dir)
+            try:
+                if os.path.exists(extra):
+                    shutil.copy(extra, self.upload_dir)
+            except:
+                LOGGER.exception('Attempting to copy %s to upload directory %s',
+                                 extra, self.upload_dir)
+            info = self._process_dump_file(path, extra, symbols_path, stackwalk_binary)
             stackwalk_output = ["Crash dump filename: %s" % info.minidump_path]
             if info.stackwalk_stderr:
                 stackwalk_output.append("stderr from minidump_stackwalk:")
@@ -328,10 +345,15 @@ class AutophoneCrashProcessor(object):
             signature = info.signature if info.signature else "unknown top frame"
             LOGGER.info("application crashed [%s]", signature)
             crashes.append(
-                {'reason': 'PROCESS-CRASH',
+                {'reason': TestStatus.PROCESS_CRASH,
                  'signature': signature,
                  'stackwalk_output': '\n'.join(stackwalk_output),
                  'stackwalk_errors': '\n'.join(info.stackwalk_errors)})
+        try:
+            shutil.rmtree(temp_upload_dir)
+        except:
+            LOGGER.exception('Attempting to remove upload directory %s',
+                             temp_upload_dir)
         return crashes
 
     def get_errors(self, symbols_path, stackwalk_binary, clean=True):
@@ -345,7 +367,7 @@ class AutophoneCrashProcessor(object):
             containing the symbols for the Firefox build being tested.
         :param stackwalk_binary: path on host to the
             minidump_stackwalk binary to be used to parse the dump files.
-        :param clean: If True, remove dump files after processing.
+        :param clean: If True, remove dump files from the device after processing.
 
         :returns: list of error objects. Error object can be of the
         following types:
@@ -358,13 +380,13 @@ class AutophoneCrashProcessor(object):
 
            Profile Error:
            {
-             'reason': 'PROFILE-ERROR',
+             'reason': TestStatus.TEST_UNEXPECTED_FAIL,
              'signature': 'No crash directory (...) found on remote device'
            }
 
            Crash:
            {
-             'reason': 'PROCESS-CRASH',
+             'reason': TestStatus.PROCESS_CRASH,
              'signature': signature,
              'stackwalk_output': '...',
              'stackwalk_errors': '...'

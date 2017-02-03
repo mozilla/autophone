@@ -35,7 +35,7 @@ from autophonetreeherder import AutophoneTreeherder
 from builds import BuildMetadata
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus
-from phonetest import PhoneTest, FLASH_PACKAGE
+from phonetest import PhoneTest, TreeherderStatus, TestStatus, FLASH_PACKAGE
 from process_states import ProcessStates
 from s3 import S3Bucket
 from sensitivedatafilter import SensitiveDataFilter
@@ -719,7 +719,7 @@ class PhoneWorkerSubProcess(object):
                 if self.state == ProcessStates.SHUTTINGDOWN:
                     return {'interrupt': True,
                             'reason': 'Shutdown while charging',
-                            'test_result': PhoneTest.RETRY}
+                            'test_result': TreeherderStatus.RETRY}
 
         return {'interrupt': False, 'reason': '', 'test_result': None}
 
@@ -737,7 +737,7 @@ class PhoneWorkerSubProcess(object):
         if tests:
             assert len(tests) == 1, "test.job_guid %s is not unique" % test_guid
             for test in tests:
-                test.status = PhoneTest.USERCANCEL
+                test.status = TreeherderStatus.USERCANCEL
         self.jobs.cancel_test(test_guid, device=self.phone.id)
 
     def install_build(self, job):
@@ -854,7 +854,7 @@ class PhoneWorkerSubProcess(object):
 
         self.loggerdeco.info('Running tests for job %s', job)
         for t in job['tests']:
-            if t.status == PhoneTest.USERCANCEL:
+            if t.status == TreeherderStatus.USERCANCEL:
                 self.loggerdeco.info('Skipping Cancelled test %s', t.name)
                 continue
             command = self.process_autophone_cmd(test=t)
@@ -889,9 +889,9 @@ class PhoneWorkerSubProcess(object):
                             t.name, traceback.format_exc()))
                         t.add_failure(
                             t.name,
-                            'TEST-UNEXPECTED-FAIL',
+                            TestStatus.TEST_UNEXPECTED_FAIL,
                             message,
-                            PhoneTest.EXCEPTION)
+                            TreeherderStatus.EXCEPTION)
                         self.ping(test=t)
             except:
                 self.loggerdeco.exception('device error during '
@@ -899,18 +899,18 @@ class PhoneWorkerSubProcess(object):
                 message = ('Uncaught device error during %s.setup_job.\n\n%s' % (
                     t.name, traceback.format_exc()))
                 t.add_failure(
-                    t.name, 'TEST-UNEXPECTED-FAIL',
-                    message, PhoneTest.EXCEPTION)
+                    t.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                    message, TreeherderStatus.EXCEPTION)
                 self.ping(test=t)
 
             if job['attempts'] >= jobs.Jobs.MAX_ATTEMPTS:
-                t.status = PhoneTest.BUSTED
-            elif t.status != PhoneTest.USERCANCEL and \
+                t.status = TreeherderStatus.BUSTED
+            elif t.status != TreeherderStatus.USERCANCEL and \
                not is_test_completed:
                 # This test did not run successfully and we have not
                 # exceeded the maximum number of attempts, therefore
                 # mark this attempt as a RETRY.
-                t.status = PhoneTest.RETRY
+                t.status = TreeherderStatus.RETRY
             try:
                 t.teardown_job()
             except:
@@ -919,12 +919,12 @@ class PhoneWorkerSubProcess(object):
                 message = ('Uncaught device error during %s.teardown_job\n\n%s' % (
                     t.name, traceback.format_exc()))
                 t.add_failure(
-                    t.name, 'TEST-UNEXPECTED-FAIL',
-                    message, PhoneTest.EXCEPTION)
+                    t.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                    message, TreeherderStatus.EXCEPTION)
             # Remove this test from the jobs database whether or not it
             # ran successfully.
             self.jobs.test_completed(test_job_guid)
-            if t.status != PhoneTest.USERCANCEL and \
+            if t.status != TreeherderStatus.USERCANCEL and \
                not is_test_completed and \
                job['attempts'] < jobs.Jobs.MAX_ATTEMPTS:
                 # This test did not run successfully and we have not
@@ -1004,7 +1004,7 @@ class PhoneWorkerSubProcess(object):
         else:
             if job['attempts'] >= jobs.Jobs.MAX_ATTEMPTS:
                 for t in job['tests']:
-                    t.status = PhoneTest.BUSTED
+                    t.status = TreeherderStatus.BUSTED
                     t.teardown_job()
                 self.loggerdeco.warning(
                     'Job aborted: Exceeded maximum number of attempts: %s', job)
@@ -1019,11 +1019,11 @@ class PhoneWorkerSubProcess(object):
                 job['attempts'] -= 1
                 self.jobs.set_job_attempts(job['id'], job['attempts'])
         for t in self.tests:
-            if t.status == PhoneTest.USERCANCEL:
+            if t.status == TreeherderStatus.USERCANCEL:
                 self.loggerdeco.warning(
                     'Job %s, Cancelled Test: %s was not reset after '
                     'the Job completed', job, t)
-                t.status = PhoneTest.SUCCESS
+                t.status = TreeherderStatus.SUCCESS
         if self.is_ok() and not self.is_disabled():
             self.update_status(phone_status=PhoneStatus.IDLE,
                                build=self.build)
@@ -1049,7 +1049,7 @@ class PhoneWorkerSubProcess(object):
 
         :returns: {'interrupt': boolean, True if current activity should be aborted
                    'reason': message to be used to indicate reason for interruption,
-                   'test_result': PhoneTestResult to be used for the test result}
+                   'test_result': PhoneTest Treeherder Test status to be used for the test result}
         """
         self.loggerdeco.debug('PhoneWorkerSubProcess:handle_cmd: %s', request)
         command = {'interrupt': False, 'reason': '', 'test_result': None}
@@ -1070,14 +1070,14 @@ class PhoneWorkerSubProcess(object):
                 self.reboot()
                 command['interrupt'] = True
                 command['reason'] = 'Worker rebooted by administrator'
-                command['test_result'] = PhoneTest.RETRY
+                command['test_result'] = TreeherderStatus.RETRY
             except (ADBError, ADBTimeoutError):
                 self.loggerdeco.error("Exception rebooting device")
         elif request[0] == 'disable':
             self.disable_phone("Disabled at user's request", False)
             command['interrupt'] = True
             command['reason'] = 'Worker disabled by administrator'
-            command['test_result'] = PhoneTest.USERCANCEL
+            command['test_result'] = TreeherderStatus.USERCANCEL
         elif request[0] == 'enable':
             self.loggerdeco.info("Enabling phone at user's request...")
             if self.is_disabled():
@@ -1090,7 +1090,7 @@ class PhoneWorkerSubProcess(object):
             if current_test and current_test.job_guid == test_guid:
                 command['interrupt'] = True
                 command['reason'] = 'Running Job Canceled'
-                command['test_result'] = PhoneTest.USERCANCEL
+                command['test_result'] = TreeherderStatus.USERCANCEL
         elif request[0] == 'ping':
             self.loggerdeco.info("Pinging at user's request...")
             self.ping()
@@ -1119,7 +1119,7 @@ class PhoneWorkerSubProcess(object):
                 else:
                     return {'interrupt': True,
                             'reason': reason,
-                            'test_result': PhoneTest.RETRY}
+                            'test_result': TreeherderStatus.RETRY}
 
     def main_loop(self):
         self.loggerdeco.debug('PhoneWorkerSubProcess:main_loop')
@@ -1156,12 +1156,12 @@ class PhoneWorkerSubProcess(object):
                         else:
                             self.loggerdeco.info('Job skipped because device is disabled: %s', job)
                             for t in job['tests']:
-                                if t.status != PhoneTest.USERCANCEL:
+                                if t.status != TreeherderStatus.USERCANCEL:
                                     t.add_failure(
                                         t.name,
-                                        'TEST-UNEXPECTED-FAIL',
+                                        TestStatus.TEST_UNEXPECTED_FAIL,
                                         'Worker disabled by administrator',
-                                        PhoneTest.USERCANCEL)
+                                        TreeherderStatus.USERCANCEL)
                                 self.treeherder.submit_complete(
                                     t.phone.id,
                                     job['build_url'],

@@ -17,3 +17,17 @@ class PhoneStatus(object):
     SHUTDOWN = 'SHUTDOWN' # worker shutdown, process exited
 
 
+class TreeherderStatus(object):
+    BUSTED = 'busted'
+    EXCEPTION = 'exception'
+    TESTFAILED = 'testfailed'
+    UNKNOWN = 'unknown'
+    USERCANCEL = 'usercancel'
+    RETRY = 'retry'
+    SUCCESS = 'success'
+
+
+class TestStatus(object):
+    TEST_PASS = 'TEST-PASS'
+    TEST_UNEXPECTED_FAIL = 'TEST-UNEXPECTED-FAIL'
+    PROCESS_CRASH = 'PROCESS-CRASH'

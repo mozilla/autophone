@@ -15,7 +15,7 @@ import tempfile
 import time
 import traceback
 
-from phonetest import PhoneTest, FLASH_PACKAGE
+from phonetest import PhoneTest, TreeherderStatus, TestStatus, FLASH_PACKAGE
 
 
 class UnitTest(PhoneTest):
@@ -373,7 +373,7 @@ class UnitTest(PhoneTest):
                 self.dm.install_app(robocop_apk_path)
             except Exception, e:
                 self.loggerdeco.exception('runtestsremote.py:runtest: Exception running test.')
-                self.status = PhoneTest.EXCEPTION
+                self.status = TreeherderStatus.EXCEPTION
                 self.message = 'Exception installing robocop.apk: %s' % e
                 with open(self.unittest_logpath, "w") as logfilehandle:
                     logfilehandle.write('%s\n' % self.message)
@@ -490,7 +490,7 @@ class UnitTest(PhoneTest):
             logfilehandle.close()
             logfilehandle = None
             if self.failed > 0:
-                self.status = PhoneTest.TESTFAILED
+                self.status = TreeherderStatus.TESTFAILED
 
             if proc.returncode != 0:
                 self.message = ('Test exited with return code %d' %
@@ -500,9 +500,9 @@ class UnitTest(PhoneTest):
                 # would be counting an error twice.
                 if self.failed == 0:
                     self.add_failure(
-                        self.name, 'TEST-UNEXPECTED-FAIL',
+                        self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                         self.message,
-                        PhoneTest.TESTFAILED)
+                        TreeherderStatus.TESTFAILED)
 
             self.loggerdeco.info('runtestsremote.py return code %d' %
                                  proc.returncode)
@@ -518,7 +518,7 @@ class UnitTest(PhoneTest):
                              traceback.format_exc()))
             self.update_status(message=self.message)
             self.loggerdeco.error(self.message)
-            self.status = PhoneTest.EXCEPTION
+            self.status = TreeherderStatus.EXCEPTION
             self.parms['port_manager'].release(self.parms['http_port'])
             self.parms['port_manager'].release(self.parms['ssl_port'])
             if 'turn_port' in self.parms:

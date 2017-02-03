@@ -24,21 +24,12 @@ import utils
 from autophonecrash import AutophoneCrashProcessor
 from adb import ADBError
 from logdecorator import LogDecorator
-from phonestatus import PhoneStatus
+from phonestatus import PhoneStatus, TreeherderStatus, TestStatus
 
 # Define the Adobe Flash Player package name as a constant for reuse.
 FLASH_PACKAGE = 'com.adobe.flashplayer'
 
 class PhoneTest(object):
-    # Test status
-
-    BUSTED = 'busted'
-    EXCEPTION = 'exception'
-    TESTFAILED = 'testfailed'
-    UNKNOWN = 'unknown'
-    USERCANCEL = 'usercancel'
-    RETRY = 'retry'
-    SUCCESS = 'success'
 
     # Use instances keyed on phoneid+':'config_file+':'+str(chunk)
     # to lookup tests.
@@ -173,7 +164,7 @@ class PhoneTest(object):
         self.dm_logger_original = None
         self.loggerdeco.info('init autophone.phonetest')
         # Test result
-        self.status = PhoneTest.SUCCESS
+        self.status = TreeherderStatus.SUCCESS
         self.passed = 0
         self.failed = 0
         self.todo = 0
@@ -607,57 +598,75 @@ class PhoneTest(object):
         self.job_guid = utils.generate_guid()
 
     def handle_test_interrupt(self, reason, test_result):
-        self.add_failure(self.name, 'TEST-UNEXPECTED-FAIL', reason, test_result)
+        self.add_failure(self.name, TestStatus.TEST_UNEXPECTED_FAIL, reason, test_result)
 
     def add_pass(self, testpath):
         testpath = _normalize_testpath(testpath)
         self.passed += 1
-        self.loggerdeco.info(' TEST-PASS | %s | Ok.', testpath)
+        self.loggerdeco.info(' %s | %s | Ok.', TestStatus.TEST_PASS, testpath)
 
     def add_failure(self, testpath, test_status, text, testresult_status):
+        """Report a test failure.
+
+        :param testpath: A string identifying the test.
+        :param test_status: A string identifying the type of test failure.
+        :param text: A string decribing the failure.
+        :param testresult_status: Test status to be reported to Treeherder.
+            One of PhoneTest.{BUSTED,EXCEPTION,TESTFAILED,UNKNOWN,USERCANCEL}.
+        """
         self.message = text
         self.update_status(message=text)
         testpath = _normalize_testpath(testpath)
-        if testresult_status:
+        if self.status == TreeherderStatus.SUCCESS:
+            # Only use the first testresult_status when reporting to Treeherder.
             self.status = testresult_status
         self.failed += 1
         self.loggerdeco.info(' %s | %s | %s', test_status, testpath, text)
 
     def reset_result(self):
-        self.status = PhoneTest.SUCCESS
+        self.status = TreeherderStatus.SUCCESS
         self.passed = 0
         self.failed = 0
         self.todo = 0
 
     def handle_crashes(self):
+        """Detect if any crash dump files have been generated, process them and
+        produce Treeherder compatible error messages, then clean up the dump
+        files before returning True if a crash was found or False if there were
+        no crashes detected.
+        """
         if not self.crash_processor:
-            return
+            return False
 
-        for error in self.crash_processor.get_errors(self.build.symbols,
-                                                     self.options.minidump_stackwalk,
-                                                     clean=True):
+        errors = self.crash_processor.get_errors(self.build.symbols,
+                                                 self.options.minidump_stackwalk,
+                                                 clean=True)
+
+        for error in errors:
             if error['reason'] == 'java-exception':
                 self.add_failure(
-                    self.name, 'PROCESS-CRASH',
+                    self.name, TestStatus.PROCESS_CRASH,
                     error['signature'],
-                    PhoneTest.TESTFAILED)
-            elif error['reason'] == 'PROFILE-ERROR':
+                    TreeherderStatus.TESTFAILED)
+            elif error['reason'] == TestStatus.TEST_UNEXPECTED_FAIL:
                 self.add_failure(
                     self.name,
                     error['reason'],
                     error['signature'],
-                    PhoneTest.TESTFAILED)
-            elif error['reason'] == 'PROCESS-CRASH':
+                    TreeherderStatus.TESTFAILED)
+            elif error['reason'] == TestStatus.PROCESS_CRASH:
                 self.add_failure(
                     self.name,
                     error['reason'],
                     'application crashed [%s]' % error['signature'],
-                    PhoneTest.TESTFAILED)
+                    TreeherderStatus.TESTFAILED)
                 self.loggerdeco.info(error['signature'])
                 self.loggerdeco.info(error['stackwalk_output'])
                 self.loggerdeco.info(error['stackwalk_errors'])
             else:
                 self.loggerdeco.warning('Unknown error reason: %s', error['reason'])
+
+        return len(errors) > 0
 
     def create_profile(self, custom_addons=[], custom_prefs=None, root=True):
         # Create, install and initialize the profile to be
@@ -689,9 +698,10 @@ class PhoneTest(object):
                 break
             sleep(self.options.phone_retry_wait)
 
-        if not success:
-            msg = 'Aborting Test - Failure initializing profile.'
-            self.loggerdeco.error(msg)
+        if not success or self.handle_crashes():
+            self.add_failure(self.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                             'Failure initializing profile',
+                             TreeherderStatus.TESTFAILED)
 
         return success
 
@@ -744,7 +754,9 @@ class PhoneTest(object):
                 sleep(self.options.phone_retry_wait)
 
         if not success:
-            self.loggerdeco.error('Failure installing local pages')
+            self.add_failure(self.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                             'Failure installing local pages',
+                             TreeherderStatus.TESTFAILED)
 
         return success
 
@@ -762,11 +774,12 @@ class PhoneTest(object):
         # Log the current full contents of logcat, then clear the
         # logcat buffers to help prevent the device's buffer from
         # over flowing during the test.
+        self.loggerdeco.debug('PhoneTest.teardown_job')
         self.start_time = datetime.datetime.utcnow()
         self.stop_time = self.start_time
         # Clear the Treeherder job details.
         self.job_details = []
-        self.loggerdeco.debug('phonetest.setup_job: full logcat before job:')
+        self.loggerdeco.debug('full logcat before job:')
         try:
             self.loggerdeco.debug('\n'.join(self.worker_subprocess.logcat.get(full=True)))
         except:
@@ -831,9 +844,9 @@ class PhoneTest(object):
         except Exception, e:
             self.loggerdeco.exception('Exception during crash processing')
             self.add_failure(
-                self.name, 'TEST-UNEXPECTED-FAIL',
+                self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Exception %s during crash processing' % e,
-                PhoneTest.EXCEPTION)
+                TreeherderStatus.EXCEPTION)
         if self.loggerdeco.getEffectiveLevel() == logging.DEBUG and \
            self.unittest_logpath and os.path.exists(self.unittest_logpath):
             self.loggerdeco.debug(40 * '=')
@@ -850,13 +863,13 @@ class PhoneTest(object):
         self.loggerdeco.debug('phonetest.teardown_job full logcat after job:')
         self.loggerdeco.debug('\n'.join(self.worker_subprocess.logcat.get(full=True)))
         try:
-            if self.worker_subprocess.is_disabled() and self.status != PhoneTest.USERCANCEL:
+            if self.worker_subprocess.is_disabled() and self.status != TreeherderStatus.USERCANCEL:
                 # The worker was disabled while running one test of a job.
                 # Record the cancellation on any remaining tests in that job.
                 self.add_failure(
-                    self.name, 'TEST-UNEXPECTED-FAIL',
+                    self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                     'The worker was disabled.',
-                    PhoneTest.USERCANCEL)
+                    TreeherderStatus.USERCANCEL)
             self.loggerdeco.info('PhoneTest stopping job')
             self.worker_subprocess.treeherder.submit_complete(
                 self.phone.id,
@@ -943,7 +956,9 @@ class PhoneTest(object):
                 sleep(self.options.phone_retry_wait)
 
         if not success:
-            self.loggerdeco.error('Failure installing profile to %s', self.profile_path)
+            self.add_failure(self.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                             'Failure installing profile to %s' % self.profile_path,
+                             TreeherderStatus.TESTFAILED)
 
         return success
 
@@ -973,24 +988,6 @@ class PhoneTest(object):
         self.dm.rm(self.profile_path + '/sessionstore.bak',
                    force=True,
                    root=root)
-
-    @property
-    def fennec_crashed(self, root=True):
-        """
-        Perform a quick check for crashes by checking
-        self.profile_path/minidumps for dump files.
-
-        """
-        if self.dm.exists(os.path.join(self.profile_path, 'minidumps', '*.dmp'),
-                          root=root):
-            self.loggerdeco.info('fennec crashed')
-            return True
-        if self.dm.exists(
-                '/data/data/%s/files/mozilla/Crash\\ Reports/pending/*.dmp' % self.build.app_name,
-                root=root):
-            self.loggerdeco.info('fennec crashed, but minidumps are in Pending Crash Reports.')
-            return True
-        return False
 
 
 def _normalize_testpath(testpath):

@@ -13,7 +13,7 @@ from time import sleep
 import utils
 
 from perftest import PerfTest, PerfherderArtifact, PerfherderSuite, PerfherderOptions
-from phonetest import PhoneTest
+from phonetest import TreeherderStatus, TestStatus
 
 
 class S1S2Test(PerfTest):
@@ -68,16 +68,16 @@ class S1S2Test(PerfTest):
 
         if not self.install_local_pages():
             self.add_failure(
-                self.name, 'TEST-UNEXPECTED-FAIL',
+                self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Aborting test - Could not install local pages on phone.',
-                PhoneTest.EXCEPTION)
+                TreeherderStatus.EXCEPTION)
             return is_test_completed
 
         if not self.create_profile():
             self.add_failure(
-                self.name, 'TEST-UNEXPECTED-FAIL',
+                self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Aborting test - Could not run Fennec.',
-                PhoneTest.BUSTED)
+                TreeherderStatus.BUSTED)
             return is_test_completed
 
         perfherder_options = PerfherderOptions(self.perfherder_options,
@@ -85,8 +85,6 @@ class S1S2Test(PerfTest):
         is_test_completed = True
         testcount = len(self._urls.keys())
         for testnum, (testname, url) in enumerate(self._urls.iteritems(), 1):
-            if self.fennec_crashed:
-                break
             self.loggerdeco = self.loggerdeco.clone(
                 extradict={'phoneid': self.phone.id,
                            'buildid': self.build.id,
@@ -96,15 +94,8 @@ class S1S2Test(PerfTest):
             self.loggerdeco.info('Running test (%d/%d) for %d iterations',
                                  testnum, testcount, self._iterations)
 
-            # success == False indicates that none of the attempts
-            # were successful in getting any measurement. This is
-            # typically due to a regression in the brower which should
-            # be reported.
-            success = False
             command = None
             for attempt in range(1, self.stderrp_attempts+1):
-                if self.fennec_crashed:
-                    break
                 # dataset is a list of the measurements made for the
                 # iterations for this test.
                 #
@@ -131,8 +122,6 @@ class S1S2Test(PerfTest):
                         self.handle_test_interrupt(command['reason'],
                                                    command['test_result'])
                         break
-                    if self.fennec_crashed:
-                        break
                     self.update_status(message='Attempt %d/%d for Test %d/%d, '
                                        'run %d, for url %s' %
                                        (attempt, self.stderrp_attempts,
@@ -140,30 +129,30 @@ class S1S2Test(PerfTest):
 
                     if not self.create_profile():
                         self.add_failure(
-                            url,
-                            'TEST-UNEXPECTED-FAIL',
+                            self.name,
+                            TestStatus.TEST_UNEXPECTED_FAIL,
                             'Failed to create profile',
-                            PhoneTest.TESTFAILED)
+                            TreeherderStatus.TESTFAILED)
                         continue
 
                     measurement = self.runtest(url)
-                    if measurement:
-                        self.add_pass(url)
-                    else:
+                    if not measurement:
                         self.loggerdeco.warning(
-                            '%s Failed to get uncached measurement.' % url)
+                            '%s %s Attempt %s Failed to get uncached measurement.',
+                            testname, url, attempt)
                         continue
-                    success = True
+
+                    self.add_pass(url)
                     dataset.append({'uncached': measurement})
 
                     measurement = self.runtest(url)
-                    if measurement:
-                        self.add_pass(url)
-                    else:
+                    if not measurement:
                         self.loggerdeco.warning(
                             '%s %s Attempt %s Failed to get cached measurement.',
                             testname, url, attempt)
                         continue
+
+                    self.add_pass(url)
                     dataset[-1]['cached'] = measurement
 
                     if self.is_stderr_below_threshold(
@@ -179,21 +168,20 @@ class S1S2Test(PerfTest):
                 if command and command['interrupt']:
                     break
                 measurements = len(dataset)
-                if measurements > 0 and self._iterations - measurements > 1:
-                    # Ignore a failure to get a single measurement
-                    # but treat the case where we got at least one
-                    # measurement but failed to get two or more
-                    # measurements as a reportable failure.
+                if measurements > 0 and self._iterations != measurements:
                     self.add_failure(
-                        url,
-                        'TEST-UNEXPECTED-FAIL',
-                        'Failed to get %s measurements' % (
-                            self._iterations - measurements),
-                        PhoneTest.TESTFAILED)
-                if not success:
+                        self.name,
+                        TestStatus.TEST_UNEXPECTED_FAIL,
+                        'Failed to get all measurements',
+                        TreeherderStatus.TESTFAILED)
+                elif measurements == 0:
                     # If we have not gotten a single measurement at this point,
                     # just bail and report the failure rather than wasting time
                     # continuing more attempts.
+                    self.add_failure(
+                        self.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                        'No measurements detected.',
+                        TreeherderStatus.BUSTED)
                     self.loggerdeco.info(
                         'Failed to get measurements for test %s after %d/%d attempt '
                         'of %d iterations', testname, attempt,
@@ -216,10 +204,6 @@ class S1S2Test(PerfTest):
                          self.build.tree,
                          self.build.id,
                          self.build.changeset))
-                    self.add_failure(
-                        self.name, 'TEST-UNEXPECTED-FAIL',
-                        'No measurements detected.',
-                        PhoneTest.BUSTED)
                     break
 
                 if self.is_stderr_below_threshold(
@@ -296,8 +280,6 @@ class S1S2Test(PerfTest):
 
             if command and command['interrupt']:
                 break
-            elif not success:
-                break
 
         return is_test_completed
 
@@ -313,6 +295,7 @@ class S1S2Test(PerfTest):
         starttime, throbberstart, throbberstop = self.analyze_logcat()
 
         self.wait_for_fennec()
+        self.handle_crashes()
 
         # Ensure we succeeded - no 0's reported
         datapoint = {}
@@ -430,7 +413,7 @@ class S1S2Test(PerfTest):
                     continue
                 if start_time and throbber_start_time and throbber_stop_time:
                     break
-            if self.fennec_crashed:
+            if self.handle_crashes():
                 # If fennec crashed, don't bother looking for the Throbbers
                 self.loggerdeco.warning('analyze_logcat: fennec crashed.')
                 break
@@ -440,7 +423,7 @@ class S1S2Test(PerfTest):
                 sleep(wait_time)
                 attempt += 1
         if throbber_start_time and throbber_stop_time == 0:
-            self.loggerdeco.warning('Unable to find Throbber stop')
+            self.loggerdeco.warning('analyze_logcat: Unable to find Throbber stop')
 
         # The captured time from the logcat lines is in the format
         # MM-DD HH:MM:SS.mmm. It is possible for the year to change

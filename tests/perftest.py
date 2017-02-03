@@ -17,7 +17,7 @@ from jot import jwt, jws
 
 import utils
 from build_dates import TIMESTAMP, convert_datetime_to_string
-from phonetest import PhoneTest
+from phonetest import PhoneTest, TreeherderStatus, TestStatus
 
 # PerfherderArtifact and PerfherderSuite are specific formats for
 # Perfherder as defined in:
@@ -142,6 +142,7 @@ class PerfTest(PhoneTest):
 
     def setup_job(self):
         PhoneTest.setup_job(self)
+        self.loggerdeco.debug('PerfTest.setup_job')
         self.perfherder_artifact = None
 
         if not self._resulturl:
@@ -327,10 +328,9 @@ class PerfTest(PhoneTest):
                      self.build.changeset,
                      e,
                      json.dumps(resultdata, sort_keys=True, indent=2)))
-                message = 'Error sending results to server'
-                self.status = PhoneTest.EXCEPTION
-                self.message = message
-                self.update_status(message=message)
+                message = 'Error sending results to phonedash server'
+                self.add_failure(self.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                                 message, TreeherderStatus.EXCEPTION)
 
     def dump_results(self, starttime=0, tstrt=0, tstop=0,
                      testname='', cache_enabled=True,
