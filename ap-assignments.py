@@ -55,7 +55,6 @@ device_times = {
         'smoketest.py':               {'opt': 0, 'debug': 0},
         'talostest.py tp4m-remote':   {'opt': 2, 'debug': 2},
         'talostest.py tsvg-remote':   {'opt': 2, 'debug': 2},
-        'webappstartup.py':           {'opt': 6, 'debug': 6},
     },
     'nexus-5': {
         'runtestsremote.py Cw':       {'opt': 1, 'debug': 1},
@@ -84,7 +83,6 @@ device_times = {
         'smoketest.py':               {'opt': 1, 'debug': 1},
         'talostest.py tp4m-remote':   {'opt': 2, 'debug': 2},
         'talostest.py tsvg-remote':   {'opt': 2, 'debug': 2},
-        'webappstartup.py':           {'opt': 6, 'debug': 6},
     },
     'nexus-6': {
         'runtestsremote.py Cw':       {'opt': 1, 'debug': 1},
@@ -113,7 +111,6 @@ device_times = {
         'smoketest.py':               {'opt': 1, 'debug': 1},
         'talostest.py tp4m-remote':   {'opt': 2, 'debug': 2},
         'talostest.py tsvg-remote':   {'opt': 2, 'debug': 2},
-        'webappstartup.py':           {'opt': 6, 'debug': 6},
     },
     'nexus-6p': {
         'runtestsremote.py Cw':       {'opt': 1, 'debug': 1},
@@ -142,7 +139,6 @@ device_times = {
         'smoketest.py':               {'opt': 0, 'debug': 0},
         'talostest.py tp4m-remote':   {'opt': 2, 'debug': 2},
         'talostest.py tsvg-remote':   {'opt': 2, 'debug': 2},
-        'webappstartup.py':           {'opt': 6, 'debug': 6},
     },
     'nexus-9': {
         'runtestsremote.py Cw':       {'opt': 1, 'debug': 1},
@@ -171,7 +167,6 @@ device_times = {
         'smoketest.py':               {'opt': 1, 'debug': 1},
         'talostest.py tp4m-remote':   {'opt': 2, 'debug': 2},
         'talostest.py tsvg-remote':   {'opt': 2, 'debug': 2},
-        'webappstartup.py':           {'opt': 6, 'debug': 6},
     },
     'pixel': {
         'runtestsremote.py Cw':       {'opt': 1, 'debug': 1},
@@ -200,7 +195,6 @@ device_times = {
         'smoketest.py':               {'opt': 0, 'debug': 0},
         'talostest.py tp4m-remote':   {'opt': 2, 'debug': 2},
         'talostest.py tsvg-remote':   {'opt': 2, 'debug': 2},
-        'webappstartup.py':           {'opt': 6, 'debug': 6},
     },
 }
 

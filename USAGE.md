@@ -16,10 +16,6 @@ devices can be found in the files autophone-*devicename*.log
 
         python autophone.py --devices devices.ini --test-path tests/smoketest.ini
 
-* [Run WebappStartupTest with default options](#configuring-webappstartuptest)
-
-        python autophone.py --devices devices.ini --test-path tests/webappstartup.ini
-
 * [Run S1S2Test with default options](#configuring-s1s2test)
 
         python autophone.py --devices devices.ini
@@ -257,7 +253,6 @@ You can find other examples in
 Autophone has the following tests:
 
 * Smoketest
-* WebappStartupTest
 * S1S2Test
 * UnitTest
 
@@ -334,7 +329,7 @@ Autophone command line options. See the `--repo` option in
 #### Configuring Performance Tests
 
 PerfTest is a special test class which is used as the base class for
-the performance tests WebappStartupTest and S1S2Test. It is not executed
+the performance tests S1S2Test and TalosTest. It is not executed
 directly, but serves to consolidate the common features of the Autophone
 performance tests.
 
@@ -391,25 +386,6 @@ sections.
       The iterations for a test are retried up to
       stderrp_attempts if they are rejected.
       If not set, stderrp_attempts defaults to 1.
-
-#### Configuring WebappStartupTest
-
-WebappStartupTest installs webapp-startup-test.apk, launches the app,
-then measures Web app start times by detecting `WEBAPP STARTUP
-COMPLETE` messages in logcat. It is implemented by
-[tests/webappstartup.py](tests/webappstartup.py).
-
-WebappStartupTest is a Performance test and shares the
-[Performance test configuration](#configuring-performance-tests)
-options. To create your `configs/webappstartup-settings.ini` file,
-start by copying
-[`configs/webappstartup-settings.ini.example`](webappstartup-settings.ini.example)
-to `configs/webappstartup-settings.ini` then customize the settings to
-fit your needs.
-
-Note that it is possible to also add per device options to the
-webappstartuptest.py section in the same fashion as we did for the
-Smoketest.
 
 #### Configuring S1S2Test
 
@@ -473,15 +449,6 @@ test. For example:
 
         [s1s2test.py]
         config = ../configs/s1s2-blank-local.ini
-        nexus-one-1=mozilla-inbound
-        nexus-one-2=mozilla-central
-        nexus-one-3=fx-team
-        samsung-gs2-1=fx-team
-        samsung-gs3-1=mozilla-inbound
-        samsung-gs3-2=mozilla-inbound
-
-        [webappstartup.py]
-        config = ../configs/webappstartup-settings.ini
         nexus-one-1=mozilla-inbound
         nexus-one-2=mozilla-central
         nexus-one-3=fx-team
