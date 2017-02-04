@@ -93,8 +93,8 @@ class S1S2Test(PerfTest):
                            'testname': testname},
                 extraformat='S1S2TestJob|%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
-            self.loggerdeco.info('Running test (%d/%d) for %d iterations' %
-                                 (testnum, testcount, self._iterations))
+            self.loggerdeco.info('Running test (%d/%d) for %d iterations',
+                                 testnum, testcount, self._iterations)
 
             # success == False indicates that none of the attempts
             # were successful in getting any measurement. This is
@@ -161,7 +161,8 @@ class S1S2Test(PerfTest):
                         self.add_pass(url)
                     else:
                         self.loggerdeco.warning(
-                            '%s Failed to get cached measurement.' % url)
+                            '%s %s Attempt %s Failed to get cached measurement.',
+                            testname, url, attempt)
                         continue
                     dataset[-1]['cached'] = measurement
 
@@ -171,8 +172,8 @@ class S1S2Test(PerfTest):
                             dataset,
                             self.stderrp_accept):
                         self.loggerdeco.info(
-                            'Accepted test (%d/%d) after %d of %d iterations' %
-                            (testnum, testcount, iteration, self._iterations))
+                            'Accepted test (%d/%d) after %d of %d iterations',
+                            testnum, testcount, iteration, self._iterations)
                         break
 
                 if command and command['interrupt']:
@@ -195,9 +196,8 @@ class S1S2Test(PerfTest):
                     # continuing more attempts.
                     self.loggerdeco.info(
                         'Failed to get measurements for test %s after %d/%d attempt '
-                        'of %d iterations' % (testname, attempt,
-                                              self.stderrp_attempts,
-                                              self._iterations))
+                        'of %d iterations', testname, attempt,
+                        self.stderrp_attempts, self._iterations)
                     self.worker_subprocess.mailer.send(
                         '%s %s failed for Build %s %s on %s %s' %
                         (self.__class__.__name__, testname, self.build.tree,
@@ -231,8 +231,8 @@ class S1S2Test(PerfTest):
                 else:
                     rejected = True
                     self.loggerdeco.info(
-                        'Rejected test (%d/%d) after %d/%d iterations' %
-                        (testnum, testcount, iteration, self._iterations))
+                        'Rejected test (%d/%d) after %d/%d iterations',
+                        testnum, testcount, iteration, self._iterations)
 
                 self.loggerdeco.debug('publishing results')
 
@@ -289,7 +289,7 @@ class S1S2Test(PerfTest):
 
                 self.perfherder_artifact = PerfherderArtifact()
                 self.perfherder_artifact.add_suite(perfherder_suite)
-                self.loggerdeco.debug("PerfherderArtifact: %s" % self.perfherder_artifact)
+                self.loggerdeco.debug("PerfherderArtifact: %s", self.perfherder_artifact)
 
                 if not rejected:
                     break
@@ -356,11 +356,11 @@ class S1S2Test(PerfTest):
                                             throbber_stop_time == 0)):
             buf = self.worker_subprocess.logcat.get()
             for line in buf:
-                self.loggerdeco.debug('analyze_logcat: %s' % line)
+                self.loggerdeco.debug('analyze_logcat: %s', line)
                 match = re_base_time.match(line)
                 if match and not base_time:
                     base_time = match.group(1)
-                    self.loggerdeco.info('analyze_logcat: base_time: %s' %
+                    self.loggerdeco.info('analyze_logcat: base_time: %s',
                                          base_time)
                 # We want the Fennec application start message, or the
                 # Start proc message or the first gecko related
@@ -374,8 +374,8 @@ class S1S2Test(PerfTest):
                         start_time = match.group(1)
                         start_time_reason = match.group(2)
                         self.loggerdeco.info(
-                            'analyze_logcat: new start_time: %s %s' %
-                            (start_time, start_time_reason))
+                            'analyze_logcat: new start_time: %s %s',
+                            start_time, start_time_reason)
                 match = re_start_time.match(line)
                 if match:
                     group1 = match.group(1)
@@ -384,8 +384,8 @@ class S1S2Test(PerfTest):
                         start_time = group1
                         start_time_reason = group2
                         self.loggerdeco.info(
-                            'analyze_logcat: new start_time: %s %s' %
-                            (start_time, start_time_reason))
+                            'analyze_logcat: new start_time: %s %s',
+                            start_time, start_time_reason)
                     elif (fennec_start in group2 and
                           fennec_start not in start_time_reason):
                         # Only use the first if there are multiple
@@ -393,19 +393,19 @@ class S1S2Test(PerfTest):
                         start_time = group1
                         start_time_reason = group2
                         self.loggerdeco.info(
-                            'analyze_logcat: updated start_time: %s %s' %
-                            (start_time, start_time_reason))
+                            'analyze_logcat: updated start_time: %s %s',
+                            start_time, start_time_reason)
                     elif (fennec_start not in start_time_reason and
                           group2.startswith('Start proc')):
                         start_time = group1
                         start_time_reason = group2
                         self.loggerdeco.info(
-                            'analyze_logcat: updated start_time: %s %s' %
-                            (start_time, start_time_reason))
+                            'analyze_logcat: updated start_time: %s %s',
+                            start_time, start_time_reason)
                     else:
                         self.loggerdeco.info(
-                            'analyze_logcat: ignoring start_time: %s %s' %
-                            (group1, group2))
+                            'analyze_logcat: ignoring start_time: %s %s',
+                            group1, group2)
                     continue
                 # We want the first throbberstart and throbberstop
                 # after the start_time.
@@ -415,17 +415,17 @@ class S1S2Test(PerfTest):
                         self.loggerdeco.warning(
                             'analyze_logcat: throbber_start_time: %s '
                             'missing throbber_stop. Resetting '
-                            'throbber_start_time.' % throbber_start_time)
+                            'throbber_start_time.', throbber_start_time)
                     throbber_start_time = match.group(1)
                     self.loggerdeco.info(
-                        'analyze_logcat: throbber_start_time: %s' %
+                        'analyze_logcat: throbber_start_time: %s',
                         throbber_start_time)
                     continue
                 match = re_throbber_stop_time.match(line)
                 if match and not throbber_stop_time:
                     throbber_stop_time = match.group(1)
                     self.loggerdeco.info(
-                        'analyze_logcat: throbber_stop_time: %s' %
+                        'analyze_logcat: throbber_stop_time: %s',
                         throbber_stop_time)
                     continue
                 if start_time and throbber_start_time and throbber_stop_time:
@@ -462,9 +462,9 @@ class S1S2Test(PerfTest):
 
             self.loggerdeco.debug('analyze_logcat: before year adjustment '
                                   'base: %s, start: %s, '
-                                  'throbber start: %s' %
-                                  (base_time, start_time,
-                                   throbber_start_time))
+                                  'throbber start: %s',
+                                  base_time, start_time,
+                                  throbber_start_time)
 
             if base_time > start_time:
                 base_time.replace(year=year-1)
@@ -478,9 +478,9 @@ class S1S2Test(PerfTest):
 
             self.loggerdeco.debug('analyze_logcat: after year adjustment '
                                   'base: %s, start: %s, '
-                                  'throbber start: %s' %
-                                  (base_time, start_time,
-                                   throbber_start_time))
+                                  'throbber start: %s',
+                                  base_time, start_time,
+                                  throbber_start_time)
 
             # Convert the times to milliseconds from the base time.
             convert = lambda t1, t2: round((t2 - t1).total_seconds() * 1000.0)
@@ -491,10 +491,10 @@ class S1S2Test(PerfTest):
 
             self.loggerdeco.debug('analyze_logcat: base: %s, start: %s, '
                                   'throbber start: %s, throbber stop: %s, '
-                                  'throbber time: %s ' %
-                                  (base_time, start_time,
-                                   throbber_start_time, throbber_stop_time,
-                                   throbber_stop_time - throbber_start_time))
+                                  'throbber time: %s',
+                                  base_time, start_time,
+                                  throbber_start_time, throbber_stop_time,
+                                  throbber_stop_time - throbber_start_time)
 
             if start_time > throbber_start_time or \
                start_time > throbber_stop_time or \
@@ -509,8 +509,8 @@ class S1S2Test(PerfTest):
         else:
             self.loggerdeco.warning(
                 'analyze_logcat: failed to get measurements '
-                'start_time: %s, throbber start: %s, throbber stop: %s' % (
-                    start_time, throbber_start_time, throbber_stop_time))
+                'start_time: %s, throbber start: %s, throbber stop: %s',
+                start_time, throbber_start_time, throbber_stop_time)
             start_time = throbber_start_time = throbber_stop_time = 0
 
         return (start_time, throbber_start_time, throbber_stop_time)

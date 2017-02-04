@@ -40,7 +40,7 @@ class TalosTest(PerfTest):
                     manifest = self._tests[test_name]
 
                     if not os.path.exists(manifest):
-                        self.loggerdeco.debug('ignoring manifest for %s' % manifest)
+                        self.loggerdeco.debug('ignoring manifest for %s', manifest)
                         continue
 
                     with open(manifest, 'r') as fHandle:
@@ -75,15 +75,15 @@ class TalosTest(PerfTest):
 
                     self.loggerdeco.debug(
                         'generating manifest: test_location: %s, test_path: %s, '
-                        'test_name: %s, manifest: %s, extra_args: %s' %
-                        (test_location, test_name, test_path, manifest,
-                         extra_args))
+                        'test_name: %s, manifest: %s, extra_args: %s',
+                        test_location, test_name, test_path, manifest,
+                        extra_args)
 
                 except Exception:
                     self.loggerdeco.exception(
                         'generating manifest: test_location: %s, test_path: %s, '
-                        'test_name: %s, manifest: %s' %
-                        (test_location, test_name, test_path, manifest))
+                        'test_name: %s, manifest: %s',
+                        test_location, test_name, test_path, manifest)
                     raise
 
         self.loggerdeco.debug('TalosTest: %s', self.__dict__)
@@ -125,8 +125,8 @@ class TalosTest(PerfTest):
                            'testname': testname},
                 extraformat='TalosTestJob|%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
             self.dm._logger = self.loggerdeco
-            self.loggerdeco.info('Running test (%d/%d)' %
-                                 (testnum, testcount))
+            self.loggerdeco.info('Running test (%d/%d)',
+                                 testnum, testcount)
 
             # success == False indicates that none of the attempts
             # were successful in getting any measurement. This is
@@ -175,7 +175,7 @@ class TalosTest(PerfTest):
                 # just bail and report the failure rather than wasting time
                 # continuing more attempts.
                 self.loggerdeco.info(
-                    'Failed to get measurements for test %s' % (testname))
+                    'Failed to get measurements for test %s', testname)
                 self.worker_subprocess.mailer.send(
                     '%s %s failed for Build %s %s on %s %s' %
                     (self.__class__.__name__, testname, self.build.tree,
@@ -264,7 +264,7 @@ I/GeckoDump( 2284): __startTimestamp1433438438092__endTimestamp
         while attempt <= max_attempts and pageload_metric['summary'] == 0:
             buf = self.worker_subprocess.logcat.get()
             for line in buf:
-                self.loggerdeco.debug('analyze_logcat: %s' % line)
+                self.loggerdeco.debug('analyze_logcat: %s', line)
                 if re_end_report.match(line):
                     # calculate score
                     data = []

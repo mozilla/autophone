@@ -5,7 +5,6 @@
 
 import ConfigParser
 import os
-import sys
 from glob import glob
 
 from utils import autophone_path
