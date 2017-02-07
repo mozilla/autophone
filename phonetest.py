@@ -617,9 +617,7 @@ class PhoneTest(object):
         self.message = text
         self.update_status(message=text)
         testpath = _normalize_testpath(testpath)
-        if self.status == TreeherderStatus.SUCCESS:
-            # Only use the first testresult_status when reporting to Treeherder.
-            self.status = testresult_status
+        self.status = testresult_status
         self.failed += 1
         self.loggerdeco.info(' %s | %s | %s', test_status, testpath, text)
 
