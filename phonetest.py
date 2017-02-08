@@ -845,21 +845,21 @@ class PhoneTest(object):
                 self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Exception %s during crash processing' % e,
                 TreeherderStatus.EXCEPTION)
-        if self.loggerdeco.getEffectiveLevel() == logging.DEBUG and \
-           self.unittest_logpath and os.path.exists(self.unittest_logpath):
-            self.loggerdeco.debug(40 * '=')
+        if self.loggerdeco.getEffectiveLevel() == logging.DEBUG:
+            if self.unittest_logpath and os.path.exists(self.unittest_logpath):
+                self.loggerdeco.debug(40 * '=')
+                try:
+                    logfilehandle = open(self.unittest_logpath)
+                    self.loggerdeco.debug(logfilehandle.read())
+                    logfilehandle.close()
+                except:
+                    self.loggerdeco.exception('Exception loading log')
+                self.loggerdeco.debug(40 * '-')
+            self.loggerdeco.debug('phonetest.teardown_job full logcat after job:')
             try:
-                logfilehandle = open(self.unittest_logpath)
-                self.loggerdeco.debug(logfilehandle.read())
-                logfilehandle.close()
-            except Exception:
-                self.loggerdeco.exception('Exception %s loading log')
-            self.loggerdeco.debug(40 * '-')
-        # Log the current full contents of logcat, then reset the
-        # logcat buffers to help prevent the device's buffer from
-        # over flowing after the test.
-        self.loggerdeco.debug('phonetest.teardown_job full logcat after job:')
-        self.loggerdeco.debug('\n'.join(self.worker_subprocess.logcat.get(full=True)))
+                self.loggerdeco.debug('\n'.join(self.worker_subprocess.logcat.get(full=True)))
+            except:
+                self.loggerdeco.exception('Exception getting logcat')
         try:
             if self.worker_subprocess.is_disabled() and self.status != TreeherderStatus.USERCANCEL:
                 # The worker was disabled while running one test of a job.
@@ -899,6 +899,8 @@ class PhoneTest(object):
         self.start_time = None
         self.stop_time = None
         self.unittest_logpath = None
+        # Reset the logcat buffers to help prevent the device's buffer
+        # from over flowing after the test.
         self.worker_subprocess.logcat.reset()
         if self.loggerdeco_original:
             self.loggerdeco = self.loggerdeco_original

@@ -755,8 +755,6 @@ class PhoneWorkerSubProcess(object):
         message = ''
         for attempt in range(1, self.options.phone_retry_limit+1):
             uninstalled = False
-            if not self.is_ok():
-                break
             try:
                 # Uninstall all org.mozilla.(fennec|firefox) packages
                 # to make sure there are no previous installations of
@@ -774,11 +772,17 @@ class PhoneWorkerSubProcess(object):
                 uninstalled = True
                 break
             except ADBError, e:
-                if e.message.find('Failure') != -1:
-                    # Failure indicates the failure was due to the
-                    # app not being installed.
+                # Failure in the exception message indicates the
+                # failure was due to the app not being installed.
+                if e.message.find('Failure') == -1:
+                    message = 'Exception uninstalling fennec attempt %d!\n\n%s' % (
+                        attempt, traceback.format_exc())
+                    self.loggerdeco.exception('Exception uninstalling fennec '
+                                              'attempt %d', attempt)
+                    self.ping()
+                else:
                     uninstalled = True
-                break
+                    break
             except ADBTimeoutError, e:
                 message = 'Timed out uninstalling fennec attempt %d!\n\n%s' % (
                     attempt, traceback.format_exc())
@@ -793,8 +797,6 @@ class PhoneWorkerSubProcess(object):
 
         message = ''
         for attempt in range(1, self.options.phone_retry_limit+1):
-            if not self.is_ok():
-                break
             try:
                 self.dm.install_app(os.path.join(self.build.dir,
                                                  'build.apk'))
@@ -904,7 +906,10 @@ class PhoneWorkerSubProcess(object):
                 self.ping(test=t)
 
             if job['attempts'] >= jobs.Jobs.MAX_ATTEMPTS:
-                t.status = TreeherderStatus.BUSTED
+                t.add_failure(
+                    t.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                    "Job aborted: Exceeded maximum number of attempts: %s" % job,
+                    TreeherderStatus.BUSTED)
             elif t.status != TreeherderStatus.USERCANCEL and \
                not is_test_completed:
                 # This test did not run successfully and we have not
@@ -994,6 +999,37 @@ class PhoneWorkerSubProcess(object):
         if not cache_response['success']:
             self.loggerdeco.warning('Errors occured getting build %s: %s',
                                     job['build_url'], cache_response['error'])
+            if job['attempts'] >= jobs.Jobs.MAX_ATTEMPTS:
+                # We need to create a BuildMetadata object to use
+                # while tearing down the job since we were unable to
+                # download the build.
+                self.build = BuildMetadata(url=job['build_url'],
+                                           tree=job['tree'],
+                                           buildid=job['build_id'],
+                                           revision=job['revision'],
+                                           changeset=job['changeset'],
+                                           changeset_dirs=job['changeset_dirs'],
+                                           build_type=job['build_type'],
+                                           treeherder_url=self.options.treeherder_url,
+                                           abi=job['build_abi'],
+                                           sdk=job['build_sdk'],
+                                           platform=job['build_platform'],
+                                           builder_type=job['builder_type'])
+                for t in job['tests']:
+                    t.add_failure(
+                        t.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                        "Job aborted: Exceeded maximum number of attempts: %s" % job,
+                        TreeherderStatus.BUSTED)
+                    try:
+                        t.teardown_job()
+                    except:
+                        self.loggerdeco.exception('device error during '
+                                                  '%s.teardown_job', t.name)
+                        message = ('Uncaught device error during %s.teardown_job\n\n%s' % (
+                            t.name, traceback.format_exc()))
+                        t.add_failure(
+                            t.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                            message, TreeherderStatus.EXCEPTION)
             return
         self.build = BuildMetadata().from_json(cache_response['metadata'])
         self.loggerdeco.info('Starting job %s.', job['build_url'])
@@ -1004,11 +1040,11 @@ class PhoneWorkerSubProcess(object):
         else:
             if job['attempts'] >= jobs.Jobs.MAX_ATTEMPTS:
                 for t in job['tests']:
-                    t.status = TreeherderStatus.BUSTED
+                    t.add_failure(
+                        t.name, TestStatus.TEST_UNEXPECTED_FAIL,
+                        "Job aborted: Exceeded maximum number of attempts: %s" % job,
+                        TreeherderStatus.BUSTED)
                     t.teardown_job()
-                self.loggerdeco.warning(
-                    'Job aborted: Exceeded maximum number of attempts: %s', job)
-                self.jobs.job_completed(job['id'])
             else:
                 # Decrement the job attempts so that the remaining
                 # tests aren't dropped simply due to a device error or
