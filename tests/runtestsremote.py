@@ -136,10 +136,16 @@ class UnitTest(PhoneTest):
     def teardown_job(self):
         PhoneTest.teardown_job(self)
         roboexampletest = 'org.mozilla.roboexample.test'
-        if self.dm.is_app_installed(roboexampletest):
-            self.dm.uninstall_app(roboexampletest)
-        if self.dm.is_app_installed(FLASH_PACKAGE):
-            self.dm.uninstall_app(FLASH_PACKAGE)
+        try:
+            if self.dm.is_app_installed(roboexampletest):
+                self.dm.uninstall_app(roboexampletest)
+        except:
+            self.loggerdeco.exception('Failure uninstalling %s', roboexampletest)
+        try:
+            if self.dm.is_app_installed(FLASH_PACKAGE):
+                self.dm.uninstall_app(FLASH_PACKAGE)
+        except:
+            self.loggerdeco.exception('Failure uninstalling %s', FLASH_PACKAGE)
 
     def run_job(self):
         self.loggerdeco.debug('runtestsremote.py run_job start')
