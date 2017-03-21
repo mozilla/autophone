@@ -329,7 +329,6 @@ class UnitTest(PhoneTest):
         pid_file = os.path.basename(temppath)
 
         common_args = [
-            '--dm_trans=adb',
             '--deviceSerial=%s' % self.phone.serial,
             '--remoteTestRoot=%s' % self.base_device_path,
             '--app=%s' % self.parms['app_name'],
