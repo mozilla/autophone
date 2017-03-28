@@ -345,11 +345,16 @@ def get_changeset_dirs(changeset_url, max_changesets=32):
             diff = get_remote_text(url)
             if diff:
                 for line in diff.splitlines():
-                    if line.find('/dev/null') != -1:
+                    if line.startswith('#') or line.find('/dev/null') != -1:
                         continue
-                    if line.startswith('+++') or line.startswith('---'):
+                    if line.startswith('+++ b/') or line.startswith('--- a/'):
                         # skip markers, space and leading slash
                         path = os.path.dirname(line[6:])
+                        # Note that if the changeset was due to a
+                        # change in a top level file or tagging of a
+                        # branch, then path will be empty which will
+                        # result in all directory restricted tests
+                        # running which is alright.
                         dirs_set.add(path)
             else:
                 LOGGER.debug('get_changeset_dirs: Could not find diff for '
