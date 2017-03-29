@@ -188,6 +188,7 @@ class UnitTest(PhoneTest):
         try:
             is_test_completed = self.runtest()
         except:
+            is_test_completed = False
             # This exception handler deals with exceptions which occur outside
             # of the actual test runner. Exceptions from the test runner
             # are handled locally in runtest.
@@ -524,8 +525,10 @@ class UnitTest(PhoneTest):
             self.update_status(message=self.message)
             self.loggerdeco.error(self.message)
             self.status = TreeherderStatus.EXCEPTION
-            self.parms['port_manager'].release(self.parms['http_port'])
-            self.parms['port_manager'].release(self.parms['ssl_port'])
+            if 'http_port' in self.parms:
+                self.parms['port_manager'].release(self.parms['http_port'])
+            if 'ssl_port' in self.parms:
+                self.parms['port_manager'].release(self.parms['ssl_port'])
             if 'turn_port' in self.parms:
                 self.parms['port_manager'].release(self.parms['turn_port'])
         finally:
