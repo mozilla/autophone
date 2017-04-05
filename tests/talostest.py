@@ -136,7 +136,6 @@ class TalosTest(PerfTest):
                 test=self, require_ip_address=testname.startswith('remote'))
 
             if command['interrupt']:
-                is_test_completed = False
                 self.handle_test_interrupt(command['reason'],
                                            command['test_result'])
                 break

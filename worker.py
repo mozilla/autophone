@@ -857,7 +857,7 @@ class PhoneWorkerSubProcess(object):
         self.loggerdeco.info('Running tests for job %s', job)
         for t in job['tests']:
             if t.status == TreeherderStatus.USERCANCEL:
-                self.loggerdeco.info('Skipping Cancelled test %s', t.name)
+                self.loggerdeco.info('Skipping Canceled test %s', t.name)
                 continue
             command = self.process_autophone_cmd(test=t)
             if command['interrupt'] or \
@@ -1057,7 +1057,7 @@ class PhoneWorkerSubProcess(object):
         for t in self.tests:
             if t.status == TreeherderStatus.USERCANCEL:
                 self.loggerdeco.warning(
-                    'Job %s, Cancelled Test: %s was not reset after '
+                    'Job %s, Canceled Test: %s was not reset after '
                     'the Job completed', job, t)
                 t.status = TreeherderStatus.SUCCESS
         if self.is_ok() and not self.is_disabled():

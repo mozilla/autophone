@@ -118,7 +118,6 @@ class S1S2Test(PerfTest):
                     command = self.worker_subprocess.process_autophone_cmd(
                         test=self, require_ip_address=url.startswith('http'))
                     if command['interrupt']:
-                        is_test_completed = False
                         self.handle_test_interrupt(command['reason'],
                                                    command['test_result'])
                         break

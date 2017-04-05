@@ -462,9 +462,10 @@ class UnitTest(PhoneTest):
                 command = self.worker_subprocess.process_autophone_cmd(
                     test=self, require_ip_address=True)
                 if command['interrupt']:
-                    is_test_completed = False
                     proc.kill()
                     proc.wait()
+                    # Note handle_test_interrupt will add a failure
+                    # and increment self.failed.
                     self.handle_test_interrupt(command['reason'],
                                                command['test_result'])
                     break
@@ -495,7 +496,11 @@ class UnitTest(PhoneTest):
                     self.todo += int(match.group(4))
             logfilehandle.close()
             logfilehandle = None
-            if self.failed > 0:
+            self.loggerdeco.debug('self.failed = %s, self.status = %s', self.failed, self.status)
+            if self.failed > 0 and self.status == TreeherderStatus.SUCCESS:
+                # Handle case where we have counted a failure but not
+                # set the Treeherder status to a non-success result.
+                self.loggerdeco.debug('self.failed > 0 ... setting self.status = TreeherderStatus.TESTFAILED')
                 self.status = TreeherderStatus.TESTFAILED
 
             if proc.returncode != 0:
@@ -505,10 +510,15 @@ class UnitTest(PhoneTest):
                 # if no other failures were detected. Otherwise we
                 # would be counting an error twice.
                 if self.failed == 0:
+                    if self.status == TreeherderStatus.USERCANCEL:
+                        treeherder_status = TreeherderStatus.USERCANCEL
+                    else:
+                        treeherder_status = TreeherderStatus.TESTFAILED
+
                     self.add_failure(
                         self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                         self.message,
-                        TreeherderStatus.TESTFAILED)
+                        treeherder_status)
 
             self.loggerdeco.info('runtestsremote.py return code %d' %
                                  proc.returncode)

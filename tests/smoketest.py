@@ -63,7 +63,6 @@ class SmokeTest(PhoneTest):
                 found_throbber = self.check_throbber()
 
         if command and command['interrupt']:
-            is_test_completed = False
             self.handle_test_interrupt(command['reason'],
                                        command['test_result'])
         elif self.handle_crashes():

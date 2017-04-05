@@ -526,6 +526,8 @@ class AutophonePulseMonitor(object):
         url = '%s/api/jobdetail/?repository=%s&job_id=%s' % (
             self.treeherder_url, project, job['id'])
         data = utils.get_remote_json(url)
+        LOGGER.debug("get_treeherder_privatebuild_info: data: %s", data)
+
         privatebuild_keys = set(['build_url', 'config_file', 'chunk',
                                  'builder_type'])
         info = {}
@@ -542,8 +544,9 @@ class AutophonePulseMonitor(object):
         # return None to avoid errors.
         missing_keys = privatebuild_keys - set(info.keys())
         if missing_keys:
-            LOGGER.warning("get_treeherder_privatebuild_info: privatebuild "
-                           "info missing keys: %s", missing_keys)
+            LOGGER.warning("get_treeherder_privatebuild_info: %s "
+                           "missing keys: %s "
+                           "job: %s", url, missing_keys, job)
             return None
 
         return info
