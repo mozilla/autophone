@@ -154,12 +154,7 @@ class AutoPhone(object):
                 jobaction_callback=self.on_jobaction,
                 treeherder_url=self.options.treeherder_url,
                 trees=options.repos,
-                platforms=['android',
-                           'android-api-9',
-                           'android-api-10',
-                           'android-api-11',
-                           'android-api-15',
-                           'android-x86'],
+                platforms=['android-api-15'],
                 buildtypes=options.buildtypes,
                 durable_queues=self.options.pulse_durable_queue,
                 shared_lock=self.shared_lock,
@@ -1186,12 +1181,7 @@ def autophone_runner(options):
 
 
     product = 'fennec'
-    build_platforms = ['android',
-                       'android-api-9',
-                       'android-api-10',
-                       'android-api-11',
-                       'android-api-15',
-                       'android-x86']
+    build_platforms = ['android-api-15']
     buildfile_ext = '.apk'
     try:
         build_cache = builds.BuildCache(
