@@ -204,6 +204,19 @@ class UnitTest(PhoneTest):
                 fcntl.lockf(lock_filehandle, fcntl.LOCK_UN)
                 lock_filehandle.close()
 
+        # Failure screenshots are irrelevent since they are of the host
+        # and not the device and pose a potential information disclosure.
+        # While failure screenshots can be disabled via command line arguments,
+        # timeout failure screenshots can not be disabled.
+        for screenshot in glob.glob(os.path.join(self.upload_dir,
+                                                 '*test-fail-screenshot*')):
+            try:
+                self.loggerdeco.debug('runtestsremote.py deleting %s',
+                                      screenshot)
+                os.unlink(screenshot)
+            except Exception, e:
+                self.loggerdeco.debug('runtestsremote.py exception %s '
+                                      'deleting %s', e, screenshot)
         self.loggerdeco.debug('runtestsremote.py run_job exit')
         self.update_status(message='runtestsremote.py run_job exit')
         return is_test_completed
