@@ -154,6 +154,16 @@ class AutophoneTreeherder(object):
 
         LOGGER.info('creating Treeherder job %s for %s %s, revision: %s',
                     t.job_guid, t.name, project, revision)
+        if not t.job_guid:
+            LOGGER.error(
+                '_create_job: invalid job_guid %s for test %s, '
+                'machine: %s, build_url: %s, project: %s, revision: %s, '
+                'build_type: %s, build_abi: %s, build_platform: %s, '
+                'build_sdk: %s, builder_type: %s',
+                t.name, t.job_guid, machine, build_url, project,
+                revision, build_type, build_abi, build_platform,
+                build_sdk, builder_type)
+            raise Exception('Can not create Treeherder Job with invalid test job_guid')
 
         LOGGER.debug('AutophoneTreeherder.create_job: test config_file=%s, config sections=%s',
                      t.config_file, t.cfg.sections())

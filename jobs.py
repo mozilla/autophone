@@ -204,6 +204,13 @@ class Jobs(object):
                     continue
             new_tests.append(test)
             test.generate_guid()
+            if not test.job_guid:
+                LOGGER.error(
+                    'jobs.new_job: invalid job_guid: %s, device: %s, '
+                    'name: %s, config_file: %s, chunk: %s, repos: %s',
+                    build_url, device, test.name, test.config_file,
+                    test.chunk, repos)
+                raise Exception('Can not insert test with invalid job_guid')
             self._execute_sql(
                 conn,
                 'insert into tests values (?, ?, ?, ?, ?, ?, ?)',
@@ -329,6 +336,9 @@ class Jobs(object):
                    test.config_file == test_row['config_file'] and \
                    test.chunk == test_row['chunk'] and \
                    test.repos == test_row['repos']:
+                    if not test_row['guid']:
+                        LOGGER.error('jobs.get_next_job: invalid job_guid: %s', job)
+                        raise Exception('Found test with invalid job_guid')
                     test.job_guid = test_row['guid']
                     job['tests'].append(test)
         LOGGER.debug('jobs.get_next_job: %s', job)
