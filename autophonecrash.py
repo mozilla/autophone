@@ -291,11 +291,8 @@ class AutophoneCrashProcessor(object):
             # minidumps directory is automatically created when Fennec
             # (first) starts, so its lack of presence is a hint that
             # something went wrong.
-            LOGGER.warning("Automation Error: No crash directory (%s) "
+            LOGGER.warning("No crash directory (%s) "
                            "found on remote device", self.remote_dump_dir)
-            crashes.append(
-                {'reason': TestStatus.TEST_UNEXPECTED_FAIL,
-                 'signature': "No crash directory (%s) found on remote device" % self.remote_dump_dir})
             return crashes
         # Create a temporary directory to hold the dump files from the
         # device.  This will allow us to accumulate a number of
