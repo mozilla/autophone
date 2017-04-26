@@ -544,9 +544,9 @@ class AutophonePulseMonitor(object):
         # return None to avoid errors.
         missing_keys = privatebuild_keys - set(info.keys())
         if missing_keys:
-            LOGGER.warning("get_treeherder_privatebuild_info: %s "
-                           "missing keys: %s "
-                           "job: %s", url, missing_keys, job)
+            LOGGER.debug("get_treeherder_privatebuild_info: %s "
+                         "missing keys: %s "
+                         "job: %s", url, missing_keys, job)
             return None
 
         return info
