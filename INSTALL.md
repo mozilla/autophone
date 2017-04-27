@@ -36,11 +36,10 @@ S1S2Test measures fennec load times for web pages,
 served both remotely and from a local file.
 
 The pages to be served are located in autophone/files/base/ and
-autophone/files/s1s2/. The twitter test pages are retrieved from
-https://git.mozilla.org/?p=automation/ep1.git;a=summary and placed in
-autophone/files/ep1/twitter.com via
-
-    git submodule update --init --remote
+autophone/files/s1s2/. The twitter and nytimes test pages are not
+available publicly due to copyright issues. They are placed in
+autophone/files/ep1/twitter.com and autophone/files/ep1/nytimes.
+Contact bc or jmaher for how to obtain copies if necessary.
 
 You will need a way to serve them (FIXME: autophone should do
 this). If you're using phonedash, it can serve the files by just
