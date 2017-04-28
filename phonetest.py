@@ -2,14 +2,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import calendar
 import ConfigParser
 import datetime
 import glob
-import logging
 import os
 import posixpath
-import pytz
 import urlparse
 import re
 import sys
@@ -49,7 +46,7 @@ class PhoneTest(object):
               config_file=None, job_guid=None,
               repo=None, build_type=None, build_abi=None, build_sdk=None, changeset_dirs=None):
 
-        logger = logging.getLogger()
+        logger = utils.getLogger()
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
                      'config_file: %s, job_guid: %s, '
                      'repo: %s, build_type: %s, '
@@ -156,13 +153,12 @@ class PhoneTest(object):
         self.worker_subprocess = None
         self.options = options
 
-        logger = logging.getLogger()
+        logger = utils.getLogger(name=self.phone.id)
         self.loggerdeco = LogDecorator(logger,
-                                       {'phoneid': self.phone.id},
-                                       'PhoneTest|%(phoneid)s|%(message)s')
+                                       {},
+                                       '%(message)s')
         self.loggerdeco_original = None
         self.dm_logger_original = None
-        self.loggerdeco.info('init autophone.phonetest')
         # Test result
         self.status = TreeherderStatus.SUCCESS
         self.passed = 0
@@ -276,7 +272,7 @@ class PhoneTest(object):
         except ConfigParser.NoSectionError:
             self.buildtypes = list(self.options.buildtypes)
 
-        self.loggerdeco.debug('PhoneTest: %s', self.__dict__)
+        self.loggerdeco.info('PhoneTest: %s', self.__dict__)
 
     def __str__(self):
         return '%s(%s, config_file=%s, chunk=%s, buildtypes=%s)' % (
@@ -308,12 +304,10 @@ class PhoneTest(object):
                         break
 
     def set_worker_subprocess(self, worker_subprocess):
-        logger = logging.getLogger()
+        logger = utils.getLogger()
         self.loggerdeco = LogDecorator(logger,
-                                       {'phoneid': self.phone.id},
-                                       'PhoneTestSubProcess|%(phoneid)s|%(message)s')
-
-        self.loggerdeco.debug('PhoneTest.set_worker_subprocess')
+                                       {},
+                                       '%(message)s')
 
         self.loggerdeco_original = None
         self.dm_logger_original = None
@@ -772,20 +766,15 @@ class PhoneTest(object):
         # Log the current full contents of logcat, then clear the
         # logcat buffers to help prevent the device's buffer from
         # over flowing during the test.
-        self.loggerdeco.debug('PhoneTest.teardown_job')
+        self.worker_subprocess.log_step('Setup Test')
         self.start_time = datetime.datetime.utcnow()
         self.stop_time = self.start_time
         # Clear the Treeherder job details.
         self.job_details = []
-        self.loggerdeco.debug('full logcat before job:')
-        try:
-            self.loggerdeco.debug('\n'.join(self.worker_subprocess.logcat.get(full=True)))
-        except:
-            self.loggerdeco.exception('Exception getting logcat')
         try:
             self.worker_subprocess.logcat.reset()
         except:
-            self.loggerdeco.exception('Exception resetting logcat')
+            self.loggerdeco.exception('Exception resetting logcat before test')
         self.worker_subprocess.treeherder.submit_running(
             self.phone.id,
             self.build.url,
@@ -802,12 +791,14 @@ class PhoneTest(object):
         # self.dm._logger can raise ADBTimeoutError due to the
         # property dm therefore place it after the initialization.
         self.dm_logger_original = self.dm._logger
-        logger = logging.getLogger()
+        logger = utils.getLogger()
         self.loggerdeco = LogDecorator(logger,
-                                       {'phoneid': self.phone.id,
-                                        'buildid': self.build.id,
-                                        'test': self.name},
-                                       'PhoneTestJob|%(phoneid)s|%(buildid)s|%(test)s|'
+                                       {
+                                           'buildid': self.build.id,
+                                           'buildtype': self.build.type,
+                                           'test': self.name
+                                       },
+                                       'PhoneTestJob %(buildid)s %(buildtype)s %(test)s '
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
         self.loggerdeco.info('PhoneTest starting job')
@@ -845,21 +836,25 @@ class PhoneTest(object):
                 self.name, TestStatus.TEST_UNEXPECTED_FAIL,
                 'Exception %s during crash processing' % e,
                 TreeherderStatus.EXCEPTION)
-        if self.loggerdeco.getEffectiveLevel() == logging.DEBUG:
-            if self.unittest_logpath and os.path.exists(self.unittest_logpath):
-                self.loggerdeco.debug(40 * '=')
-                try:
-                    logfilehandle = open(self.unittest_logpath)
-                    self.loggerdeco.debug(logfilehandle.read())
-                    logfilehandle.close()
-                except:
-                    self.loggerdeco.exception('Exception loading log')
-                self.loggerdeco.debug(40 * '-')
-            self.loggerdeco.debug('phonetest.teardown_job full logcat after job:')
+        if self.unittest_logpath and os.path.exists(self.unittest_logpath):
+            self.worker_subprocess.log_step('Unittest Log')
             try:
-                self.loggerdeco.debug('\n'.join(self.worker_subprocess.logcat.get(full=True)))
+                logfilehandle = open(self.unittest_logpath)
+                for logline in logfilehandle.read().splitlines():
+                    self.loggerdeco.info(logline)
+                logfilehandle.close()
             except:
-                self.loggerdeco.exception('Exception getting logcat')
+                self.loggerdeco.exception('Exception loading log %s', self.unittest_log)
+            finally:
+                os.unlink(self.unittest_logpath)
+                self.unittest_logpath = None
+        # Unit tests may include the logcat output already but not all of them do.
+        self.worker_subprocess.log_step('Logcat')
+        try:
+            for logcat_line in self.worker_subprocess.logcat.get(full=True):
+                self.loggerdeco.info("logcat: %s", logcat_line)
+        except:
+            self.loggerdeco.exception('Exception getting logcat')
         try:
             if self.worker_subprocess.is_disabled() and self.status != TreeherderStatus.USERCANCEL:
                 # The worker was disabled while running one test of a job.
@@ -869,6 +864,7 @@ class PhoneTest(object):
                     'The worker was disabled.',
                     TreeherderStatus.USERCANCEL)
             self.loggerdeco.info('PhoneTest stopping job')
+            self.worker_subprocess.flush_log()
             self.worker_subprocess.treeherder.submit_complete(
                 self.phone.id,
                 self.build.url,
@@ -909,17 +905,6 @@ class PhoneTest(object):
             self.dm._logger = self.dm_logger_original
             self.dm_logger_original = None
         self.reset_result()
-        if self.options.treeherder_url:
-            # If the log is being submitted to Treeherder, it will be
-            # truncated after each test. Otherwise it will grow
-            # indefinitely.
-            self.worker_subprocess.filehandler.close()
-            if self.loggerdeco.getEffectiveLevel() == logging.DEBUG:
-                saved_log_file = "%s.%s" % (
-                    self.worker_subprocess.logfile,
-                    calendar.timegm(
-                        datetime.datetime.now(tz=pytz.utc).timetuple()))
-                shutil.copy(self.worker_subprocess.logfile, saved_log_file)
 
     def update_status(self, phone_status=None, message=None):
         if self.update_status_cb:

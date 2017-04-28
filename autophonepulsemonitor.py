@@ -16,10 +16,6 @@ from builds import get_treeherder_tier
 
 DEFAULT_SSL_PORT = 5671
 
-# Set the logger globally in the file, but this must be reset when
-# used in a child process.
-LOGGER = logging.getLogger()
-
 class AutophonePulseMonitor(object):
     """AutophonePulseMonitor provides the means to be notified when
     Android builds are available for testing and when users have initiated
@@ -173,10 +169,11 @@ class AutophonePulseMonitor(object):
 
     def start(self):
         """Runs the `listen` method on a new thread."""
+        logger = utils.getLogger()
         if self.listen_thread and self.listen_thread.is_alive():
-            LOGGER.warning('AutophonePulseMonitor.start: listen thread already started')
+            logger.warning('AutophonePulseMonitor.start: listen thread already started')
             return
-        LOGGER.debug('AutophonePulseMonitor.start: listen thread starting')
+        logger.debug('AutophonePulseMonitor.start: listen thread starting')
         self.listen_thread = threading.Thread(target=self.listen,
                                               name='PulseMonitorThread')
         self.listen_thread.daemon = True
@@ -184,15 +181,17 @@ class AutophonePulseMonitor(object):
 
     def stop(self):
         """Stops the pulse monitor listen thread."""
-        LOGGER.debug('AutophonePulseMonitor stopping')
+        logger = utils.getLogger()
+        logger.debug('AutophonePulseMonitor stopping')
         self._stopping.set()
         self.listen_thread.join()
-        LOGGER.debug('AutophonePulseMonitor stopped')
+        logger.debug('AutophonePulseMonitor stopped')
 
     def is_alive(self):
         return self.listen_thread.is_alive()
 
     def listen(self):
+        logger = utils.getLogger()
         connect_timeout = 5
         wait = 30
         connection = None
@@ -200,14 +199,14 @@ class AutophonePulseMonitor(object):
         while restart:
             restart = False
             if self.verbose:
-                LOGGER.debug('AutophonePulseMonitor: start shared_lock.acquire')
+                logger.debug('AutophonePulseMonitor: start shared_lock.acquire')
             self.shared_lock.acquire()
             try:
                 # connection does not connect to the server until
                 # either the connection.connect() method is called
                 # explicitly or until kombu calls it implicitly as
                 # needed.
-                LOGGER.debug('AutophonePulseMonitor: Connection()')
+                logger.debug('AutophonePulseMonitor: Connection()')
                 connection = Connection(hostname=self.hostname,
                                         userid=self.userid,
                                         password=self.password,
@@ -215,12 +214,12 @@ class AutophonePulseMonitor(object):
                                         port=DEFAULT_SSL_PORT,
                                         ssl=True,
                                         connect_timeout=connect_timeout)
-                LOGGER.debug('AutophonePulseMonitor: connection.Consumer()')
+                logger.debug('AutophonePulseMonitor: connection.Consumer()')
                 consumer = connection.Consumer(self.queues,
                                                callbacks=[self.handle_message],
                                                accept=['json'],
                                                auto_declare=False)
-                LOGGER.debug('AutophonePulseMonitor: bind queues')
+                logger.debug('AutophonePulseMonitor: bind queues')
                 for queue in self.queues:
                     queue(connection).queue_declare(passive=False)
                     queue(connection).queue_bind()
@@ -228,32 +227,32 @@ class AutophonePulseMonitor(object):
                     while not self._stopping.is_set():
                         try:
                             if self.verbose:
-                                LOGGER.debug('AutophonePulseMonitor shared_lock.release')
+                                logger.debug('AutophonePulseMonitor shared_lock.release')
                             self.shared_lock.release()
                             connection.drain_events(timeout=self.timeout)
                         except socket.timeout:
                             pass
                         finally:
                             if self.verbose:
-                                LOGGER.debug('AutophonePulseMonitor shared_lock.acquire')
+                                logger.debug('AutophonePulseMonitor shared_lock.acquire')
                             self.shared_lock.acquire()
-                LOGGER.debug('AutophonePulseMonitor.listen: stopping')
+                logger.debug('AutophonePulseMonitor.listen: stopping')
             except:
-                LOGGER.exception('AutophonePulseMonitor Exception')
+                logger.exception('AutophonePulseMonitor Exception')
                 if connection:
                     connection.release()
                 if self.verbose:
-                    LOGGER.debug('AutophonePulseMonitor exit shared_lock.release')
+                    logger.debug('AutophonePulseMonitor exit shared_lock.release')
                 self.shared_lock.release()
                 if not self._stopping.is_set():
                     restart = True
                     time.sleep(wait)
                 if self.verbose:
-                    LOGGER.debug('AutophonePulseMonitor shared_lock.acquire')
+                    logger.debug('AutophonePulseMonitor shared_lock.acquire')
                 self.shared_lock.acquire()
             finally:
                 if self.verbose:
-                    LOGGER.debug('AutophonePulseMonitor exit shared_lock.release')
+                    logger.debug('AutophonePulseMonitor exit shared_lock.release')
                 if connection and not restart:
                     connection.release()
                 self.shared_lock.release()
@@ -262,22 +261,23 @@ class AutophonePulseMonitor(object):
         if self._stopping.is_set():
             return
         message.ack()
+        logger = utils.getLogger()
         try:
             relock = False
             if self.verbose:
-                LOGGER.debug('AutophonePulseMonitor handle_message shared_lock.release')
+                logger.debug('AutophonePulseMonitor handle_message shared_lock.release')
             self.shared_lock.release()
             relock = True
         except ValueError, e:
             if self.verbose:
-                LOGGER.debug('AutophonePulseMonitor handle_message shared_lock not set')
+                logger.debug('AutophonePulseMonitor handle_message shared_lock not set')
         if '_meta' in data and 'payload' in data:
             self.handle_build(data, message)
         elif (self.treeherder_url and 'action' in data and
               'project' in data and 'job_id' in data):
             self.handle_jobaction(data, message)
         elif 'status' in data:
-            LOGGER.debug('handle_message: data: %s, message: %s', data, message)
+            logger.debug('handle_message: data: %s, message: %s', data, message)
             self.handle_taskcompleted(data, message)
         if relock:
             if self.verbose:
@@ -285,8 +285,9 @@ class AutophonePulseMonitor(object):
             self.shared_lock.acquire()
 
     def handle_build(self, data, message):
+        logger = utils.getLogger()
         if self.verbose:
-            LOGGER.debug(
+            logger.debug(
                 'handle_build:\n'
                 '\tdata   : %s\n'
                 '\tmessage: %s',
@@ -295,7 +296,7 @@ class AutophonePulseMonitor(object):
         try:
             build = data['payload']['build']
         except (KeyError, TypeError), e:
-            LOGGER.debug('AutophonePulseMonitor.handle_build_event: %s pulse build data', e)
+            logger.debug('AutophonePulseMonitor.handle_build_event: %s pulse build data', e)
             return
 
         fields = (
@@ -327,7 +328,7 @@ class AutophonePulseMonitor(object):
                 build_properties[property_name] = type(prop[1])(prop[1])
 
         if self.verbose:
-            LOGGER.debug('AutophonePulseMonitor.handle_build: build_properties: %s',
+            logger.debug('AutophonePulseMonitor.handle_build: build_properties: %s',
                          build_properties)
 
         for required_field in required_fields:
@@ -342,7 +343,7 @@ class AutophonePulseMonitor(object):
         build_url = build_properties['packageUrl']
         build_data = utils.get_build_data(build_url, builder_type='buildbot')
         if not build_data:
-            LOGGER.debug('AutophonePulseMonitor.handle_build: '
+            logger.debug('AutophonePulseMonitor.handle_build: '
                          'ignoring missing build_data on url %s', build_url)
             return
         build_data['comments'] = build_properties['comments']
@@ -359,8 +360,9 @@ class AutophonePulseMonitor(object):
         self.build_callback(build_data)
 
     def handle_jobaction(self, data, message):
+        logger = utils.getLogger()
         if self.verbose:
-            LOGGER.debug(
+            logger.debug(
                 'handle_jobaction:\n'
                 '\tdata   : %s\n'
                 '\tmessage: %s',
@@ -371,28 +373,28 @@ class AutophonePulseMonitor(object):
         job_id = data['job_id']
 
         if self.trees and project not in self.trees:
-            LOGGER.debug('AutophonePulseMonitor.handle_jobaction_event: '
+            logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                          'ignoring job action %s on tree %s', action, project)
             return
 
         job = self.get_treeherder_job(project, job_id)
         if not job:
-            LOGGER.debug('AutophonePulseMonitor.handle_jobaction_event: '
+            logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                          'ignoring unknown job id %s on tree %s', job_id, project)
             return
 
-        LOGGER.debug('AutophonePulseMonitor.handle_jobaction_event: '
+        logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                      'job %s', json.dumps(job, sort_keys=True, indent=4))
 
         build_type = job['platform_option']
         if self.buildtypes and build_type not in self.buildtypes:
-            LOGGER.debug('AutophonePulseMonitor.handle_jobaction_event: '
+            logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                          'ignoring build type %s on tree %s', build_type, project)
             return
 
         build_info = self.get_treeherder_privatebuild_info(project, job)
         if not build_info:
-            LOGGER.debug('AutophonePulseMonitor.handle_jobaction_event: '
+            logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                          'ignoring missing build info on tree %s', project)
             return
         build_url = build_info['build_url']
@@ -400,7 +402,7 @@ class AutophonePulseMonitor(object):
 
         build_data = utils.get_build_data(build_url, builder_type=builder_type)
         if not build_data:
-            LOGGER.debug('AutophonePulseMonitor.handle_jobaction_event: '
+            logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                          'ignoring missing build_data on url %s', build_url)
             return
 
@@ -414,7 +416,7 @@ class AutophonePulseMonitor(object):
                     detected_platform = platform
                     break
             if not detected_platform:
-                LOGGER.debug('AutophonePulseMonitor.handle_jobaction_event: '
+                logger.debug('AutophonePulseMonitor.handle_jobaction_event: '
                              'ignoring platform for build %s', build_url)
                 return
 
@@ -440,8 +442,9 @@ class AutophonePulseMonitor(object):
         self.jobaction_callback(jobaction_data)
 
     def handle_taskcompleted(self, data, message):
+        logger = utils.getLogger()
         if self.verbose:
-            LOGGER.debug(
+            logger.debug(
                 'handle_taskcompleted:\n'
                 '\tdata   : %s\n'
                 '\tmessage: %s',
@@ -451,12 +454,12 @@ class AutophonePulseMonitor(object):
         task_id = data['status']['taskId']
         run_id = data['runId']
         task_definition = self.taskcluster_queue.task(task_id)
-        LOGGER.debug('handle_taskcompleted: task_definition: %s', task_definition)
+        logger.debug('handle_taskcompleted: task_definition: %s', task_definition)
         # Test the repo early in order to prevent unnecessary IO for irrelevent branches.
         try:
             MH_BRANCH = task_definition['payload']['env']['MH_BRANCH']
             if MH_BRANCH not in self.trees:
-                LOGGER.debug('handle_taskcompleted: task_id: %s, run_id: %s: '
+                logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: '
                              'skip task_definition MH_BRANCH %s',
                              task_id, run_id, MH_BRANCH)
                 return
@@ -479,38 +482,38 @@ class AutophonePulseMonitor(object):
             if key == 'target.apk':
                 build_data = utils.get_build_data(artifact_data[key], builder_type=builder_type)
                 if not build_data:
-                    LOGGER.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
+                    logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
                                    'could not get %s', task_id, run_id, artifact_data[key])
                     return
                 tier = get_treeherder_tier(build_data['repo'], task_id, run_id)
                 if builder_type != 'buildbot' and tier != 1:
-                    LOGGER.debug('handle_taskcompleted: ignoring worker_type: %s, tier: %s',
+                    logger.debug('handle_taskcompleted: ignoring worker_type: %s, tier: %s',
                                  worker_type, tier)
                     return
                 build_data['app_name'] = 'fennec'
                 build_data['builder_name'] = 'unknown'
 
         if not build_data:
-            LOGGER.debug('handle_taskcompleted: task_id: %s, run_id: %s: '
+            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: '
                          'no build found', task_id, run_id)
             return
 
         if 'id' not in build_data or 'build_type' not in build_data:
-            LOGGER.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
+            logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
                            'skipping build due to missing id or build_type %s.',
                            task_id, run_id, build_data)
             return
 
-        LOGGER.debug('handle_taskcompleted: task_id: %s, run_id: %s: build_data: %s',
+        logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: build_data: %s',
                      task_id, run_id, build_data)
         if build_data['repo'] not in self.trees:
-            LOGGER.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip repo %s',
+            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip repo %s',
                          task_id, run_id, build_data['repo'])
             return
         if build_data['platform'] not in self.platforms:
             return
         if build_data['build_type'] not in self.buildtypes:
-            LOGGER.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip build_type %s',
+            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip build_type %s',
                          task_id, run_id, build_data['build_type'])
             return
 
@@ -520,11 +523,11 @@ class AutophonePulseMonitor(object):
             build_data['comments'] = rev_json['desc']
         else:
             build_data['comments'] = 'unknown'
-            LOGGER.warning('handle_taskcompleted: task_id: %s, run_id: %s: could not get %s',
+            logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: could not get %s',
                            task_id, run_id, rev_json_url)
 
         if build_data['repo'] == 'try' and 'autophone' not in build_data['comments']:
-            LOGGER.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip %s %s',
+            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip %s %s',
                          task_id, run_id, build_data['repo'], build_data['comments'])
             return
 
@@ -536,10 +539,11 @@ class AutophonePulseMonitor(object):
         return utils.get_remote_json(url)
 
     def get_treeherder_privatebuild_info(self, project, job):
+        logger = utils.getLogger()
         url = '%s/api/jobdetail/?repository=%s&job_id=%s' % (
             self.treeherder_url, project, job['id'])
         data = utils.get_remote_json(url)
-        LOGGER.debug("get_treeherder_privatebuild_info: data: %s", data)
+        logger.debug("get_treeherder_privatebuild_info: data: %s", data)
 
         privatebuild_keys = set(['build_url', 'config_file', 'chunk',
                                  'builder_type'])
@@ -557,7 +561,7 @@ class AutophonePulseMonitor(object):
         # return None to avoid errors.
         missing_keys = privatebuild_keys - set(info.keys())
         if missing_keys:
-            LOGGER.debug("get_treeherder_privatebuild_info: %s "
+            logger.debug("get_treeherder_privatebuild_info: %s "
                          "missing keys: %s "
                          "job: %s", url, missing_keys, job)
             return None
@@ -571,15 +575,18 @@ def main():
     parser = OptionParser()
 
     def build_callback(build_data):
-        LOGGER.debug('PULSE BUILD FOUND %s', build_data)
+        logger = utils.getLogger()
+        logger.debug('PULSE BUILD FOUND %s', build_data)
 
     def jobaction_callback(job_action):
         if job_action['job_group_name'] != 'Autophone':
             return
-        LOGGER.debug('JOB ACTION FOUND %s', json.dumps(
+        logger = utils.getLogger()
+        logger.debug('JOB ACTION FOUND %s', json.dumps(
             job_action, sort_keys=True, indent=4))
 
-    LOGGER.setLevel(logging.DEBUG)
+    logger = utils.getLogger()
+    logger.setLevel(logging.DEBUG)
 
     parser.add_option('--pulse-user', action='store', type='string',
                       dest='pulse_user', default='',

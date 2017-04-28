@@ -3,13 +3,10 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import ConfigParser
-import logging
 import socket
 from sendemail import sendemail
 
-# Set the logger globally in the file, but this must be reset when
-# used in a child process.
-LOGGER = logging.getLogger()
+import utils
 
 class Mailer(object):
 
@@ -24,22 +21,24 @@ class Mailer(object):
         self.mail_port = None
         self.mail_ssl = None
 
+        logger = utils.getLogger()
+
         cfg = ConfigParser.ConfigParser()
         if not cfg.read(self.cfgfile):
-            LOGGER.info('No email configuration file found. No emails will be sent.')
+            logger.info('No email configuration file found. No emails will be sent.')
             return
 
         try:
             self.from_address = cfg.get('report', 'from')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            LOGGER.error('No "from" option defined in "report" section '
+            logger.error('No "from" option defined in "report" section '
                          'of file "%s".\n', self.cfgfile)
             return
 
         try:
             self.mail_dest = [x.strip() for x in cfg.get('email', 'dest').split(',')]
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
-            LOGGER.error('No "dest" option defined in "email" section '
+            logger.error('No "dest" option defined in "email" section '
                          'of file "%s".\n', self.cfgfile)
             return
 
@@ -88,5 +87,6 @@ class Mailer(object):
                       port=self.mail_port,
                       use_ssl=self.mail_ssl)
         except socket.error:
-            LOGGER.exception('Failed to send email notification: '
+            logger = utils.getLogger()
+            logger.exception('Failed to send email notification: '
                              'subject: %s, body: %s', subject, body)

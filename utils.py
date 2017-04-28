@@ -4,10 +4,12 @@
 
 # get_remote_content modelled on treeherder/etc/common.py
 
+import datetime
 import httplib
 import json
 import logging
 import math
+import multiprocessing
 import os
 import os.path
 import random
@@ -25,10 +27,44 @@ from ssl import SSLError
 import taskcluster
 
 import build_dates
+from sensitivedatafilter import SensitiveDataFilter
 
-# Set the logger globally in the file, but this must be reset when
-# used in a child process.
-LOGGER = logging.getLogger()
+def getLoggerFormatString(loglevel):
+    if loglevel == logging.DEBUG:
+        formatstring = '%(asctime)s %(process)-6d %(processName)-14s %(threadName)-12s %(name)15s %(levelname)-8s %(message)s'
+    else:
+        formatstring = '%(asctime)s %(name)15s %(levelname)-8s %(message)s'
+    return formatstring
+
+SENSITIVE_DATA_FILTER = None
+def recordSensitiveData(sensitive_data):
+    global SENSITIVE_DATA_FILTER
+    SENSITIVE_DATA_FILTER = SensitiveDataFilter(sensitive_data)
+    return SENSITIVE_DATA_FILTER
+
+def getSensitiveDataFilter():
+    return SENSITIVE_DATA_FILTER
+
+def getLogger(name=None):
+    """Return a safe logger for the current process.
+
+    :param name: Name of logger to return. If name is not specified,
+        it defaults to None which will return a logger whose name is
+        the name of the current process as returned by multiprocessing.current_process().name.
+
+    If utils.recordSensitiveData() has been called prior to getLogger,
+    then the returned logger will be guaranteed to have a SensitiveDataFilter
+    applied.
+    """
+    if name == None:
+        name = multiprocessing.current_process().name
+    logger = logging.getLogger(name)
+    if SENSITIVE_DATA_FILTER and not hasattr(logger, 'SENSITIVE_DATA_FILTER'):
+        logger.addFilter(SENSITIVE_DATA_FILTER)
+        setattr(logger, 'SENSITIVE_DATA_FILTER', SENSITIVE_DATA_FILTER)
+    if not hasattr(logger, 'SENSITIVE_DATA_FILTER'):
+        logger.warning("utils.getLogger(%s) does not have a sensitive data filter", name)
+    return logger
 
 def get_remote_text(url):
     """Return the string containing the contents of a remote url if the
@@ -36,6 +72,7 @@ def get_remote_text(url):
 
     :param url: url of content to be retrieved.
     """
+    logger = getLogger()
     conn = None
 
     try:
@@ -56,19 +93,19 @@ def get_remote_text(url):
                 content = conn.read()
                 return content
             if code != 503:
-                LOGGER.warning("Unable to open url %s : %s",
+                logger.warning("Unable to open url %s : %s",
                                url, httplib.responses[code])
                 return None
             # Server is too busy. Wait and try again.
             # See https://bugzilla.mozilla.org/show_bug.cgi?id=1146983#c10
-            LOGGER.warning("HTTP 503 Server Too Busy: url %s", url)
+            logger.warning("HTTP 503 Server Too Busy: url %s", url)
             conn.close()
             time.sleep(60 + random.randrange(0, 30, 1))
     except urllib2.HTTPError, e:
-        LOGGER.warning('%s Unable to open %s', e, url)
+        logger.warning('%s Unable to open %s', e, url)
         return None
     except Exception:
-        LOGGER.exception('Unable to open %s', url)
+        logger.exception('Unable to open %s', url)
         return None
     finally:
         if conn:
@@ -83,10 +120,11 @@ def get_remote_json(url):
 
     :param url: url of content to be retrieved.
     """
+    logger = getLogger()
     content = get_remote_text(url)
     if content:
         content = json.loads(content)
-    LOGGER.debug('get_remote_json(%s): %s', url, content)
+    logger.debug('get_remote_json(%s): %s', url, content)
     return content
 
 
@@ -114,6 +152,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
        'nightly'      : True if this is a nighlty build.
        'platform'     : android, android-x86, android-<sdk>
     """
+    logger = getLogger()
     build_id = None
     changeset = None
     revision = None
@@ -129,7 +168,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
     else:
         build_id_tz = build_dates.PACIFIC
 
-    LOGGER.debug('get_build_data(%s, builder_type=%s)', build_url, builder_type)
+    logger.debug('get_build_data(%s, builder_type=%s)', build_url, builder_type)
 
     # Parse the url for meta data if possible.
     re_tinderbox = re.compile(r'https?://ftp.mozilla.org/pub/mobile/tinderbox-builds/(.*)-(android[^/]*)/\d+/fennec.*\.apk$')
@@ -142,7 +181,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
         ftp_build = True
         nightly = False
         (repo, platform_api_build_type) = match_tinderbox.groups()
-        LOGGER.debug('get_build_data: match_tinderbox: repo: %s, platform_api_build_type: %s',
+        logger.debug('get_build_data: match_tinderbox: repo: %s, platform_api_build_type: %s',
                      repo, platform_api_build_type)
     else:
         match_nightly = re_nightly.match(build_url)
@@ -150,11 +189,11 @@ def get_build_data(build_url, builder_type='taskcluster'):
             ftp_build = True
             nightly = True
             (repo, platform_api_build_type) = match_nightly.groups()
-            LOGGER.debug('get_build_data: match_nightly: repo: %s, platform_api_build_type: %s',
+            logger.debug('get_build_data: match_nightly: repo: %s, platform_api_build_type: %s',
                          repo, platform_api_build_type)
     if ftp_build:
         if builder_type == 'taskcluster':
-            LOGGER.error('get_build_data(%s, builder_type=%s) for ftp build. '
+            logger.error('get_build_data(%s, builder_type=%s) for ftp build. '
                          'Setting timezone to Pacific.', build_url, builder_type)
             build_id_tz = build_dates.PACIFIC
         match_platform = re_platform.match(platform_api_build_type)
@@ -165,7 +204,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
                 abi = 'arm'
             elif abi == 'i386' or abi == 'i686':
                 abi = 'x86'
-            LOGGER.debug('get_build_data: platform: %s, abi: %s, sdk: %s, debug: %s',
+            logger.debug('get_build_data: platform: %s, abi: %s, sdk: %s, debug: %s',
                          platform, abi, sdk, debug)
     build_prefix, build_ext = os.path.splitext(build_url)
 
@@ -190,7 +229,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
             search = re_mozconfig_sdk.search(build_json['mozconfig'])
             if search:
                 sdk = search.group(1)
-        LOGGER.debug('get_build_data: build_json: build_id: %s, platform: %s, abi: %s, '
+        logger.debug('get_build_data: build_json: build_id: %s, platform: %s, abi: %s, '
                      'sdk: %s, repo: %s, revision: %s, changeset: %s',
                      build_id, platform, abi, sdk, repo, revision, changeset)
     if build_type is None or sdk is None or nightly is None or platform is None:
@@ -213,7 +252,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
                     platform += sdk
             if not nightly and 'nightly_build' in build_mozinfo_json:
                 nightly = build_mozinfo_json['nightly_build']
-            LOGGER.debug('get_build_data: mozinfo build_type: %s, sdk: %s, nightly: %s',
+            logger.debug('get_build_data: mozinfo build_type: %s, sdk: %s, nightly: %s',
                          build_type, sdk, nightly)
 
     if not build_id or not changeset or not repo or not revision:
@@ -235,7 +274,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
         if len(lines) >= 2:
             changeset_match = changeset_regex.match(lines[1])
         else:
-            LOGGER.warning("Unable to find revision in %s, results cannot be "
+            logger.warning("Unable to find revision in %s, results cannot be "
                            " uploaded to treeherder", build_url)
             changeset_match = changeset_regex.match("file://local/rev/local")
             lines.append("file://local/rev/local")
@@ -246,7 +285,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
         txt_changeset = lines[1]
         txt_repo = changeset_match.group(1)
         txt_revision = changeset_match.group(2)
-        LOGGER.debug('get_build_data: txt build_id: %s, changeset: %s, repo: %s, revision: %s',
+        logger.debug('get_build_data: txt build_id: %s, changeset: %s, repo: %s, revision: %s',
                      txt_build_id, txt_changeset, txt_repo, txt_revision)
 
         formatstr, build_date = build_dates.parse_datetime(txt_build_id, tz=build_id_tz)
@@ -258,23 +297,23 @@ def get_build_data(build_url, builder_type='taskcluster'):
         if not build_id:
             build_id = txt_build_id
         elif build_id != txt_build_id:
-            LOGGER.warning('get_build_data: build_id %s != txt_build_id %s', build_id, txt_build_id)
+            logger.warning('get_build_data: build_id %s != txt_build_id %s', build_id, txt_build_id)
 
         if not changeset:
             changeset = txt_changeset
         elif txt_changeset not in changeset:
-            LOGGER.warning('get_build_data: txt_changeset %s not in changeset %s',
+            logger.warning('get_build_data: txt_changeset %s not in changeset %s',
                            txt_changeset, changeset)
 
         if not repo:
             repo = txt_repo
         else:
-            LOGGER.warning('get_build_data: repo %s != txt_repo %s', repo, txt_repo)
+            logger.warning('get_build_data: repo %s != txt_repo %s', repo, txt_repo)
 
         if not revision:
             revision = txt_revision
         else:
-            LOGGER.warning('get_build_data: revision %s != txt_revision %s', revision, txt_revision)
+            logger.warning('get_build_data: revision %s != txt_revision %s', revision, txt_revision)
 
     platform = 'android'
     if abi == 'x86':
@@ -297,7 +336,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
         'nightly'    : nightly,
         'platform'   : platform,
     }
-    LOGGER.debug('get_build_data: %s', build_data)
+    logger.debug('get_build_data: %s', build_data)
     return build_data
 
 
@@ -307,22 +346,23 @@ def get_changeset_dirs(changeset_url, max_changesets=32):
     If the number of changesets exceeds max_changesets, return []
     which will match any directory defined for a test.
     """
+    logger = getLogger()
     url = changeset_url.replace('rev/', 'json-pushes?changeset=')
     pushlog = get_remote_json(url)
 
     if not pushlog:
-        LOGGER.debug('get_changeset_dirs: Could not find pushlog at %s', url)
+        logger.debug('get_changeset_dirs: Could not find pushlog at %s', url)
         return []
 
     dirs_set = set()
     for pushid in pushlog:
-        LOGGER.debug('get_changeset_dirs: %s: pushid %s', changeset_url, pushid)
+        logger.debug('get_changeset_dirs: %s: pushid %s', changeset_url, pushid)
         try:
             changesets = pushlog[pushid]['changesets']
-            LOGGER.debug('get_changeset_dirs: %s: %s changesets %s',
+            logger.debug('get_changeset_dirs: %s: %s changesets %s',
                          changeset_url, len(changesets), changesets)
             if len(changesets) > max_changesets:
-                LOGGER.warning(
+                logger.warning(
                     'get_changeset_dirs: %s contains %s '
                     'changesets exceeding max %s. '
                     'Returning [].',
@@ -332,7 +372,7 @@ def get_changeset_dirs(changeset_url, max_changesets=32):
         except:
             # We normally see a 'user' in this json blob, more might
             # be added in the future.
-            LOGGER.debug('get_changeset_dirs: Exception getting changesets: %s',
+            logger.debug('get_changeset_dirs: Exception getting changesets: %s',
                          traceback.format_exc())
             continue
         base_url = os.path.dirname(changeset_url).replace('rev', 'raw-rev')
@@ -341,7 +381,7 @@ def get_changeset_dirs(changeset_url, max_changesets=32):
             #      as this requires retrieving and scanning the whole
             #      diff.
             url = os.path.join(base_url, changeset)
-            LOGGER.debug('get_changeset_dirs: diff url: %s', url)
+            logger.debug('get_changeset_dirs: diff url: %s', url)
             diff = get_remote_text(url)
             if diff:
                 for line in diff.splitlines():
@@ -357,7 +397,7 @@ def get_changeset_dirs(changeset_url, max_changesets=32):
                         # running which is alright.
                         dirs_set.add(path)
             else:
-                LOGGER.debug('get_changeset_dirs: Could not find diff for '
+                logger.debug('get_changeset_dirs: Could not find diff for '
                              'revision %s at %s', changeset, url)
                 # We return an empty list here to force the test to be
                 # run, in case the missing diff here contained files
@@ -365,7 +405,7 @@ def get_changeset_dirs(changeset_url, max_changesets=32):
                 return []
 
     dirs = list(dirs_set)
-    LOGGER.debug('get_changeset_dirs: %s', dirs)
+    logger.debug('get_changeset_dirs: %s', dirs)
     return dirs
 
 
@@ -428,33 +468,35 @@ def urlretrieve(url, dest, max_attempts=3):
     :param max_attempts: maximum number of attempts to retry partial
         downloads. Defaults to 3.
     """
+    logger = getLogger()
 
     for attempt in range(max_attempts):
         try:
             urllib.urlretrieve(url, dest)
             break
         except (urllib.ContentTooShortError, SSLError), e:
-            LOGGER.warning("utils.urlretrieve: %s: Attempt %s: %s",
+            logger.warning("utils.urlretrieve: %s: Attempt %s: %s",
                            url, attempt, e)
             if attempt == max_attempts - 1:
                 raise
 
 
 def taskcluster_artifacts(task_id, run_id):
+    logger = getLogger()
     queue = taskcluster.queue.Queue()
     response = queue.listArtifacts(task_id, run_id)
     while True:
         if 'artifacts' not in response:
-            LOGGER.warning('taskcluster_artifacts: listArtifacts(%s, %s) '
+            logger.warning('taskcluster_artifacts: listArtifacts(%s, %s) '
                            'response missing artifacts', task_id, run_id)
             raise StopIteration
         artifacts = response['artifacts']
         for artifact in artifacts:
-            LOGGER.debug('taskcluster_artifacts: %s', artifact)
+            logger.debug('taskcluster_artifacts: %s', artifact)
             yield artifact
         if 'continuationToken' not in response:
             raise StopIteration
-        LOGGER.debug('taskcluster_artifacts: continuing listArtifacts(%s, %s)',
+        logger.debug('taskcluster_artifacts: continuing listArtifacts(%s, %s)',
                      task_id, run_id)
         response = queue.listArtifacts(task_id, run_id, {
             'continuationToken': response['continationToken']})

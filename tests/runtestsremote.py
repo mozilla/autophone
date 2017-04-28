@@ -108,6 +108,7 @@ class UnitTest(PhoneTest):
         self.parms['symbols_path'] = symbols_path
         self.parms['revision'] = self.build.revision
         self.parms['buildid'] = self.build.id
+        self.parms['buildtype'] = self.build.type
         self.parms['tree'] = self.build.tree
 
         self.unittest_logpath = '%s/tests/%s-%s-%s-%s.log' % (
@@ -369,10 +370,12 @@ class UnitTest(PhoneTest):
     def runtest(self):
 
         self.loggerdeco = self.loggerdeco.clone(
-            extradict={'phoneid': self.phone.id,
-                       'buildid': self.parms['buildid'],
-                       'testname': self.parms['test_name']},
-            extraformat='UnitTestJob|%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
+            extradict={
+                'buildid': self.parms['buildid'],
+                'buildtype': self.parms['buildtype'],
+                'testname': self.parms['test_name']
+            },
+            extraformat='UnitTestJob %(buildid)s %(buildtype)s %(testname)s %(message)s')
 
         self.loggerdeco.info('runtestsremote.py runtest start')
         for key in self.parms.keys():

@@ -22,13 +22,6 @@ from time import sleep
 
 import buildserver
 import jobs
-# The following direct imports are necessary in order to reference the
-# modules when we reset their global loggers:
-import autophonetreeherder
-import builds
-import mailer as mailermodule
-import phonetest
-import s3
 import utils
 from adb import ADBError, ADBTimeoutError
 from autophonetreeherder import AutophoneTreeherder
@@ -38,11 +31,6 @@ from phonestatus import PhoneStatus
 from phonetest import PhoneTest, TreeherderStatus, TestStatus, FLASH_PACKAGE
 from process_states import ProcessStates
 from s3 import S3Bucket
-from sensitivedatafilter import SensitiveDataFilter
-
-# Set the logger globally in the file, but this must be reset when
-# used in a child process.
-LOGGER = logging.getLogger()
 
 class Crashes(object):
 
@@ -103,8 +91,14 @@ class PhoneWorker(object):
     PHONE_PING_INTERVAL = 15*60
     PHONE_COMMAND_QUEUE_TIMEOUT = 10
 
-    def __init__(self, dm, worker_num, tests, phone, options,
-                 autophone_queue, logfile_prefix, loglevel, mailer,
+    def __init__(self,
+                 dm,
+                 tests,
+                 phone,
+                 options,
+                 autophone_queue,
+                 loglevel,
+                 mailer,
                  shared_lock):
 
         self.state = ProcessStates.STARTING
@@ -112,10 +106,24 @@ class PhoneWorker(object):
         self.dm = dm
         self.phone = phone
         self.options = options
-        self.worker_num = worker_num
         self.last_status_msg = None
         self.first_status_of_type = None
         self.last_status_of_previous_type = None
+        # Set up the worker logger which will actually write the worker's log
+        # to disk. This will happen in the main process.
+        self.logger = utils.getLogger(name=phone.id)
+        self.logger.setLevel(loglevel)
+        self.loglevel = loglevel
+        self.logfile = '%s-%s.log' % (os.path.splitext(options.logfile)[0], phone.id)
+        self.create_filehandler()
+        self.log_server_flushed_event = multiprocessing.Event()
+        self.log_server_closed_event = multiprocessing.Event()
+        self.log_flushed_event = multiprocessing.Event()
+        self.log_closed_event = multiprocessing.Event()
+        self.loggerdeco  = LogDecorator(self.logger,
+                                        {},
+                                       '%(message)s')
+        self.loggerdeco.debug('PhoneWorker:__init__')
         self.crashes = Crashes(crash_window=options.phone_crash_window,
                                crash_limit=options.phone_crash_limit)
         # Messages are passed to the PhoneWorkerSubProcess worker from
@@ -127,17 +135,38 @@ class PhoneWorker(object):
         self.lock = multiprocessing.Lock()
         self.shared_lock = shared_lock
         self.subprocess = PhoneWorkerSubProcess(dm,
-                                                self.worker_num,
+                                                self,
                                                 tests,
-                                                phone, options,
+                                                phone,
+                                                options,
                                                 autophone_queue,
-                                                self.queue, logfile_prefix,
-                                                loglevel, mailer,
-                                                shared_lock)
-        self.loggerdeco = LogDecorator(LOGGER,
-                                       {'phoneid': self.phone.id},
-                                       'PhoneWorker|%(phoneid)s|%(message)s')
-        self.loggerdeco.debug('PhoneWorker:__init__')
+                                                self.queue,
+                                                loglevel,
+                                                mailer,
+                                                shared_lock,
+                                                self.log_server_flushed_event,
+                                                self.log_server_closed_event,
+                                                self.log_flushed_event,
+                                                self.log_closed_event)
+
+    def create_filehandler(self):
+        # Create the worker's log filehandler so that it will be
+        # truncated when it is opened if we are submitting results to
+        # Treeherder. If we are not submitting to Treeherder the log
+        # will be opened for appending. This prevents the loss of the
+        # existing log during local testing if Autophone is restarted.
+        if self.options.treeherder_url:
+            mode = 'w'
+        else:
+            mode = 'a'
+        if hasattr(self, 'filehandler'):
+            self.logger.debug('Removing old logger filehandler for %s', self.phone.id)
+            self.logger.removeHandler(self.filehandler)
+        self.filehandler = logging.FileHandler(self.logfile, mode=mode)
+        fileformatter = logging.Formatter(utils.getLoggerFormatString(self.loglevel))
+        self.filehandler.setFormatter(fileformatter)
+        self.logger.addHandler(self.filehandler)
+        self.logger.debug('Created logger filehandler for %s', self.phone.id)
 
     def is_alive(self):
         return self.subprocess.is_alive()
@@ -191,6 +220,31 @@ class PhoneWorker(object):
         self.loggerdeco.debug('PhoneWorker:ping')
         self.queue.put_nowait(('ping', None))
 
+    def flush_log(self):
+        # Wait until the log server has received the flush request.
+        self.log_server_flushed_event.wait()
+        self.filehandler.flush()
+        os.fsync(self.filehandler.stream.fileno())
+        # Tell the sub process worker the log has been flushed.
+        self.log_flushed_event.set()
+
+    def close_log(self):
+        # Wait until the log server has received the close request.
+        self.log_server_closed_event.wait()
+        self.filehandler.flush()
+        os.fsync(self.filehandler.stream.fileno())
+        self.filehandler.close()
+        # Recreate the file handler to reopen the logfile.
+        self.create_filehandler()
+        # Tell the sub process worker the log has been closed.
+        self.log_closed_event.set()
+
+    def clear_log_events(self):
+        self.log_server_flushed_event.clear()
+        self.log_server_closed_event.clear()
+        self.log_flushed_event.clear()
+        self.log_closed_event.clear()
+
     def process_msg(self, msg):
         """These are status messages routed back from the autophone_queue
         listener in the main AutoPhone class. There is probably a bit
@@ -201,6 +255,12 @@ class PhoneWorker(object):
             self.first_status_of_type = msg
         if msg.message == 'Heartbeat':
             self.last_status_msg.timestamp = msg.timestamp
+        elif msg.message == 'logcontrol: close log':
+            self.close_log()
+        elif msg.message == 'logcontrol: flush log':
+            self.flush_log()
+        elif msg.message == 'logcontrol: test complete':
+            self.clear_log_events()
         else:
             self.loggerdeco.debug('PhoneWorker:process_msg: %s', msg)
             self.last_status_msg = msg
@@ -315,9 +375,11 @@ class Logcat(object):
                     new_current_logcat = []
                     for x in current_logcat:
                         if x < prev_line_datestr:
-                            self.logger.debug('Logcat.get(): Discarding future line: %s', x)
+                            if self.worker_subprocess.options.verbose:
+                                self.logger.debug('Logcat.get(): Discarding future line: %s', x)
                         else:
-                            self.logger.debug('Logcat.get(): keeping line: %s', x)
+                            if self.worker_subprocess.options.verbose:
+                                self.logger.debug('Logcat.get(): keeping line: %s', x)
                             new_current_logcat.append(x)
                     current_logcat = new_current_logcat
                 elif delta >= hour:
@@ -328,9 +390,11 @@ class Logcat(object):
                     new_current_logcat = []
                     for x in current_logcat:
                         if x > prev_line_datestr:
-                            self.logger.debug('Logcat.get(): Discarding past line: %s', x)
+                            if self.worker_subprocess.options.verbose:
+                                self.logger.debug('Logcat.get(): Discarding past line: %s', x)
                         else:
-                            self.logger.debug('Logcat.get(): keeping line: %s', x)
+                            if self.worker_subprocess.options.verbose:
+                                self.logger.debug('Logcat.get(): keeping line: %s', x)
                             new_current_logcat.append(x)
                     current_logcat = new_current_logcat
             # Keep the messages which are on or after the last accumulated
@@ -398,85 +462,119 @@ class PhoneWorkerSubProcess(object):
     this back to the main AutoPhone process.
     """
 
-    def __init__(self, dm, worker_num, tests, phone, options,
-                 autophone_queue, queue, logfile_prefix, loglevel, mailer,
-                 shared_lock):
-        global LOGGER
-
-        LOGGER = logging.getLogger()
+    def __init__(self, dm, parent_worker, tests, phone, options,
+                 autophone_queue, queue, loglevel, mailer, shared_lock,
+                 log_server_flushed_event, log_server_closed_event,
+                 log_flushed_event, log_closed_event):
 
         self.state = ProcessStates.RUNNING
-        self.worker_num = worker_num
+        self.parent_worker = parent_worker
         self.tests = tests
         self.dm = dm
         self.phone = phone
         self.options = options
+        # Grab the main process logger for this worker that was set up
+        # in the PhoneWorker class. When the subprocess is started via
+        # run(), it will be reset to the socket streaming logger.
+        logger = utils.getLogger(name=phone.id)
+        self.loggerdeco = LogDecorator(logger,
+                                       {},
+                                       '%(message)s')
         # PhoneWorkerSubProcess.autophone_queue is used to pass
         # messages back to the main Autophone process while
         # PhoneWorkerSubProcess.queue is used to get messages from the
         # main process.
         self.autophone_queue = autophone_queue
-        self.queue = queue
-        self.logfile_prefix = logfile_prefix
-        self.logfile = logfile_prefix + '.log'
-        self.outfile = logfile_prefix + '.out'
+        self.queue = parent_worker.queue
+        self.outfile = '%s-%s.out' % (os.path.splitext(options.logfile)[0], phone.id)
         self.test_logfile = None
         self.loglevel = loglevel
         self.mailer = mailer
         self.shared_lock = shared_lock
+        self.log_server_flushed_event = log_server_flushed_event
+        self.log_server_closed_event = log_server_closed_event
+        self.log_flushed_event = log_flushed_event
+        self.log_closed_event = log_closed_event
         self.p = None
         self.jobs = None
         self.build = None
         self.last_ping = None
         self.phone_status = None
-        self.filehandler = None
         self.s3_bucket = None
         self.treeherder = None
-        self.loggerdeco = None
         self.logcat = None
+        # Treeherder log step processing.
+        self.log_step_formatstring = "\n%s %s %s (results: 0, elapsed: %d secs) (at %s) %s"
+        self.log_step_stack = []
+        self.log_step_eq = 9 * "="
+
+    def log_step(self, step_name):
+        line = ''
+        now = datetime.datetime.now()
+        dt = now.strftime('%Y-%m-%d %H:%M:%S.%f')
+        if len(self.log_step_stack) > 0:
+            data = self.log_step_stack.pop()
+            seconds = (now - data['datetime']).seconds
+            line = self.log_step_formatstring % (self.log_step_eq,
+                                                 "Finished",
+                                                 data['step_name'],
+                                                 seconds,
+                                                 dt,
+                                                 self.log_step_eq)
+        data = {'step_name': step_name, 'datetime': now}
+        self.log_step_stack.append(data)
+        line += self.log_step_formatstring % (self.log_step_eq,
+                                              "Started",
+                                              step_name,
+                                              0,
+                                              dt,
+                                              self.log_step_eq)
+        self.loggerdeco.info(line)
+
 
     def is_alive(self):
         """Call from main process."""
         try:
             if self.options.verbose:
-                LOGGER.debug('is_alive: PhoneWorkerSubProcess.p %s, pid %s',
-                             self.p, self.p.pid if self.p else None)
+                self.loggerdeco.debug('is_alive: PhoneWorkerSubProcess.p %s, pid %s',
+                                      self.p, self.p.pid if self.p else None)
             return self.p and self.p.is_alive()
         except Exception:
-            LOGGER.exception('is_alive: PhoneWorkerSubProcess.p %s, pid %s',
-                             self.p, self.p.pid if self.p else None)
+            self.loggerdeco.exception('is_alive: PhoneWorkerSubProcess.p %s, pid %s',
+                                      self.p, self.p.pid if self.p else None)
         return False
 
     def start(self, phone_status=None):
         """Call from main process."""
-        LOGGER.debug('PhoneWorkerSubProcess:starting: %s %s', self.phone.id,
-                     phone_status)
+        self.loggerdeco.debug('starting: %s %s', self.phone.id,
+                              phone_status)
         if self.p:
             if self.is_alive():
-                LOGGER.debug('PhoneWorkerSubProcess:start - %s already alive',
-                             self.phone.id)
+                self.loggerdeco.debug('start - %s already alive',
+                                      self.phone.id)
                 return
             del self.p
         self.phone_status = phone_status
-        self.p = multiprocessing.Process(target=self.run, name=self.phone.id)
+        self.p = multiprocessing.Process(target=self.run,
+                                         name=self.phone.id)
         self.p.start()
-        LOGGER.debug('PhoneWorkerSubProcess:started: %s %s', self.phone.id,
-                     self.p.pid)
+        self.loggerdeco.debug('started: %s %s', self.phone.id,
+                              self.p.pid)
 
     def stop(self):
         """Call from main process."""
-        LOGGER.debug('PhoneWorkerSubProcess:stopping %s', self.phone.id)
+        self.loggerdeco.debug('stopping %s', self.phone.id)
         if self.is_alive():
-            LOGGER.debug('PhoneWorkerSubProcess:stop p.terminate() %s %s %s',
-                         self.phone.id, self.p, self.p.pid)
+            self.loggerdeco.debug('stop p.terminate() %s %s %s',
+                                  self.phone.id, self.p, self.p.pid)
             self.p.terminate()
-            LOGGER.debug('PhoneWorkerSubProcess:stop p.join() %s %s %s',
-                         self.phone.id, self.p, self.p.pid)
+            self.loggerdeco.debug('stop p.join() %s %s %s',
+                                  self.phone.id, self.p, self.p.pid)
             self.p.join(self.options.phone_command_queue_timeout*2)
             if self.p.is_alive():
-                LOGGER.debug('PhoneWorkerSubProcess:stop killing %s %s '
-                             'stuck process %s',
-                             self.phone.id, self.p, self.p.pid)
+                self.loggerdeco.debug('stop killing %s %s '
+                                      'stuck process %s',
+                                      self.phone.id, self.p, self.p.pid)
                 os.kill(self.p.pid, 9)
 
     def is_ok(self):
@@ -502,6 +600,48 @@ class PhoneWorkerSubProcess(object):
 
     def heartbeat(self):
         self.update_status(message='Heartbeat')
+
+    def flush_log(self):
+        """Send messages to the Log Server and the main process to flush the
+        log. update_status will simultaneously send a message to the
+        main process worker via the autophone_queue, but will also
+        send a log message to the logging server which will act upon
+        it as well.
+
+        The main process worker will wait on the logging server flushed
+        event to make sure that the logging server has received all of
+        the messages sent prior to the flush request. The sub process
+        worker will wait on the main process worker flush event which
+        will signal that the log has been received by the logging
+        server and flushed by the main process worker.
+        """
+        self.update_status(message='logcontrol: flush log')
+        self.log_flushed_event.wait()
+        self.loggerdeco.info('Waiting for log_flushed_event')
+        if self.log_flushed_event.wait():
+            self.loggerdeco.info('Got log_flushed_event')
+
+    def close_log(self):
+        """Send messages to the Log Server and the main process to close the
+        log. update_status will simultaneously send a message to the
+        main process worker via the autophone_queue, but will also
+        send a log message to the logging server which will act upon
+        it as well.
+
+        The main process worker will wait on the logging server closed
+        event to make sure that the logging server has received all of
+        the messages sent prior to the close request. The sub process
+        worker will wait on the main process worker close event which
+        will signal that the log has been received by the logging
+        server and closed by the main process worker.
+        """
+        self.update_status(message='logcontrol: close log')
+        self.log_closed_event.wait()
+        self.loggerdeco.info('Waiting for log_closed_event')
+        if self.log_closed_event.wait():
+            self.loggerdeco.info('Got log_closed_event')
+        # Reset the log steps for the new log.
+        self.log_step_stack = []
 
     def _check_path(self, path):
         self.loggerdeco.debug('Checking path %s.', path)
@@ -536,10 +676,10 @@ class PhoneWorkerSubProcess(object):
                  self.options.usbwatchdog_poll_interval,
                  debugarg))
         except (ADBError, ADBTimeoutError):
-            LOGGER.exception('Ignoring Exception starting USBWatchdog')
+            self.loggerdeco.exception('Ignoring Exception starting USBWatchdog')
 
     def reboot(self):
-        self.loggerdeco.debug('PhoneWorkerSubProcess:reboot')
+        self.loggerdeco.info('reboot')
         self.update_status(phone_status=PhoneStatus.REBOOTING)
         self.dm.reboot()
         # Setting svc power stayon true after rebooting is necessary
@@ -883,6 +1023,7 @@ class PhoneWorkerSubProcess(object):
                 else:
                     try:
                         if self.is_ok() and not self.is_disabled():
+                            self.log_step('Run Test')
                             is_test_completed = t.run_job()
                     except (ADBError, ADBTimeoutError):
                         self.loggerdeco.exception('device error during '
@@ -966,6 +1107,14 @@ class PhoneWorkerSubProcess(object):
                                                job['builder_type'],
                                                tests=[t])
 
+            # If the log is being submitted to Treeherder, it will be
+            # truncated after each test. Otherwise it will grow
+            # indefinitely.
+            # Tell the parent the job is complete so it will clear the log
+            # event flags.
+            self.update_status(message='Test Complete')
+            self.close_log()
+
         try:
             if self.is_ok():
                 self.dm.uninstall_app(self.build.app_name)
@@ -981,7 +1130,11 @@ class PhoneWorkerSubProcess(object):
             self.ping()
 
     def handle_job(self, job):
-        self.loggerdeco.debug('PhoneWorkerSubProcess:handle_job: %s, %s',
+        if self.options.treeherder_url:
+            # Clear the log before starting the new job.
+            self.close_log()
+        self.log_step('Job Start')
+        self.loggerdeco.debug('handle_job: %s, %s',
                               self.phone, job)
         self.loggerdeco.info('Checking job %s.', job['build_url'])
         client = buildserver.BuildCacheClient(port=self.options.build_cache_port)
@@ -1087,7 +1240,7 @@ class PhoneWorkerSubProcess(object):
                    'reason': message to be used to indicate reason for interruption,
                    'test_result': PhoneTest Treeherder Test status to be used for the test result}
         """
-        self.loggerdeco.debug('PhoneWorkerSubProcess:handle_cmd: %s', request)
+        self.loggerdeco.debug('handle_cmd: %s', request)
         command = {'interrupt': False, 'reason': '', 'test_result': None}
         if not request:
             self.loggerdeco.debug('handle_cmd: No request')
@@ -1158,7 +1311,7 @@ class PhoneWorkerSubProcess(object):
                             'test_result': TreeherderStatus.RETRY}
 
     def main_loop(self):
-        self.loggerdeco.debug('PhoneWorkerSubProcess:main_loop')
+        self.loggerdeco.debug('main_loop')
         # Commands take higher priority than jobs, so we deal with all
         # immediately available commands, then start the next job, if there is
         # one.  If neither a job nor a command is currently available,
@@ -1168,7 +1321,7 @@ class PhoneWorkerSubProcess(object):
             while True:
                 try:
                     (pid, status, resource) = os.wait3(os.WNOHANG)
-                    LOGGER.debug('Reaped %s %s', pid, status)
+                    self.loggerdeco.debug('Reaped %s %s', pid, status)
                 except OSError:
                     break
             try:
@@ -1223,75 +1376,63 @@ class PhoneWorkerSubProcess(object):
         while True:
             try:
                 request = self.queue.get_nowait()
-                LOGGER.debug('PhoneWorkerSubProcess:main_loop dropping request: %s', request)
+                self.loggerdeco.info('shutting down dropping request: %s', request)
             except Queue.Empty:
                 break
         # Reap child processes.
         while True:
             try:
                 (pid, status, resource) = os.wait3(os.WNOHANG)
-                LOGGER.debug('Reaped %s %s', pid, status)
+                self.loggerdeco.info('Reaped %s %s', pid, status)
             except OSError:
                 break
 
     def run(self):
-        global LOGGER
-
-        self.state = ProcessStates.RUNNING
-
-        sys.stdout = file(self.outfile, 'a', 0)
-        sys.stderr = sys.stdout
         # Complete initialization of PhoneWorkerSubProcess in the new
         # process.
-        have_sensitive_filter = False
-        LOGGER = logging.getLogger()
-        LOGGER.propagate = False
-        LOGGER.setLevel(self.loglevel)
-        # We only need one sensitive data filter.
-        for logfilter in LOGGER.filters:
-            if isinstance(logfilter, SensitiveDataFilter):
-                have_sensitive_filter = True
-                break
-        sensitive_data_filter = SensitiveDataFilter(self.options.sensitive_data)
-        if not have_sensitive_filter:
-            LOGGER.addFilter(sensitive_data_filter)
+        self.state = ProcessStates.RUNNING
+        sys.stdout = file(self.outfile, 'a', 0)
+        sys.stderr = sys.stdout
 
+        # use a socket handler to send the log to the main process
+        # logging server.
+        socket_handler = logging.handlers.SocketHandler(
+            'localhost',
+            logging.handlers.DEFAULT_TCP_LOGGING_PORT)
+
+        logger = utils.getLogger()
+        logger.propagate = False
+        logger.setLevel(self.loglevel)
         # Remove any handlers inherited from the main process.  This
         # prevents these handlers from causing the main process to log
         # the same messages.
-        for handler in LOGGER.handlers:
+        for handler in logger.handlers:
             handler.flush()
             handler.close()
-            LOGGER.removeHandler(handler)
-        for other_logger_name, other_logger in LOGGER.manager.loggerDict.iteritems():
-            if not hasattr(other_logger, 'handlers'):
+            logger.removeHandler(handler)
+        logger.addHandler(socket_handler)
+
+        for other_logger_name, other_logger in logger.manager.loggerDict.iteritems():
+            if other_logger == logger or not hasattr(other_logger, 'handlers'):
                 continue
-            other_logger.addFilter(sensitive_data_filter)
+            logger.debug('Library logger %s', other_logger_name)
+            other_logger.setLevel(self.loglevel)
+            other_logger.addFilter(utils.getSensitiveDataFilter())
             for other_handler in other_logger.handlers:
                 other_handler.flush()
                 other_handler.close()
                 other_logger.removeHandler(other_handler)
-            other_logger.addHandler(logging.NullHandler())
+            other_logger.addHandler(socket_handler)
 
-        # Create the worker's log filehandler so that it will not open
-        # the log file until the first emit message, and so it will
-        # truncate the log file when it is opened.
-        self.filehandler = logging.FileHandler(self.logfile, mode='w', delay=True)
-        fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
-                            '%(levelname)s|%(message)s')
-        fileformatter = logging.Formatter(fileformatstring)
-        self.filehandler.setFormatter(fileformatter)
-        LOGGER.addHandler(self.filehandler)
-
-        self.loggerdeco = LogDecorator(LOGGER,
-                                       {'phoneid': self.phone.id},
-                                       'PhoneWorkerSubProcess|%(phoneid)s|%(message)s')
+        self.loggerdeco = LogDecorator(logger,
+                                       {},
+                                       '%(message)s')
         self.logcat = Logcat(self)
 
-        # Set the loggers for the imported modules
-        for module in (autophonetreeherder, builds, jobs, mailermodule, phonetest,
-                       s3, utils):
-            module.LOGGER = LOGGER
+        # Close the log here to initialize it for Treeherder.
+        self.close_log()
+        self.log_step('Starting Worker Process')
+
         self.loggerdeco.info('Worker: Connecting to %s...', self.phone.id)
         # Override mozlog.logger
         self.dm._logger = self.loggerdeco
@@ -1319,4 +1460,3 @@ class PhoneWorkerSubProcess(object):
         self.start_usbwatchdog()
         self.ping()
         self.main_loop()
-

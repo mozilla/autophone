@@ -7,11 +7,13 @@ import errno
 import json
 import logging
 import logging.handlers
+import multiprocessing
 import socket
 import sys
 
 import builds
 import build_dates
+import utils
 
 import pytz
 
@@ -34,7 +36,8 @@ def command_str(build, test_names, devices):
 def trigger_runs(args, options):
     # Attempt to connect to the Autophone server early, so we don't
     # waste time fetching builds if the server is not available.
-    print 'Connecting to autophone server...'
+    logging.basicConfig(level=logging.INFO)
+    logging.info('Connecting to autophone server...')
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         s.connect((options.ip, options.port))
@@ -52,17 +55,25 @@ def trigger_runs(args, options):
             print 'Invalid log level %s' % options.loglevel_name
             return errno.EINVAL
 
-    logger = logging.getLogger()
+    logging.captureWarnings(True)
+
+    # First get the root logger and remove the default stream handler.
+    logger = logging.getLogger('')
     logger.setLevel(loglevel)
+    for handler in logger.handlers:
+        handler.flush()
+        handler.close()
+        logger.removeHandler(handler)
+
     filehandler = logging.handlers.TimedRotatingFileHandler(options.logfile,
                                                             when='midnight',
                                                             backupCount=7)
-    fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
-                        'trigger_runs|%(levelname)s|%(message)s')
-    fileformatter = logging.Formatter(fileformatstring)
+    fileformatter = logging.Formatter(utils.getLoggerFormatString(loglevel))
     filehandler.setFormatter(fileformatter)
     logger.addHandler(filehandler)
 
+    # Now use the trigger_runs logger
+    logger = utils.getLogger()
     logger.info('Looking for builds...')
     product = 'fennec'
     build_platforms = ['android',
@@ -125,6 +136,11 @@ def trigger_runs(args, options):
 
 def main():
     from optparse import OptionParser
+
+    # Set our process name which we will use in obtaining
+    # the appropriate loggers when necessary.
+    multiprocessing.current_process().name = 'trigger_runs'
+
 
     usage = '''%prog [options] <datetime, date/datetime, or date/datetime range>
 Triggers one or more test runs.

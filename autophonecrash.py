@@ -8,7 +8,6 @@
 # http://developer.android.com/training/articles/perf-anr.html
 
 import glob
-import logging
 import os
 import subprocess
 import re
@@ -17,12 +16,9 @@ import sys
 import tempfile
 from collections import namedtuple
 
+import utils
 from adb import ADBError
 from phonestatus import TestStatus
-
-# Set the logger globally in the file, but this must be reset when
-# used in a child process.
-LOGGER = logging.getLogger()
 
 TRACES = "/data/anr/traces.txt"
 TOMBSTONES = "/data/tombstones"
@@ -77,7 +73,8 @@ class AutophoneCrashProcessor(object):
             self.adb.shell_output('echo > %s' % TRACES, root=root)
             self.adb.chmod(TRACES, mask='666', root=root)
         except ADBError, e:
-            LOGGER.warning("Could not initialize ANR traces %s, %s", TRACES, e)
+            logger = utils.getLogger()
+            logger.warning("Could not initialize ANR traces %s, %s", TRACES, e)
 
     def check_for_anr_traces(self, root=True):
         """Reports the ANR traces file from the device.
@@ -87,22 +84,21 @@ class AutophoneCrashProcessor(object):
         host before truncating the contents of the ANR traces file on
         the device.
         """
+        logger = utils.getLogger()
         if self.adb.exists(TRACES, root=root):
             try:
                 t = self.adb.shell_output("cat %s" % TRACES, root=root)
-                LOGGER.info("Contents of %s:", TRACES)
-                LOGGER.info(t)
-                f = open(os.path.join(self.upload_dir, 'traces.txt', 'wb'))
+                f = open(os.path.join(self.upload_dir, 'traces.txt', 'a'))
                 f.write(t)
                 f.close()
                 # Once reported, delete traces
                 self.delete_anr_traces()
             except ADBError, e:
-                LOGGER.warning("Error %s pulling %s", e, TRACES)
+                logger.info("Error %s pulling %s", e, TRACES)
             except IOError, e:
-                LOGGER.warning("Error %s pulling %s", e, TRACES)
+                logger.info("Error %s pulling %s", e, TRACES)
         else:
-            LOGGER.info("%s not found", TRACES)
+            logger.info("%s not found", TRACES)
 
     def delete_tombstones(self, root=True):
         """Deletes any existing tombstone files from device."""
@@ -126,6 +122,7 @@ class AutophoneCrashProcessor(object):
         Each copied tombstone filename will be renamed to have a
         unique integer suffix with a .txt extension.
         """
+        logger = utils.getLogger()
         if self.adb.exists(TOMBSTONES, root=root):
             self.adb.chmod(TOMBSTONES, root=root)
             self.adb.chmod(os.path.join(TOMBSTONES, '*'), mask='666', root=root)
@@ -136,11 +133,11 @@ class AutophoneCrashProcessor(object):
                     newname = "%s.%d.txt" % (f, i)
                     if not os.path.exists(newname):
                         os.rename(f, newname)
-                        LOGGER.debug('AutophoneCrashProcessor.'
+                        logger.debug('AutophoneCrashProcessor.'
                                      'check_for_tombstones: %s', newname)
                         break
         else:
-            LOGGER.warning("%s does not exist; tombstone check skipped", TOMBSTONES)
+            logger.warning("%s does not exist; tombstone check skipped", TOMBSTONES)
 
     def get_java_exception(self):
         """Returns a summary of the first fatal Java exception found in
@@ -152,6 +149,7 @@ class AutophoneCrashProcessor(object):
           'signature': 'java.lang.NullPointerException at org.mozilla.gecko.GeckoApp$21.run(GeckoApp.java:1833)'
         }
         """
+        logger = utils.getLogger()
         logre = re.compile(r".*\): \t?(.*)")
         exception = None
 
@@ -181,7 +179,7 @@ class AutophoneCrashProcessor(object):
                                      'signature': "%s %s" % (
                                          exception_type, exception_location)}
                 else:
-                    LOGGER.warning("Automation Error: check_for_java_exceptions: Logcat is truncated!")
+                    logger.warning("Automation Error: check_for_java_exceptions: Logcat is truncated!")
                 break
         return exception
 
@@ -205,7 +203,8 @@ class AutophoneCrashProcessor(object):
                                      stackwalk being launched.
                    extra: Path of the extra file.
         """
-        LOGGER.debug('AutophoneCrashProcessor.'
+        logger = utils.getLogger()
+        logger.debug('AutophoneCrashProcessor.'
                      '_process_dump_file: %s %s %s %s',
                      path, extra, symbols_path, stackwalk_binary)
         errors = []
@@ -247,7 +246,7 @@ class AutophoneCrashProcessor(object):
             elif stackwalk_binary and not os.path.exists(stackwalk_binary):
                 errors.append("MINIDUMP_STACKWALK binary not found: %s" % stackwalk_binary)
 
-        LOGGER.debug('AutophoneCrashProcessor.'
+        logger.debug('AutophoneCrashProcessor.'
                      '_process_dump_file: %s %s signature: %s '
                      'stdout: %s stderr: %s return code: %s errors: %s',
                      path, extra, signature, out, err, retcode, errors)
@@ -281,6 +280,7 @@ class AutophoneCrashProcessor(object):
           },
         ]
         """
+        logger = utils.getLogger()
         self.check_for_anr_traces()
         self.check_for_tombstones()
 
@@ -291,7 +291,7 @@ class AutophoneCrashProcessor(object):
             # minidumps directory is automatically created when Fennec
             # (first) starts, so its lack of presence is a hint that
             # something went wrong.
-            LOGGER.warning("No crash directory (%s) "
+            logger.warning("No crash directory (%s) "
                            "found on remote device", self.remote_dump_dir)
             return crashes
         # Create a temporary directory to hold the dump files from the
@@ -313,21 +313,21 @@ class AutophoneCrashProcessor(object):
                       glob.glob(os.path.join(temp_upload_dir, '*.dmp'))]
         max_dumps = 10
         if len(dump_files) > max_dumps:
-            LOGGER.warning("Found %d dump files -- limited to %d!", len(dump_files), max_dumps)
+            logger.warning("Found %d dump files -- limited to %d!", len(dump_files), max_dumps)
             del dump_files[max_dumps:]
-        LOGGER.debug('AutophoneCrashProcessor.dump_files: %s', dump_files)
+        logger.debug('AutophoneCrashProcessor.dump_files: %s', dump_files)
         for path, extra in dump_files:
             try:
                 if os.path.exists(path):
                     shutil.copy(path, self.upload_dir)
             except:
-                LOGGER.exception('Attempting to copy %s to upload directory %s',
+                logger.exception('Attempting to copy %s to upload directory %s',
                                  path, self.upload_dir)
             try:
                 if os.path.exists(extra):
                     shutil.copy(extra, self.upload_dir)
             except:
-                LOGGER.exception('Attempting to copy %s to upload directory %s',
+                logger.exception('Attempting to copy %s to upload directory %s',
                                  extra, self.upload_dir)
             info = self._process_dump_file(path, extra, symbols_path, stackwalk_binary)
             stackwalk_output = ["Crash dump filename: %s" % info.minidump_path]
@@ -340,7 +340,7 @@ class AutophoneCrashProcessor(object):
                 stackwalk_output.append("minidump_stackwalk exited with return code %d" %
                                         info.stackwalk_retcode)
             signature = info.signature if info.signature else "unknown top frame"
-            LOGGER.info("application crashed [%s]", signature)
+            logger.info("application crashed [%s]", signature)
             crashes.append(
                 {'reason': TestStatus.PROCESS_CRASH,
                  'signature': signature,
@@ -349,7 +349,7 @@ class AutophoneCrashProcessor(object):
         try:
             shutil.rmtree(temp_upload_dir)
         except:
-            LOGGER.exception('Attempting to remove upload directory %s',
+            logger.exception('Attempting to remove upload directory %s',
                              temp_upload_dir)
         return crashes
 

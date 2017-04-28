@@ -21,6 +21,11 @@ import sys
 import threading
 import traceback
 
+# Capture the python logger class before mozlog changes it.
+LOGGER_CLASS = logging.getLoggerClass()
+LOGGER = None
+CONSOLE_LOGGER = None
+
 import pytz
 from manifestparser import TestManifest
 
@@ -31,6 +36,7 @@ import utils
 
 from adb import ADBHost
 from adb_android import ADBAndroid
+from autophonelogserver import LogRecordServer
 from autophonepulsemonitor import AutophonePulseMonitor
 from autophonetreeherder import AutophoneTreeherder
 from mailer import Mailer
@@ -38,11 +44,7 @@ from options import AutophoneOptions
 from phonestatus import PhoneStatus
 from phonetest import PhoneTest
 from process_states import ProcessStates
-from sensitivedatafilter import SensitiveDataFilter
 from worker import PhoneWorker
-
-LOGGER = None
-CONSOLE_LOGGER = None
 
 class PhoneData(object):
     def __init__(self, phoneid, serial, machinetype, osver, abi, sdk, supported_sdks, ipaddr):
@@ -105,7 +107,6 @@ class AutoPhone(object):
         self.loglevel = loglevel
         self.mailer = Mailer(options.emailcfg, '[autophone] ')
 
-        self._next_worker_num = 0
         self.jobs = jobs.Jobs(self.mailer,
                               allow_duplicates=options.allow_duplicate_jobs)
         self.phone_workers = {}  # indexed by phone id
@@ -115,7 +116,6 @@ class AutoPhone(object):
         self._devices = {} # dict indexed by device names found in devices ini file
         self.server = None
         self.server_thread = None
-        self.treeherder_thread = None
         self.pulse_monitor = None
         self.restart_workers = {}
         self.treeherder = AutophoneTreeherder(None,
@@ -123,6 +123,9 @@ class AutoPhone(object):
                                               self.jobs,
                                               mailer=self.mailer,
                                               shared_lock=self.shared_lock)
+        self.treeherder_thread = None
+        self.logging_server = LogRecordServer(autophone=self)
+        self.logging_server_thread = None
 
         CONSOLE_LOGGER.info('Starting autophone.')
 
@@ -189,12 +192,6 @@ class AutoPhone(object):
                 LOGGER.debug('lock_release: %s\n%s', data, self._get_frames())
         self.lock.release()
 
-    @property
-    def next_worker_num(self):
-        n = self._next_worker_num
-        self._next_worker_num += 1
-        return n
-
     def run(self):
         self.server = self.CmdTCPServer(('0.0.0.0', self.options.port),
                                         self.CmdTCPHandler)
@@ -203,6 +200,12 @@ class AutoPhone(object):
                                               name='CmdTCPThread')
         self.server_thread.daemon = True
         self.server_thread.start()
+
+        self.logging_server_thread = threading.Thread(
+            target=self.logging_server.serve_forever,
+            name="LoggingServerThread")
+        self.logging_server_thread.daemon = True
+        self.logging_server_thread.start()
 
         if self.options.treeherder_url:
             self.treeherder_thread = threading.Thread(
@@ -385,6 +388,8 @@ class AutoPhone(object):
                 self.server.shutdown()
             if self.server_thread:
                 self.server_thread.join()
+            self.logging_server.shutdown()
+
             if self.options.treeherder_url:
                 self.treeherder.shutdown()
                 if self.treeherder_thread:
@@ -434,14 +439,14 @@ class AutoPhone(object):
 
     # Start the phones for testing
     def new_job(self, job_data):
-        LOGGER.debug('new_job: %s', job_data)
+        LOGGER.info('new_job: %s', job_data)
         build_url = job_data['build']
         tests = job_data['tests']
 
         phoneids = set([test.phone.id for test in tests])
         for phoneid in phoneids:
             p = self.phone_workers[phoneid]
-            LOGGER.debug('new_job: worker phoneid %s', phoneid)
+            LOGGER.info('new_job for worker phoneid %s', phoneid)
             # Determine if we will test this build, which tests to run and if we
             # need to enable unittests.
             runnable_tests = PhoneTest.match(tests=tests,
@@ -451,7 +456,7 @@ class AutoPhone(object):
                                              build_abi=job_data['abi'],
                                              build_sdk=job_data['sdk'])
             if not runnable_tests:
-                LOGGER.debug('new_job: Ignoring build %s for phone %s', build_url, phoneid)
+                LOGGER.info('new_job: Ignoring build %s for phone %s', build_url, phoneid)
                 continue
             enable_unittests = False
             for t in runnable_tests:
@@ -683,12 +688,15 @@ ok
                            phone, self.options)
             raise Exception('create_worker: No tests for %s %s' % (
                 phone, self.options))
-        logfile_prefix = os.path.splitext(self.options.logfile)[0]
-        worker = PhoneWorker(dm, self.next_worker_num,
-                             tests, phone, self.options,
+
+        worker = PhoneWorker(dm,
+                             tests,
+                             phone,
+                             self.options,
                              self.queue,
-                             '%s-%s' % (logfile_prefix, phone.id),
-                             self.loglevel, self.mailer, self.shared_lock)
+                             self.loglevel,
+                             self.mailer,
+                             self.shared_lock)
         self.phone_workers[phone.id] = worker
         return worker
 
@@ -714,10 +722,8 @@ ok
             data['sdk'],
             data['supported_sdks'],
             self.options.ipaddr) # XXX IPADDR no longer needed?
-        if LOGGER.getEffectiveLevel() == logging.DEBUG:
-            LOGGER.debug('register_cmd: phone: %s', phone)
         if phoneid in self.phone_workers:
-            LOGGER.debug('Received registration message for known phone %s.', phoneid)
+            LOGGER.info('Received registration message for known phone %s.', phoneid)
             worker = self.phone_workers[phoneid]
             if worker.phone.__dict__ != phone.__dict__:
                 # This won't update the subprocess, but it will allow
@@ -774,8 +780,10 @@ ok
                     device=serialno,
                     device_ready_retry_wait=self.options.device_ready_retry_wait,
                     device_ready_retry_attempts=self.options.device_ready_retry_attempts,
+                    logger_name=device_name,
                     verbose=self.options.verbose,
                     test_root=test_root)
+                dm._logger = utils.getLogger(name=device_name)
                 device = {"device_name": device_name,
                           "serialno": serialno,
                           "dm" : dm}
@@ -1120,6 +1128,14 @@ def autophone_runner(options):
     def sigterm_handler(signum, frame):
         autophone.stop()
 
+    # Set our process name which we will use in obtaining
+    # the appropriate loggers when necessary.
+    multiprocessing.current_process().name = 'autophone'
+
+    # Save the sensitive data in a logging filter which
+    # will prevent disclosure of sensitive data.
+    utils.recordSensitiveData(options.sensitive_data)
+
     loglevel = e = None
     try:
         loglevel = getattr(logging, options.loglevel)
@@ -1130,28 +1146,24 @@ def autophone_runner(options):
             print 'Invalid log level %s' % options.loglevel
             return errno.EINVAL
 
-    sensitive_data_filter = SensitiveDataFilter(options.sensitive_data)
     logging.captureWarnings(True)
 
-    LOGGER = logging.getLogger()
-    LOGGER.addFilter(sensitive_data_filter)
+    LOGGER = utils.getLogger('')
     LOGGER.setLevel(loglevel)
 
     filehandler = logging.handlers.TimedRotatingFileHandler(options.logfile,
                                                             when='midnight',
                                                             backupCount=7)
-    fileformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
-                        '%(levelname)s|%(message)s')
-    fileformatter = logging.Formatter(fileformatstring)
+    formatstring = utils.getLoggerFormatString(loglevel)
+    fileformatter = logging.Formatter(formatstring)
     filehandler.setFormatter(fileformatter)
     LOGGER.addHandler(filehandler)
 
-    CONSOLE_LOGGER = logging.getLogger('console')
+    formatstring = '%(asctime)s %(name)s %(levelname)s %(message)s'
+    CONSOLE_LOGGER = utils.getLogger('console')
     CONSOLE_LOGGER.setLevel(loglevel)
     streamhandler = logging.StreamHandler(stream=sys.stderr)
-    streamformatstring = ('%(asctime)s|%(process)d|%(threadName)s|%(name)s|'
-                          '%(levelname)s|%(message)s')
-    streamformatter = logging.Formatter(streamformatstring)
+    streamformatter = logging.Formatter(formatstring)
     streamhandler.setFormatter(streamformatter)
     CONSOLE_LOGGER.addHandler(streamhandler)
 
@@ -1159,15 +1171,14 @@ def autophone_runner(options):
         if (other_logger_name == 'root' or other_logger_name == 'console') or \
            not hasattr(other_logger, 'handlers'):
             continue
-        other_logger.addFilter(sensitive_data_filter)
+        LOGGER.debug('Library logger %s', other_logger_name)
+        other_logger.setLevel(loglevel)
+        other_logger.addFilter(utils.getSensitiveDataFilter())
         for other_handler in other_logger.handlers:
             other_handler.flush()
             other_handler.close()
             other_logger.removeHandler(other_handler)
-        other_logger.addHandler(logging.NullHandler())
-        LOGGER.debug('Library logger %s', other_logger_name)
-        if options.verbose:
-            other_logger.setLevel(loglevel)
+        other_logger.addHandler(filehandler)
 
     CONSOLE_LOGGER.info('Starting server on port %d.', options.port)
     CONSOLE_LOGGER.info('Starting build-cache server on port %d.',
@@ -1256,6 +1267,10 @@ unpacked tests package for the build.
 
 def main():
     from optparse import OptionParser
+
+    # Restore the python logger class after
+    # mozlog has changed it.
+    logging.setLoggerClass(LOGGER_CLASS)
 
     parser = OptionParser()
     parser.add_option('--ipaddr', action='store', type='string', dest='ipaddr',

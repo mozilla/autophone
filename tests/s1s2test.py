@@ -85,10 +85,12 @@ class S1S2Test(PerfTest):
         testcount = len(self._urls.keys())
         for testnum, (testname, url) in enumerate(self._urls.iteritems(), 1):
             self.loggerdeco = self.loggerdeco.clone(
-                extradict={'phoneid': self.phone.id,
-                           'buildid': self.build.id,
-                           'testname': testname},
-                extraformat='S1S2TestJob|%(phoneid)s|%(buildid)s|%(testname)s|%(message)s')
+                extradict={
+                    'buildid': self.build.id,
+                    'buildtype': self.build.type,
+                    'testname': testname
+                },
+                extraformat='S1S2TestJob %(buildid)s %(buildtype)s %(testname)s %(message)s')
             self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d) for %d iterations',
                                  testnum, testcount, self._iterations)
@@ -364,7 +366,7 @@ class S1S2Test(PerfTest):
                 break # attempt
 
             if start_time and throbber_start_time and throbber_stop_time:
-                self.loggerdeco.debug(
+                self.loggerdeco.info(
                     'analyze_logcat: got measurements '
                     'start_time: %s, throbber start: %s, throbber stop: %s',
                     start_time, throbber_start_time, throbber_stop_time)

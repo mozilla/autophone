@@ -4,17 +4,12 @@
 
 import datetime
 import json
-import logging
 import os
 import sqlite3
 import time
 import traceback
 
 import utils
-
-# Set the logger globally in the file, but this must be reset when
-# used in a child process.
-LOGGER = logging.getLogger()
 
 class Jobs(object):
 
@@ -67,8 +62,9 @@ class Jobs(object):
             conn.close()
 
     def report_sql_error(self, attempt, email_sent, sql, values):
+        logger = utils.getLogger()
         message = '%s %s' % (sql, values)
-        LOGGER.exception(message)
+        logger.exception(message)
         if attempt > self.SQL_MAX_RETRIES and not email_sent:
             email_sent = True
             email_subject = '%s jobs SQL Error' % utils.host()
@@ -77,7 +73,7 @@ class Jobs(object):
                 '%s' %
                 (attempt, message, traceback.format_exc()))
             self.mailer.send(email_subject, email_body)
-            LOGGER.info('Sent mail notification about jobs database sql error.')
+            logger.info('Sent mail notification about jobs database sql error.')
         time.sleep(self.SQL_RETRY_DELAY)
         return email_sent
 
@@ -153,7 +149,8 @@ class Jobs(object):
                 tree=None, revision=None, builder_type=None, tests=None,
                 enable_unittests=False, device=None,
                 attempts=0):
-        LOGGER.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s',
+        logger = utils.getLogger()
+        logger.debug('jobs.new_job: %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s',
                      build_url, build_id, build_type, build_abi, build_platform, build_sdk,
                      changeset, changeset_dirs, tree, revision, builder_type,
                      tests, enable_unittests, device, attempts)
@@ -196,7 +193,7 @@ class Jobs(object):
                 test_row = test_cursor.fetchone()
                 test_cursor.close()
                 if test_row:
-                    LOGGER.warning(
+                    logger.warning(
                         'jobs.new_job: duplicate test: %s, device: %s, '
                         'name: %s, config_file: %s, chunk: %s, repos: %s',
                         build_url, device, test.name, test.config_file,
@@ -205,7 +202,7 @@ class Jobs(object):
             new_tests.append(test)
             test.generate_guid()
             if not test.job_guid:
-                LOGGER.error(
+                logger.error(
                     'jobs.new_job: invalid job_guid: %s, device: %s, '
                     'name: %s, config_file: %s, chunk: %s, repos: %s',
                     build_url, device, test.name, test.config_file,
@@ -244,6 +241,7 @@ class Jobs(object):
         self._commit_connection(conn)
 
     def get_next_job(self, lifo=False, device=None, worker=None):
+        logger = utils.getLogger()
         if not device:
             device = self.default_device
         order = 'desc' if lifo else 'asc'
@@ -337,17 +335,18 @@ class Jobs(object):
                    test.chunk == test_row['chunk'] and \
                    test.repos == test_row['repos']:
                     if not test_row['guid']:
-                        LOGGER.error('jobs.get_next_job: invalid job_guid: %s', job)
+                        logger.error('jobs.get_next_job: invalid job_guid: %s', job)
                         raise Exception('Found test with invalid job_guid')
                     test.job_guid = test_row['guid']
                     job['tests'].append(test)
-        LOGGER.debug('jobs.get_next_job: %s', job)
+        logger.debug('jobs.get_next_job: %s', job)
         self._commit_connection(conn)
         self._close_connection(conn)
         return job
 
     def cancel_test(self, test_guid, device=None):
-        LOGGER.debug('jobs.cancel_test: test %s device %s',
+        logger = utils.getLogger()
+        logger.debug('jobs.cancel_test: test %s device %s',
                      test_guid, device)
         if not device:
             device = self.default_device
@@ -363,7 +362,7 @@ class Jobs(object):
         ]
 
         if not job_ids:
-            LOGGER.debug('jobs.cancel_test: test %s for device %s '
+            logger.debug('jobs.cancel_test: test %s for device %s '
                          'already deleted', test_guid, device)
             self._close_connection(conn)
             return
@@ -385,7 +384,7 @@ class Jobs(object):
         count = test_cursor.fetchone()[0]
         test_cursor.close()
         if count == 0:
-            LOGGER.debug('jobs.cancel_test: delete job_id %s device %s',
+            logger.debug('jobs.cancel_test: delete job_id %s device %s',
                          job_id, device)
             self._execute_sql(
                 conn,
@@ -395,7 +394,8 @@ class Jobs(object):
         self._close_connection(conn)
 
     def new_treeherder_job(self, machine, project, job_collection):
-        LOGGER.debug('jobs.new_treeherder_job: %s %s %s',
+        logger = utils.getLogger()
+        logger.debug('jobs.new_treeherder_job: %s %s %s',
                      machine, project, job_collection.__dict__)
         attempts = 0
         now = datetime.datetime.utcnow().isoformat()
@@ -409,6 +409,7 @@ class Jobs(object):
         self._close_connection(conn)
 
     def get_next_treeherder_job(self):
+        logger = utils.getLogger()
         conn = self._conn()
 
         job_cursor = self._execute_sql(
@@ -435,27 +436,30 @@ class Jobs(object):
             values=(job['attempts'], job['last_attempt'],
                     job['id']))
 
-        LOGGER.debug('jobs.get_next_treeherder_job: %s', job)
+        logger.debug('jobs.get_next_treeherder_job: %s', job)
         self._commit_connection(conn)
         self._close_connection(conn)
         return job
 
     def treeherder_job_completed(self, th_id):
-        LOGGER.debug('jobs.treeherder_job_completed: %s', th_id)
+        logger = utils.getLogger()
+        logger.debug('jobs.treeherder_job_completed: %s', th_id)
         conn = self._conn()
         self._execute_sql(conn, 'delete from treeherder where id=?', values=(th_id,))
         self._commit_connection(conn)
         self._close_connection(conn)
 
     def test_completed(self, test_guid):
-        LOGGER.debug('jobs.test_completed: %s', test_guid)
+        logger = utils.getLogger()
+        logger.debug('jobs.test_completed: %s', test_guid)
         conn = self._conn()
         self._execute_sql(conn, 'delete from tests where guid=?', values=(test_guid,))
         self._commit_connection(conn)
         self._close_connection(conn)
 
     def job_completed(self, job_id):
-        LOGGER.debug('jobs.job_completed: %s', job_id)
+        logger = utils.getLogger()
+        logger.debug('jobs.job_completed: %s', job_id)
         conn = self._conn()
         self._execute_sql(conn, 'delete from tests where jobid=?', values=(job_id,))
         self._execute_sql(conn, 'delete from jobs where id=?', values=(job_id,))
