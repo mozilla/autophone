@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import datetime
+import re
 from time import sleep
 
 from phonetest import PhoneTest, TreeherderStatus, TestStatus
@@ -89,12 +90,14 @@ class SmokeTest(PhoneTest):
         return is_test_completed
 
     def check_throbber(self):
+        re_throbber = re.compile('(Throbber|page load) stop')
         buf = self.worker_subprocess.logcat.get()
 
         for line in buf:
             line = line.strip()
             self.loggerdeco.debug('check_throbber: %s' % line)
-            if 'Throbber stop' in line:
+            match = re_throbber.search(line)
+            if match:
                 return True
         return False
 
