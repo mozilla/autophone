@@ -262,6 +262,15 @@ class AutophonePulseMonitor(object):
         if self._stopping.is_set():
             return
         message.ack()
+        try:
+            relock = False
+            if self.verbose:
+                LOGGER.debug('AutophonePulseMonitor handle_message shared_lock.release')
+            self.shared_lock.release()
+            relock = True
+        except ValueError, e:
+            if self.verbose:
+                LOGGER.debug('AutophonePulseMonitor handle_message shared_lock not set')
         if '_meta' in data and 'payload' in data:
             self.handle_build(data, message)
         elif (self.treeherder_url and 'action' in data and
@@ -270,6 +279,10 @@ class AutophonePulseMonitor(object):
         elif 'status' in data:
             LOGGER.debug('handle_message: data: %s, message: %s', data, message)
             self.handle_taskcompleted(data, message)
+        if relock:
+            if self.verbose:
+                LOGGER.debug('AutophonePulseMonitor handle_message shared_lock.acquire')
+            self.shared_lock.acquire()
 
     def handle_build(self, data, message):
         if self.verbose:
