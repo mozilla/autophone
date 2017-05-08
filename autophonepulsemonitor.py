@@ -281,7 +281,7 @@ class AutophonePulseMonitor(object):
             self.handle_taskcompleted(data, message)
         if relock:
             if self.verbose:
-                LOGGER.debug('AutophonePulseMonitor handle_message shared_lock.acquire')
+                logger.debug('AutophonePulseMonitor handle_message shared_lock.acquire')
             self.shared_lock.acquire()
 
     def handle_build(self, data, message):
