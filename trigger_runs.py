@@ -76,12 +76,10 @@ def trigger_runs(args, options):
     logger = utils.getLogger()
     logger.info('Looking for builds...')
     product = 'fennec'
-    build_platforms = ['android',
-                       'android-api-9',
-                       'android-api-10',
-                       'android-api-11',
-                       'android-api-15',
-                       'android-x86']
+    build_platforms = [
+        'android-api-15',
+        'android-api-15-gradle'
+    ]
     buildfile_ext = '.apk'
 
     cache = builds.BuildCache(

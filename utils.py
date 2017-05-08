@@ -4,8 +4,6 @@
 
 # get_remote_content modelled on treeherder/etc/common.py
 
-import datetime
-import httplib
 import json
 import logging
 import math
@@ -17,16 +15,16 @@ import re
 import sys
 import time
 import traceback
-import urllib
-import urllib2
 import urlparse
 import uuid
 
-from ssl import SSLError
+import requests
 
 import taskcluster
 
 import build_dates
+import builds
+
 from sensitivedatafilter import SensitiveDataFilter
 
 def getLoggerFormatString(loglevel):
@@ -68,50 +66,35 @@ def getLogger(name=None):
 
 def get_remote_text(url):
     """Return the string containing the contents of a remote url if the
-    HTTP response code is 200, otherwise return None.
+    request is successful, otherwise return None.
 
     :param url: url of content to be retrieved.
     """
     logger = getLogger()
-    conn = None
 
     try:
-        scheme = urlparse.urlparse(url).scheme
-        if not scheme:
-            raise Exception('required scheme missing in url %s' % url)
-
-        if scheme.startswith('file'):
-            conn = urllib2.urlopen(url)
-            return conn.read()
+        parse_result = urlparse.urlparse(url)
+        if not parse_result.scheme or parse_result.scheme.startswith('file'):
+            local_file = open(parse_result.path)
+            with local_file:
+                return local_file.read()
 
         while True:
-            req = urllib2.Request(url)
-            req.add_header('User-Agent', 'autophone')
-            conn = urllib2.urlopen(req)
-            code = conn.getcode()
-            if code == 200:
-                content = conn.read()
-                return content
-            if code != 503:
+            r = requests.get(url, headers={'user-agent': 'autophone'})
+            if r.ok:
+                return r.text
+            elif r.status_code != 503:
                 logger.warning("Unable to open url %s : %s",
-                               url, httplib.responses[code])
+                               url, r.reason)
                 return None
             # Server is too busy. Wait and try again.
             # See https://bugzilla.mozilla.org/show_bug.cgi?id=1146983#c10
             logger.warning("HTTP 503 Server Too Busy: url %s", url)
-            conn.close()
             time.sleep(60 + random.randrange(0, 30, 1))
-    except urllib2.HTTPError, e:
-        logger.warning('%s Unable to open %s', e, url)
-        return None
     except Exception:
         logger.exception('Unable to open %s', url)
-        return None
-    finally:
-        if conn:
-            conn.close()
 
-    return content
+    return None
 
 
 def get_remote_json(url):
@@ -128,9 +111,75 @@ def get_remote_json(url):
     return content
 
 
+def get_build_data_from_taskcluster_task_definition(task_definition):
+    logger = getLogger()
+
+    # 1 = project/repo, 2 = pushdate CCYYMMDDHHMMSS, 3 = platform, 4 = build_type
+    re_route_pushdate = re.compile(r'index\.gecko\.v2\.([^.]+)\.pushdate\.\d{4}\.\d{2}\.\d{2}\.(\d{14})\.mobile\.(android.*)-(opt|debug)')
+
+    # 1 = project/repo, 2 = revision, # 3 = platform, 4 = build_type
+    re_route_revision = re.compile(r'index\.gecko\.v2\.([^.]+)\.revision\.([^.]+)\.mobile\.(android.*)-(opt|debug)')
+
+    # 1 - api, 2 - custom
+    re_platform = re.compile(r'android-(x86|api-\d+)-?(\w+)?')
+
+    repo = None
+    pushdate = None
+    revision = None
+    platform = None
+    build_type = None
+    success = False
+
+    for route in task_definition['routes']:
+        match = re_route_pushdate.match(route)
+        if match:
+            (repo, pushdate, platform, build_type) = match.groups()
+        else:
+            match = re_route_revision.match(route)
+            if match:
+                (repo, revision, platform, build_type) = match.groups()
+        if repo and pushdate and revision and platform and build_type:
+            success = True
+            break
+    logger.debug('get_build_data_from_taskcluster_task_definition: %s, %s, %s, %s, %s',
+                 repo, pushdate, revision, platform, build_type)
+    if not success:
+        return None
+
+    formatstr, build_date = build_dates.parse_datetime(pushdate, tz=build_dates.UTC)
+
+    match = re_platform.match(platform)
+    if match:
+        (api, extra) = match.groups()
+        if api == 'x86':
+            api = 'api-15'
+            abi = 'x86'
+        else:
+            abi = 'arm'
+
+    changeset = builds.REPO_URLS[repo] + 'rev/' + revision
+
+    build_data = {
+        'url': None,
+        'id': pushdate,
+        'date': build_date,
+        'changeset': changeset,
+        'changeset_dirs': get_changeset_dirs(changeset),
+        'revision': revision,
+        'builder_type': 'taskcluster',
+        'repo': repo,
+        'abi': abi,
+        'sdk': api,
+        'build_type': build_type,
+        'nightly': False,
+        'platform': platform,
+    }
+    logger.debug('get_build_data_from_taskcluster_task_definition: %s', build_data)
+    return build_data
+
+
 def get_build_data(build_url, builder_type='taskcluster'):
-    """Return a dict containing information parsed from a build's .txt
-    file.
+    """Return a dict containing information about a build.
 
     :param build_url: string containing url to the firefox build.
     :param builder_type: either 'buildbot' or'taskcluster'
@@ -153,6 +202,24 @@ def get_build_data(build_url, builder_type='taskcluster'):
        'platform'     : android, android-x86, android-<sdk>
     """
     logger = getLogger()
+    logger.debug('get_build_data(%s, builder_type=%s)', build_url, builder_type)
+
+    re_taskcluster_build_url = re.compile(r'https://queue.taskcluster.net/v1/task/([^/]+)/runs/\d/artifacts/public/build/')
+    match = re_taskcluster_build_url.match(build_url)
+    if match:
+        task_id = match.group(1)
+        logger.debug("get_build_data: taskId %s", task_id)
+        task_definition = get_taskcluster_task_definition(task_id)
+        build_data = get_build_data_from_taskcluster_task_definition(task_definition)
+        if build_data:
+            build_data['url'] = build_url
+        return build_data
+
+    if builder_type == 'taskcluster':
+        build_id_tz = build_dates.UTC
+    else:
+        build_id_tz = build_dates.PACIFIC
+
     build_id = None
     changeset = None
     revision = None
@@ -163,19 +230,11 @@ def get_build_data(build_url, builder_type='taskcluster'):
     platform = None
     nightly = None
 
-    if builder_type == 'taskcluster':
-        build_id_tz = build_dates.UTC
-    else:
-        build_id_tz = build_dates.PACIFIC
-
-    logger.debug('get_build_data(%s, builder_type=%s)', build_url, builder_type)
-
     # Parse the url for meta data if possible.
-    re_tinderbox = re.compile(r'https?://ftp.mozilla.org/pub/mobile/tinderbox-builds/(.*)-(android[^/]*)/\d+/fennec.*\.apk$')
-    re_nightly = re.compile(r'https?://ftp.mozilla.org/pub/mobile/nightly/\d{4}/\d{2}/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-(.*)-(android[^/]*)/fennec.*\.apk$')
     re_platform = re.compile(r'(android)-?(x86)?-?(api-\d+)?-?(debug)?')
     re_mozconfig_sdk = re.compile(r'(api-\d+)')
     ftp_build = False
+    re_tinderbox = re.compile(r'https?://ftp.mozilla.org/pub/mobile/tinderbox-builds/(.*)-(android[^/]*)/\d+/fennec.*\.apk$')
     match_tinderbox = re_tinderbox.match(build_url)
     if match_tinderbox:
         ftp_build = True
@@ -184,6 +243,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
         logger.debug('get_build_data: match_tinderbox: repo: %s, platform_api_build_type: %s',
                      repo, platform_api_build_type)
     else:
+        re_nightly = re.compile(r'https?://ftp.mozilla.org/pub/mobile/nightly/\d{4}/\d{2}/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-(.*)-(android[^/]*)/fennec.*\.apk$')
         match_nightly = re_nightly.match(build_url)
         if match_nightly:
             ftp_build = True
@@ -206,6 +266,7 @@ def get_build_data(build_url, builder_type='taskcluster'):
                 abi = 'x86'
             logger.debug('get_build_data: platform: %s, abi: %s, sdk: %s, debug: %s',
                          platform, abi, sdk, debug)
+
     build_prefix, build_ext = os.path.splitext(build_url)
 
     build_json_url = build_prefix + '.json'
@@ -459,9 +520,9 @@ def host():
 
 
 def urlretrieve(url, dest, max_attempts=3):
-    """Wrapper around urllib.urlretrieve which downloads the contents of
-    url to the path dest while handling partial downloads by retrying
-    the download up to max_attempts times.
+    """Downloads the contents of url to the path dest while handling
+    partial downloads by retrying the download up to max_attempts
+    times.
 
     :param url: url to be downloaded.
     :param dest: path where to save downloaded content.
@@ -472,13 +533,27 @@ def urlretrieve(url, dest, max_attempts=3):
 
     for attempt in range(max_attempts):
         try:
-            urllib.urlretrieve(url, dest)
+            r = requests.get(url, stream=True)
+            if not r.ok:
+                r.raise_for_status()
+            with open(dest, 'wb') as dest_file:
+                for chunk in r.iter_content(chunk_size=4096):
+                    dest_file.write(chunk)
             break
-        except (urllib.ContentTooShortError, SSLError), e:
+        except requests.HTTPError, http_error:
+            logger.info("urlretrieve(%s, %s) %s", url, dest, http_error)
+            raise
+        except (requests.ConnectionError, requests.Timeout), e:
             logger.warning("utils.urlretrieve: %s: Attempt %s: %s",
                            url, attempt, e)
             if attempt == max_attempts - 1:
                 raise
+
+
+def get_taskcluster_task_definition(task_id):
+    queue = taskcluster.queue.Queue()
+    task_definition = queue.task(task_id)
+    return task_definition
 
 
 def taskcluster_artifacts(task_id, run_id):

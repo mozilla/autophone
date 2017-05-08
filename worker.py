@@ -896,14 +896,14 @@ class PhoneWorkerSubProcess(object):
         for attempt in range(1, self.options.phone_retry_limit+1):
             uninstalled = False
             try:
-                # Uninstall all org.mozilla.(fennec|firefox) packages
+                # Uninstall all org.mozilla.(fennec|firefox|geckoview) packages
                 # to make sure there are no previous installations of
                 # different versions of fennec which may interfere
                 # with the test.
                 mozilla_packages = [
                     p.replace('package:', '') for p in
                     self.dm.shell_output("pm list package org.mozilla").split()
-                    if re.match('package:.*(fennec|firefox)', p)]
+                    if re.match('package:.*(fennec|firefox|geckoview)', p)]
                 for p in mozilla_packages:
                     self.dm.uninstall_app(p)
                 if self.dm.is_app_installed(FLASH_PACKAGE):
@@ -938,8 +938,7 @@ class PhoneWorkerSubProcess(object):
         message = ''
         for attempt in range(1, self.options.phone_retry_limit+1):
             try:
-                self.dm.install_app(os.path.join(self.build.dir,
-                                                 'build.apk'))
+                self.dm.install_app(self.build.apk)
                 stop_time = datetime.datetime.now(tz=pytz.utc)
                 self.loggerdeco.info('Install build %s elapsed time: %s',
                                      job['build_url'], stop_time - start_time)

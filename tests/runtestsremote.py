@@ -227,6 +227,15 @@ class UnitTest(PhoneTest):
 
         test_name_lower = self.parms['test_name'].lower()
 
+        # Create a short version of the remote logfile name.
+        fh, temppath = tempfile.mkstemp(
+            suffix='.log',
+            dir='%s/tests' % self.parms['build_dir'])
+        os.close(fh)
+        os.unlink(temppath)
+        self.parms['remote_logfile'] = temppath
+        remote_logfile = os.path.basename(temppath)
+
         if test_name_lower.startswith('robocoptest'):
             # See Bug 1179981 - Robocop harness has too much per-test overhead
             # which changed the way the robocop tests are run. If the new
@@ -247,6 +256,19 @@ class UnitTest(PhoneTest):
                 '--robocop-ini=%s' % self.parms['test_manifest'],
                 '--certificate-path=certs',
                 '--console-level=%s' % self.parms['console_level'],
+            ]
+
+        elif test_name_lower.startswith('mochitest-geckoview'):
+            self.parms['harness_type'] = 'mochitest'
+
+            test_args = [
+                'mochitest/rungeckoview.py',
+                '--appname=%s' % self.parms['app_name'],
+                '--log-unittest=%s' % remote_logfile,
+            ]
+            common_args = [
+                '--deviceSerial=%s' % self.phone.serial,
+                '--remoteTestRoot=%s' % self.base_device_path,
             ]
 
         elif test_name_lower.startswith('mochitest'):
@@ -324,15 +346,6 @@ class UnitTest(PhoneTest):
         self.parms['http_port'] = self.parms['port_manager'].reserve()
         self.parms['ssl_port'] = self.parms['port_manager'].reserve()
 
-        # Create a short version of the remote logfile name.
-        fh, temppath = tempfile.mkstemp(
-            suffix='.log',
-            dir='%s/tests' % self.parms['build_dir'])
-        os.close(fh)
-        os.unlink(temppath)
-        self.parms['remote_logfile'] = temppath
-        remote_logfile = os.path.basename(temppath)
-
         # Create a short version of the pid file name.
         # We don't need to save this to self.parms since it will be
         # deleted after the test completes.
@@ -343,21 +356,22 @@ class UnitTest(PhoneTest):
         os.unlink(temppath)
         pid_file = os.path.basename(temppath)
 
-        common_args = [
-            '--deviceSerial=%s' % self.phone.serial,
-            '--remoteTestRoot=%s' % self.base_device_path,
-            '--app=%s' % self.parms['app_name'],
-            '--xre-path=%s' % self.parms['xre_path'],
-            '--utility-path=%s' % self.parms['utility_path'],
-            '--timeout=%d' % self.parms['time_out'],
-            '--remote-webserver=%s' % self.parms['host_ip_address'],
-            '--http-port=%s' % self.parms['http_port'],
-            '--ssl-port=%s' % self.parms['ssl_port'],
-            '--total-chunks=%d' % self.chunks,
-            '--this-chunk=%d' % self.chunk,
-            '--pidfile=%s' % pid_file,
-            '--remote-logfile=%s' % remote_logfile,
-        ]
+        if not test_name_lower.startswith('mochitest-geckoview'):
+            common_args = [
+                '--deviceSerial=%s' % self.phone.serial,
+                '--remoteTestRoot=%s' % self.base_device_path,
+                '--app=%s' % self.parms['app_name'],
+                '--xre-path=%s' % self.parms['xre_path'],
+                '--utility-path=%s' % self.parms['utility_path'],
+                '--timeout=%d' % self.parms['time_out'],
+                '--remote-webserver=%s' % self.parms['host_ip_address'],
+                '--http-port=%s' % self.parms['http_port'],
+                '--ssl-port=%s' % self.parms['ssl_port'],
+                '--total-chunks=%d' % self.chunks,
+                '--this-chunk=%d' % self.chunk,
+                '--pidfile=%s' % pid_file,
+                '--remote-logfile=%s' % remote_logfile,
+            ]
 
         args.extend(test_args)
         args.extend(common_args)

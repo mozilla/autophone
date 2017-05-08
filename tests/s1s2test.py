@@ -310,13 +310,21 @@ class S1S2Test(PerfTest):
         self.loggerdeco.debug('analyzing logcat')
 
         logcat_prefix = r'\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}'
-        application_start = r'..GeckoApplication.*zerdatime (\d+) - (Fennec )?application start'
-        throbber_prefix = r'..GeckoToolbarDisplayLayout.*zerdatime (\d+) -'
+        application_start = r'..Gecko.*zerdatime (\d+) - .*application start'
+        throbber_prefix = r'..Gecko.*zerdatime (\d+) -'
         re_start_time = re.compile(r'%s %s' % (logcat_prefix, application_start))
         re_throbber_start_time = re.compile('%s %s (Throbber|page load) start' %
                                             (logcat_prefix, throbber_prefix))
         re_throbber_stop_time = re.compile('%s %s (Throbber|page load) stop' %
                                            (logcat_prefix, throbber_prefix))
+        # geckoview_example emits page start and stop messages for
+        # about:blank prior to loading real pages. When is_about_blank
+        # is True, we will ignore any page start and stop messages.
+        is_about_blank = False
+        re_about_blank_start = re.compile('%s I/GeckoViewActivity.*Starting to load page at about:blank' %
+                                          logcat_prefix)
+        re_about_blank_stop = re.compile('%s I/GeckoViewActivity.*Stopping page load' %
+                                          logcat_prefix)
 
         start_time = 0
         throbber_start_time = 0
@@ -327,10 +335,21 @@ class S1S2Test(PerfTest):
         wait_time = 3 # time to wait between attempts
         max_attempts = max_time / wait_time
         success = False
+
         while not success and attempt <= max_attempts:
             buf = self.worker_subprocess.logcat.get()
             for line in buf:
                 self.loggerdeco.debug('analyze_logcat: %s', line)
+
+                if is_about_blank:
+                    match = re_about_blank_stop.match(line)
+                    if match:
+                        is_about_blank = False
+                    continue
+                match = re_about_blank_start.match(line)
+                if match:
+                    is_about_blank = True
+                    continue
 
                 if not start_time:
                     match = re_start_time.match(line)

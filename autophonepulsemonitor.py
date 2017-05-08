@@ -12,7 +12,6 @@ from kombu import Connection, Exchange, Queue
 import taskcluster
 
 import utils
-from builds import get_treeherder_tier
 
 DEFAULT_SSL_PORT = 5671
 
@@ -220,6 +219,9 @@ class AutophonePulseMonitor(object):
                             connection.drain_events(timeout=self.timeout)
                         except socket.timeout:
                             pass
+                        except socket.error, e:
+                            if "timed out" not in str(e):
+                                raise
                         finally:
                             if self.verbose:
                                 logger.debug('AutophonePulseMonitor shared_lock.acquire')
@@ -258,7 +260,7 @@ class AutophonePulseMonitor(object):
             relock = True
         except ValueError, e:
             if self.verbose:
-                logger.debug('AutophonePulseMonitor handle_message shared_lock not set')
+                logger.debug('AutophonePulseMonitor handle_message shared_lock not set %s', e)
         if (self.treeherder_url and 'action' in data and
               'project' in data and 'job_id' in data):
             self.handle_jobaction(data, message)
@@ -364,7 +366,7 @@ class AutophonePulseMonitor(object):
         artifact_data = {}
         task_id = data['status']['taskId']
         run_id = data['runId']
-        task_definition = self.taskcluster_queue.task(task_id)
+        task_definition = utils.get_taskcluster_task_definition(task_id)
         logger.debug('handle_taskcompleted: task_definition: %s', task_definition)
         # Test the repo early in order to prevent unnecessary IO for irrelevent branches.
         try:
@@ -382,6 +384,11 @@ class AutophonePulseMonitor(object):
         build_data = None
         artifact_data = {}
         artifacts = utils.taskcluster_artifacts(task_id, run_id)
+        # Save temporary holders for the build_url and app_name in order
+        # that we may safely override the values returned from fennec in the
+        # case that we are actually returning the geckoview_example build.
+        build_url = None
+        app_name = None
         while True:
             try:
                 artifact = artifacts.next()
@@ -390,43 +397,67 @@ class AutophonePulseMonitor(object):
             key = artifact['name'].replace('public/build/', '')
             artifact_data[key] = 'https://queue.taskcluster.net/v1/task/%s/runs/%s/artifacts/%s' % (
                 task_id, run_id, artifact['name'])
+            logger.debug('handle_taskcompleted: artifact: %s', artifact)
             if key == 'target.apk':
                 build_data = utils.get_build_data(artifact_data[key], builder_type=builder_type)
                 if not build_data:
                     logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
-                                   'could not get %s', task_id, run_id, artifact_data[key])
+                                   'could not get build data for %s', task_id, run_id, artifact_data[key])
                     return
-                tier = get_treeherder_tier(build_data['repo'], task_id, run_id)
-                if builder_type != 'buildbot' and tier != 1:
-                    logger.debug('handle_taskcompleted: ignoring worker_type: %s, tier: %s',
-                                 worker_type, tier)
+
+                if build_data['repo'] not in self.trees:
+                    logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip repo %s not in %s',
+                                 task_id, run_id, build_data['repo'], self.trees)
                     return
-                build_data['app_name'] = 'fennec'
-                build_data['builder_name'] = 'unknown'
+
+                if build_data['platform'] not in self.platforms:
+                    logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip platform %s not in %s',
+                                 task_id, run_id, build_data['platform'], self.platforms)
+                    return
+
+                if build_data['build_type'] not in self.buildtypes:
+                    logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip build_type %s not in %s',
+                                 task_id, run_id, build_data['build_type'], self.buildtypes)
+                    return
+
+                if 'id' not in build_data or 'build_type' not in build_data:
+                    logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
+                                   'skip build due to missing id or build_type %s.',
+                                   task_id, run_id, build_data)
+                    return
+
+                build_url = build_data['url']
+                if not app_name:
+                    app_name = 'org.mozilla.fennec'
+                logger.debug('handle_taskcompleted: got target.apk')
+            elif key == 'geckoview_example.apk':
+                # The geckoview_example app is built from the same source
+                # as the corresponding fennec so we don't need to perform the
+                # build_data look ups here but we will record the app_name
+                # and the build_url
+                logger.debug('handle_taskcompleted: got geckoview_example.apk')
+                app_name = 'org.mozilla.geckoview_example'
 
         if not build_data:
-            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: '
-                         'no build found', task_id, run_id)
+            logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
+                           'could not get build_data', task_id, run_id)
             return
 
-        if 'id' not in build_data or 'build_type' not in build_data:
-            logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
-                           'skipping build due to missing id or build_type %s.',
-                           task_id, run_id, build_data)
-            return
+        # We are totally ignoring the gradle build of fennec in favor
+        # of the geckoview_example.apk. If in the future we need to test
+        # both, then we will have to change this to do the call back on
+        # the fennec build and to download the geckoview_example.apk when
+        # we download the fennec build.
+
+        if app_name == 'org.mozilla.geckoview_example':
+            build_url = build_url.replace('target.apk', 'geckoview_example.apk')
+
+        build_data['app_name'] = app_name
+        build_data['url'] = build_url
+        build_data['builder_name'] = 'unknown'
 
         logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: build_data: %s',
                      task_id, run_id, build_data)
-        if build_data['repo'] not in self.trees:
-            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip repo %s',
-                         task_id, run_id, build_data['repo'])
-            return
-        if build_data['platform'] not in self.platforms:
-            return
-        if build_data['build_type'] not in self.buildtypes:
-            logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: skip build_type %s',
-                         task_id, run_id, build_data['build_type'])
-            return
 
         rev_json_url = build_data['changeset'].replace('/rev/', '/json-rev/')
         rev_json = utils.get_remote_json(rev_json_url)

@@ -44,7 +44,8 @@ class PhoneTest(object):
     @classmethod
     def match(cls, tests=None, test_name=None, phoneid=None,
               config_file=None, job_guid=None,
-              repo=None, build_type=None, build_abi=None, build_sdk=None, changeset_dirs=None):
+              repo=None, platform=None, build_type=None, build_abi=None, build_sdk=None,
+              changeset_dirs=None):
 
         logger = utils.getLogger()
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
@@ -94,6 +95,9 @@ class PhoneTest(object):
                 continue
 
             if build_type and build_type not in test.buildtypes:
+                continue
+
+            if platform and platform not in test.platforms:
                 continue
 
             if build_abi and build_abi not in test.phone.abi:
@@ -269,8 +273,14 @@ class PhoneTest(object):
         self.buildtypes = []
         try:
             self.buildtypes = self.cfg.get('builds', 'buildtypes').split(' ')
-        except ConfigParser.NoSectionError:
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.buildtypes = list(self.options.buildtypes)
+
+        self.platforms = []
+        try:
+            self.platforms = self.cfg.get('builds', 'platforms').split(' ')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            self.platforms = self.options.platforms
 
         self.loggerdeco.info('PhoneTest: %s', self.__dict__)
 

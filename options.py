@@ -30,6 +30,7 @@ class AutophoneOptions(object):
         self.override_build_dir = ''
         self.allow_duplicate_jobs = False
         self.repos = []
+        self.platforms = []
         self.buildtypes = []
         self.lifo = False
         self.build_cache_port = -1
@@ -89,6 +90,7 @@ class AutophoneOptions(object):
                      'override_build_dir',
                      'allow_duplicate_jobs',
                      'repos',
+                     'platforms',
                      'buildtypes',
                      'lifo',
                      'build_cache_port',

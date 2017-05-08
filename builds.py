@@ -12,7 +12,6 @@ import re
 import shutil
 import tempfile
 import urllib
-import urllib2
 import urlparse
 import zipfile
 
@@ -21,6 +20,7 @@ import taskcluster
 from thclient import TreeherderClient
 
 from bs4 import BeautifulSoup
+from requests import HTTPError
 
 import utils
 
@@ -397,7 +397,7 @@ class TaskClusterBuilds(BuildLocation):
         logger = utils.getLogger()
         builds_by_repo = {}
         url_format = 'https://queue.taskcluster.net/v1/task/%s/runs/%s/artifacts/%s'
-        re_fennec = re.compile(r'(fennec|target).*apk$')
+        re_fennec = re.compile(r'(fennec|target|geckoview_example).*apk$')
         for repo in task_ids_by_repo:
             builds_by_repo[repo] = builds = []
             for task_id in task_ids_by_repo[repo]:
@@ -491,14 +491,15 @@ class TaskClusterBuilds(BuildLocation):
                 task_definition = self.queue.task(task_id)
                 logger.debug('_find_latest_task_ids: task_definition: %s', task_definition)
                 worker_type = task_definition['workerType']
-                builder_type = 'buildbot' if worker_type == 'buildbot' else 'taskcluster'
                 # Just hard-code run_id 0 since we are only interested in the tier.
                 tier = get_treeherder_tier(repo, task_id, 0)
                 task_namespace = task['namespace']
                 (platform, build_type) = parse_taskcluster_namespace(task_namespace)
+                # We must relax the tier 1 requirement since we want geckoview_example
+                # builds but they are tier 2. We may need to check for the android-api-15-gradle
+                # platform to filter the original tier 1 fennec builds. TBD.
                 if platform in self.build_platforms and \
-                   build_type in self.buildtypes and \
-                   (builder_type == 'buildbot' or tier == 1):
+                   build_type in self.buildtypes:
                     logger.debug('_find_lastest_task_ids: adding worker_type: %s, '
                                  'task_id: %s, tier: %s, repo: %s, platform: %s, build_type: %s',
                                  worker_type, task_id, tier, repo, platform, build_type)
@@ -608,14 +609,23 @@ class TaskClusterBuilds(BuildLocation):
                     task_definition = self.queue.task(task_id)
                     logger.debug('_find_task_ids_by_revisions: task_definition: %s',
                                  task_definition)
+                    build_data = utils.get_build_data_from_taskcluster_task_definition(task_definition)
+                    logger.debug('_find_task_ids_by_revisions: build_data: %s',
+                                 build_data)
                     worker_type = task_definition['workerType']
                     builder_type = 'buildbot' if worker_type == 'buildbot' else 'taskcluster'
                     # Just hard-code run_id 0 since the tier shouldn't change.
                     tier = get_treeherder_tier(repo, task_id, 0)
                     platform = build_type = None
-                    if builder_type == 'buildbot':
+                    if build_data:
+                        logger.debug('_find_task_ids_by_revisions: using build_data')
+                        platform = build_data['platform']
+                        build_type = build_data['build_type']
+                    elif builder_type == 'buildbot':
+                        logger.debug('_find_task_ids_by_revisions: using task_namespace')
                         (platform, build_type) = parse_taskcluster_namespace(task_namespace)
                     else:
+                        logger.debug('_find_task_ids_by_revisions: using task_definition')
                         if 'metadata' in task_definition and \
                            'name' in task_definition['metadata'] and \
                            '/' in task_definition['metadata']['name']:
@@ -635,13 +645,20 @@ class TaskClusterBuilds(BuildLocation):
                             build_type = task_definition['extra']['build_type']
                         if build_type is None:
                             logger.warning('_find_task_ids_by_revisions: could not determine build_type')
-                    logger.debug('_find_task_ids_by_revisions: worker_type: %s, platform: %s, '
-                                 'build_type: %s, tier: %s',
-                                 worker_type, platform, build_type, tier)
+                    logger.debug('_find_task_ids_by_revisions: builder_type: %s, '
+                                 'platform: %s, build_platforms: %s, '
+                                 'build_type: %s, build_types: %s, '
+                                 'tier: %s',
+                                 builder_type,
+                                 platform, self.build_platforms,
+                                 build_type, self.buildtypes,
+                                 tier)
+                    # We must relax the tier 1 requirement since we want geckoview_example
+                    # builds but they are tier 2.
                     if platform in self.build_platforms and \
                        build_type in self.buildtypes and \
-                       (builder_type == 'buildbot' or tier == 1):
-                        logger.debug('_find_task_ids_by_revisions: adding worker_type: %s, '
+                       (builder_type == 'buildbot' or tier >= 1):
+                        logger.debug('_find_task_ids_by_revisions: adding builder_type: %s, '
                                      'task_id: %s, tier: %s, repo: %s, platform: %s, '
                                      'build_type; %s',
                                      builder_type, task_id, tier, repo, platform, build_type)
@@ -925,10 +942,7 @@ class FtpBuildLocation(BuildLocation):
                                      search_directory, directory_repo,
                                      directory_name)
 
-                        try:
-                            links = url_links("%s%s/" % (search_directory, directory_name))
-                        except urllib2.HTTPError:
-                            continue
+                        links = url_links("%s%s/" % (search_directory, directory_name))
                         for link in links:
                             href = link.get('href')
                             match = self.buildtxt_regex.match(href)
@@ -1097,10 +1111,10 @@ class BuildCache(object):
             if not os.path.exists(override_build_dir):
                 raise BuildCacheException('Override Build Directory does not exist')
 
-            build_path = os.path.join(override_build_dir, 'build.apk')
+            build_path = os.path.join(override_build_dir, 'fennec.apk')
             if not os.path.exists(build_path):
                 raise BuildCacheException('Override Build Directory %s '
-                                          'does not contain a build.apk.',
+                                          'does not contain a fennec.apk.',
                                           override_build_dir)
         if not os.path.exists(self.cache_dir):
             os.mkdir(self.cache_dir)
@@ -1156,7 +1170,7 @@ class BuildCache(object):
 
         return build_location.find_builds_by_revision(first_revision, last_revision)
 
-    def get(self, buildurl, force=False, enable_unittests=False,
+    def get(self, build_url, force=False, enable_unittests=False,
             test_package_names=None, builder_type=None):
         """Returns info on a cached build, fetching it if necessary.
         Returns a dict with a boolean 'success' item.
@@ -1164,17 +1178,18 @@ class BuildCache(object):
         descriptive string.
         If 'success' is True, the dict also contains a 'metadata' item, which is
         a json encoding of BuildMetadata.  The path to the build is the
-        'dir' item, which is a directory containing build.apk,
+        'dir' item, which is a directory containing fennec.apk,
         symbols/, and, if enable_unittests is true, robocop.apk and tests/.
         If not found, fetches them, assuming a standard file structure.
         Cleans the cache before getting started.
         If self.override_build_dir is set, 'dir' is set to
         that value without verifying the contents nor fetching anything (though
-        it will still try to open build.apk to read in the metadata).
+        it will still try to open fennec.apk to read in the metadata).
         See BuildMetadata and BuildCache.build_metadata() for the other
         metadata items.
         """
         logger = utils.getLogger()
+        is_geckoview_example = build_url.endswith('geckoview_example.apk')
         if self.override_build_dir:
             tests_path = os.path.join(self.override_build_dir, 'tests')
             if enable_unittests and not os.path.exists(tests_path):
@@ -1197,7 +1212,7 @@ class BuildCache(object):
                     raise BuildCacheException(
                         'Override Build Directory %s is missing test packages %s.' %
                         (self.override_build_dir, missing_packages))
-            metadata = self.build_metadata(buildurl, self.override_build_dir,
+            metadata = self.build_metadata(build_url, self.override_build_dir,
                                            builder_type=builder_type)
             if metadata:
                 metadata_json = metadata.to_json()
@@ -1208,13 +1223,21 @@ class BuildCache(object):
                 'error': '' if metadata is not None else 'metadata is None',
                 'metadata': metadata_json
             }
-        # If the buildurl is for a local build, force the download since it may
-        # have changed even though the buildurl hasn't.
-        force = force or not urlparse.urlparse(buildurl).scheme.startswith('http')
-        build_dir = base64.b64encode(buildurl)
+        # If the build_url is for a local build, force the download since it may
+        # have changed even though the build_url hasn't.
+        force = force or not urlparse.urlparse(build_url).scheme.startswith('http')
+        build_dir = base64.b64encode(build_url)
         self.clean_cache([build_dir])
         cache_build_dir = os.path.join(self.cache_dir, build_dir)
-        build_path = os.path.join(cache_build_dir, 'build.apk')
+        if is_geckoview_example:
+            build_path = os.path.join(cache_build_dir, 'geckoview_example.apk')
+            fennec_build_path = os.path.join(cache_build_dir, 'fennec.apk')
+            fennec_build_url = build_url.replace('geckoview_example.apk', 'target.apk')
+        else:
+            build_path = os.path.join(cache_build_dir, 'fennec.apk')
+            fennec_build_path = build_path
+            fennec_build_url = build_url
+
         if not os.path.exists(cache_build_dir):
             os.makedirs(cache_build_dir)
 
@@ -1223,7 +1246,7 @@ class BuildCache(object):
             download_build = (force or not os.path.exists(build_path) or
                               zipfile.ZipFile(build_path).testzip() is not None)
         except (zipfile.BadZipfile, IOError), e:
-            logger.warning('%s checking build: %s. Forcing download.', e, buildurl)
+            logger.warning('%s checking build: %s. Forcing download.', e, build_url)
             download_build = True
         if download_build:
             # retrieve to temporary file then move over, so we don't end
@@ -1231,34 +1254,46 @@ class BuildCache(object):
             tmpf = tempfile.NamedTemporaryFile(delete=False)
             tmpf.close()
             try:
-                utils.urlretrieve(buildurl, tmpf.name)
-            except IOError:
+                utils.urlretrieve(build_url, tmpf.name)
+            except:
                 os.unlink(tmpf.name)
-                err = 'IO Error retrieving build: %s.' % buildurl
+                err = 'IO Error retrieving build: %s.' % build_url
                 logger.exception(err)
                 return {'success': False, 'error': err}
             shutil.move(tmpf.name, build_path)
         file(os.path.join(cache_build_dir, 'lastused'), 'w')
+
+        # Kludge to handle automatically downloading the
+        # fennec.apk corresponding to the geckoview_example.apk.
+        if is_geckoview_example:
+            if force or not os.path.exists(fennec_build_path):
+                try:
+                    utils.urlretrieve(fennec_build_url, fennec_build_path)
+                except HTTPError, http_error:
+                    if 'Not Found' in str(http_error):
+                        logger.info('No %s found.', fennec_build_url)
+                    else:
+                        logger.exception('Error retrieving %s.', fennec_build_url)
+                except:
+                    logger.exception('Error retrieving %s.', fennec_build_url)
 
         # symbols
         symbols_path = os.path.join(cache_build_dir, 'symbols')
         if force or not os.path.exists(symbols_path):
             tmpf = tempfile.NamedTemporaryFile(delete=False)
             tmpf.close()
-            # XXX: assumes fixed buildurl-> symbols_url mapping
-            symbols_url = re.sub('.apk$', '.crashreporter-symbols.zip', buildurl)
+            # XXX: assumes fixed fennec_build_url-> symbols_url mapping
+            symbols_url = re.sub('.apk$', '.crashreporter-symbols.zip', fennec_build_url)
             try:
                 utils.urlretrieve(symbols_url, tmpf.name)
                 symbols_zipfile = zipfile.ZipFile(tmpf.name)
                 symbols_zipfile.extractall(symbols_path)
                 symbols_zipfile.close()
-            except IOError, ioerror:
-                if '550 Failed to change directory' in str(ioerror):
-                    logger.info('No symbols found: %s.', symbols_url)
-                elif 'No such file or directory' in str(ioerror):
+            except HTTPError, http_error:
+                if 'Not Found' in str(http_error):
                     logger.info('No symbols found: %s.', symbols_url)
                 else:
-                    logger.exception('IO Error retrieving symbols: %s.', symbols_url)
+                    logger.exception('Error retrieving symbols: %s.', symbols_url)
             except zipfile.BadZipfile:
                 logger.info('Ignoring zipfile.BadZipfile Error retrieving symbols: %s.',
                             symbols_url)
@@ -1267,6 +1302,8 @@ class BuildCache(object):
                         logger.debug(badzipfile.read())
                 except:
                     pass
+            except:
+                logger.exception('Error retrieving symbols: %s.', symbols_url)
             os.unlink(tmpf.name)
 
         # tests
@@ -1276,27 +1313,27 @@ class BuildCache(object):
             # was used to specify a new test package which has not already
             # been installed.
             tests_path = os.path.join(cache_build_dir, 'tests')
-            # XXX: assumes fixed buildurl-> robocop mapping
-            robocop_url = urlparse.urljoin(buildurl, 'robocop.apk')
+            # XXX: assumes fixed fennec_build_url-> robocop mapping
+            robocop_url = urlparse.urljoin(fennec_build_url, 'robocop.apk')
             robocop_path = os.path.join(cache_build_dir, 'robocop.apk')
             if force or not os.path.exists(robocop_path):
                 tmpf = tempfile.NamedTemporaryFile(delete=False)
                 tmpf.close()
                 try:
                     utils.urlretrieve(robocop_url, tmpf.name)
-                except IOError:
+                except:
                     os.unlink(tmpf.name)
-                    err = 'IO Error retrieving robocop.apk: %s.' % robocop_url
+                    err = 'Error retrieving robocop.apk: %s.' % robocop_url
                     logger.exception(err)
                     return {'success': False, 'error': err}
                 shutil.move(tmpf.name, robocop_path)
-            test_packages_url = re.sub('.apk$', '.test_packages.json', buildurl)
+            test_packages_url = re.sub('.apk$', '.test_packages.json', fennec_build_url)
             logger.info('downloading test package json %s', test_packages_url)
             test_packages = utils.get_remote_json(test_packages_url)
             if not test_packages:
                 logger.warning('test package json %s not found',
                                test_packages_url)
-                test_packages_url = urlparse.urljoin(buildurl,
+                test_packages_url = urlparse.urljoin(fennec_build_url,
                                                      'test_packages.json')
                 logger.info('falling back to test package json %s',
                             test_packages_url)
@@ -1315,21 +1352,21 @@ class BuildCache(object):
                     logger.debug('test_package_name: %s', test_package_name)
                     test_package_files.update(set(test_packages[test_package_name]))
             else:
-                # XXX: assumes fixed buildurl-> tests_url mapping
+                # XXX: assumes fixed fennec_build_url-> tests_url mapping
                 if not test_packages:
                     # Only use the old style tests zip file if
                     # the split test_packages.json was not found.
                     logger.warning('Using the default test package')
-                    tests_url = re.sub('.apk$', '.tests.zip', buildurl)
+                    tests_url = re.sub('.apk$', '.tests.zip', fennec_build_url)
                     test_package_files = set([os.path.basename(tests_url)])
                 else:
-                    err = 'No test packages specified for build %s' % buildurl
+                    err = 'No test packages specified for build %s' % fennec_build_url
                     logger.exception(err)
                     return {'success': False, 'error': err}
             for test_package_file in test_package_files:
                 test_package_path = os.path.join(cache_build_dir,
                                                  test_package_file)
-                test_package_url = urlparse.urljoin(buildurl, test_package_file)
+                test_package_url = urlparse.urljoin(fennec_build_url, test_package_file)
                 if not force and os.path.exists(test_package_path):
                     logger.info('skipping already downloaded '
                                 'test package %s', test_package_url)
@@ -1339,7 +1376,7 @@ class BuildCache(object):
                 tmpf.close()
                 try:
                     utils.urlretrieve(test_package_url, tmpf.name)
-                except IOError:
+                except:
                     os.unlink(tmpf.name)
                     err = 'IO Error retrieving tests: %s.' % test_package_url
                     logger.exception(err)
@@ -1363,7 +1400,7 @@ class BuildCache(object):
                 file(test_packages_json_path, 'w').write(
                     json.dumps(test_packages))
 
-        metadata = self.build_metadata(buildurl, cache_build_dir, builder_type=builder_type)
+        metadata = self.build_metadata(build_url, cache_build_dir, builder_type=builder_type)
         if metadata:
             metadata_json = metadata.to_json()
         else:
@@ -1414,19 +1451,30 @@ class BuildCache(object):
                     json.loads(file(build_metadata_path).read()))
             except (ValueError, IOError):
                 pass
-        build_data = utils.get_build_data(build_url, builder_type=builder_type)
+        app_name = None
+        if build_url.endswith('geckoview_example.apk'):
+            # Taskcluster only, Gradle only for now.
+            # geckoview_example doesn't have the corresponding data in
+            # its apk file that fennec does. Use the parallel
+            # fennec.apk to get the appropriate information for
+            # geckoview_example.
+            app_name = 'org.mozilla.geckoview_example'
+            fennec_apk_url = build_url.replace('geckoview_example.apk', 'target.apk')
+        else:
+            fennec_apk_url = build_url
+        build_data = utils.get_build_data(fennec_apk_url, builder_type=builder_type)
         if not build_data:
             raise BuildCacheException('Could not get build_data for %s', build_url)
         tmpdir = tempfile.mkdtemp()
         try:
-            build_path = os.path.join(build_dir, 'build.apk')
-            apkfile = zipfile.ZipFile(build_path)
+            fennec_apk_path = os.path.join(build_dir, 'fennec.apk')
+            apkfile = zipfile.ZipFile(fennec_apk_path)
             apkfile.extract('application.ini', tmpdir)
             apkfile.extract('package-name.txt', tmpdir)
         except zipfile.BadZipfile:
             # we should have already tried to redownload bad zips, so treat
             # this as fatal.
-            logger.exception('%s is a bad apk; aborting job.', build_path)
+            logger.exception('%s is a bad apk; aborting job.', fennec_apk_path)
             shutil.rmtree(tmpdir)
             return None
         with open(os.path.join(tmpdir, 'package-name.txt')) as package_file:
@@ -1434,6 +1482,8 @@ class BuildCache(object):
         cfg = ConfigParser.RawConfigParser()
         cfg.read(os.path.join(tmpdir, 'application.ini'))
         ver = cfg.get('App', 'Version')
+        if not app_name:
+            app_name = procname
 
         metadata = BuildMetadata(url=build_url,
                                  directory=build_dir,
@@ -1442,7 +1492,7 @@ class BuildCache(object):
                                  revision=build_data['revision'],
                                  changeset=build_data['changeset'],
                                  changeset_dirs=build_data['changeset_dirs'],
-                                 app_name=procname,
+                                 app_name=app_name,
                                  version=ver,
                                  build_type=build_data['build_type'],
                                  treeherder_url=self.treeherder_url,
@@ -1517,6 +1567,11 @@ class BuildMetadata(object):
             formatstr, self._date = parse_datetime(self.id, tz=UTC)
         return self._date
 
+    @property
+    def apk(self):
+        if self.app_name == 'org.mozilla.geckoview_example':
+            return os.path.join(self.dir, 'geckoview_example.apk')
+        return os.path.join(self.dir, 'fennec.apk')
     def __str__(self):
         d = self.__dict__.copy()
         d['date'] = self.date

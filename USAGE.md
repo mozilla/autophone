@@ -530,13 +530,17 @@ password.
                                 testing intermittent failures. Defaults to False.
           --repo=REPOS          The repos to test. One of b2g-inbound, fx-team,
                                 mozilla-aurora, mozilla-beta, mozilla-central,
-                                mozilla-inbound, mozilla-release, try. To specify
-                                multiple repos, specify them with additional --repo
-                                options. Defaults to mozilla-central.
+                                mozilla-inbound, autoland, mozilla-release, try. To
+                                specify multiple repos, specify them with additional
+                                --repo options. Defaults to mozilla-central.
           --buildtype=BUILDTYPES
                                 The build types to test. One of opt or debug. To
                                 specify multiple build types, specify them with
                                 additional --buildtype options. Defaults to opt.
+          --platform=PLATFORMS  The platforms to test. One or more platforms such as
+                                android-api-15, or android-api-15-gradle. To specify
+                                multiple build types, specify them with additional
+                                --platform options. Defaults to empty.
           --lifo                Process jobs in LIFO order. Default of False implies
                                 FIFO order.
           --build-cache-port=BUILD_CACHE_PORT
@@ -560,7 +564,7 @@ password.
                                 settings in the ini file override any settings set on
                                 the command line. autophone.ini.example contains all
                                 of the currently available settings.
-          --verbose             Include output from ADBDevice command_output and
+          --verbose             Include output from ADBAndroid command_output and
                                 shell_output commands when loglevel is DEBUG. Defaults
                                 to False.
           --treeherder-url=TREEHERDER_URL

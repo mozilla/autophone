@@ -157,7 +157,7 @@ class AutoPhone(object):
                 jobaction_callback=self.on_jobaction,
                 treeherder_url=self.options.treeherder_url,
                 trees=options.repos,
-                platforms=['android-api-15'],
+                platforms=options.platforms,
                 buildtypes=options.buildtypes,
                 durable_queues=self.options.pulse_durable_queue,
                 shared_lock=self.shared_lock,
@@ -452,6 +452,7 @@ class AutoPhone(object):
             runnable_tests = PhoneTest.match(tests=tests,
                                              phoneid=phoneid,
                                              repo=job_data['repo'],
+                                             platform=job_data['platform'],
                                              build_type=job_data['build_type'],
                                              build_abi=job_data['abi'],
                                              build_sdk=job_data['sdk'])
@@ -902,6 +903,7 @@ ok
         changeset_dirs = build_data['changeset_dirs']
         repo = build_data['repo']
         build_type = build_data['build_type']
+        platform = build_data['platform']
         abi = build_data['abi']
         sdk = build_data['sdk']
         test_names = trigger_data['test_names']
@@ -930,6 +932,7 @@ ok
                 tests.extend(PhoneTest.match(test_name=test_name,
                                              phoneid=device,
                                              repo=repo,
+                                             platform=platform,
                                              build_type=build_type,
                                              build_abi=abi,
                                              build_sdk=sdk,
@@ -958,8 +961,9 @@ ok
             phone.reboot()
 
     def on_build(self, build_data):
+        LOGGER.debug('on_build: build_data: %s', build_data)
         if self.pulse_monitor._stopping.is_set():
-            LOGGER.debug('on_build: shutting down: ignoring %s', build_data)
+            LOGGER.debug('on_build: shutting down: ignoring build')
             return
         self.lock_acquire()
         try:
@@ -979,7 +983,8 @@ ok
             sdk = build_data['sdk']
             comments = build_data['comments']
             if repo != 'try':
-                tests = PhoneTest.match(repo=repo, build_type=build_type, build_abi=abi,
+                tests = PhoneTest.match(repo=repo, platform=platform,
+                                        build_type=build_type, build_abi=abi,
                                         build_sdk=sdk, changeset_dirs=changeset_dirs)
             else:
                 # Autophone try builds will have a comment of the form:
@@ -996,6 +1001,7 @@ ok
                     for test_name in test_names:
                         tests.extend(PhoneTest.match(test_name=test_name,
                                                      repo=repo,
+                                                     platform=platform,
                                                      build_type=build_type,
                                                      build_abi=abi,
                                                      build_sdk=sdk))
@@ -1206,14 +1212,13 @@ def autophone_runner(options):
 
 
     product = 'fennec'
-    build_platforms = ['android-api-15']
     buildfile_ext = '.apk'
     try:
         build_cache = builds.BuildCache(
             options.repos,
             options.buildtypes,
             product,
-            build_platforms,
+            options.platforms,
             buildfile_ext,
             cache_dir=options.cache_dir,
             override_build_dir=options.override_build_dir,
@@ -1224,7 +1229,7 @@ def autophone_runner(options):
         print '''%s
 
 When specifying --override-build-dir, the directory must already exist
-and contain a build.apk package file to be tested.
+and contain the apk package file to be tested.
 
 In addition, if you have specified --enable-unittests, the override
 build directory must also contain a tests directory containing the
@@ -1378,6 +1383,15 @@ def main():
                       'One of opt or debug. To specify multiple build types, '
                       'specify them with additional --buildtype options. '
                       'Defaults to opt.')
+    parser.add_option('--platform',
+                      dest='platforms',
+                      action='append',
+                      default=[],
+                      help='The platforms to test. '
+                      'One or more platforms such as android-api-15, or '
+                      'android-api-15-gradle. To specify multiple build types, '
+                      'specify them with additional --platform options. '
+                      'Defaults to empty.')
     parser.add_option('--lifo',
                       dest='lifo',
                       action='store_true',
@@ -1530,6 +1544,8 @@ def main():
 
     (cmd_options, args) = parser.parse_args()
     options = load_autophone_options(cmd_options)
+    if len(options.platforms) == 0:
+        raise Exception('--platform is required')
     if options.treeherder_url or options.treeherder_client_id or options.treeherder_secret:
         if not options.treeherder_url or \
            not options.treeherder_client_id or \
