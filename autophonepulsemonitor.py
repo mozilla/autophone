@@ -41,11 +41,6 @@ class AutophonePulseMonitor(object):
         False. In production, durable_queues should be set to True to
         avoid losing messages if the connection is broken or the
         application crashes.
-    :param build_exchange_name: Name of build exchange. Defaults to
-        'exchange/build/'.
-    :param build_queue_name: Build queue name suffix. Defaults to
-        'builds'. The pulse build queue will be created with a name
-        of the form 'queue/<userid>/<build_queue_name>'.
     :param jobaction_exchange_name: Name of job action exchange.
         Defaults to 'exchange/treeherder/v1/job-actions'. Use
         'exchange/treeherder-stage/v1/job-actions' to listen to job
@@ -97,8 +92,6 @@ class AutophonePulseMonitor(object):
                  password=None,
                  virtual_host='/',
                  durable_queues=False,
-                 build_exchange_name='exchange/build/',
-                 build_queue_name='builds',
                  jobaction_exchange_name='exchange/treeherder/v1/job-actions',
                  jobaction_queue_name='jobactions',
                  build_callback=None,
@@ -140,19 +133,7 @@ class AutophonePulseMonitor(object):
         self.verbose = verbose
         self._stopping = threading.Event()
         self.listen_thread = None
-        build_exchange = Exchange(name=build_exchange_name, type='topic')
-        self.queues = [Queue(name='queue/%s/%s' % (userid, build_queue_name),
-                             exchange=build_exchange,
-                             routing_key='build.#.finished',
-                             durable=durable_queues,
-                             auto_delete=not durable_queues)]
-        if treeherder_url:
-            jobaction_exchange = Exchange(name=jobaction_exchange_name, type='topic')
-            self.queues.append(Queue(name='queue/%s/%s' % (userid, jobaction_queue_name),
-                                     exchange=jobaction_exchange,
-                                     routing_key='#',
-                                     durable=durable_queues,
-                                     auto_delete=not durable_queues))
+        self.queues = []
         taskcompleted_exchange = Exchange(name=taskcompleted_exchange_name, type='topic')
         # Add the new workerType names to the routing key...
         # See https://bugzilla.mozilla.org/show_bug.cgi?id=1307771
@@ -166,6 +147,13 @@ class AutophonePulseMonitor(object):
                                      durable=durable_queues,
                                      auto_delete=not durable_queues))
         self.taskcluster_queue = taskcluster.queue.Queue()
+        if treeherder_url:
+            jobaction_exchange = Exchange(name=jobaction_exchange_name, type='topic')
+            self.queues.append(Queue(name='queue/%s/%s' % (userid, jobaction_queue_name),
+                                     exchange=jobaction_exchange,
+                                     routing_key='#',
+                                     durable=durable_queues,
+                                     auto_delete=not durable_queues))
 
     def start(self):
         """Runs the `listen` method on a new thread."""
@@ -271,9 +259,7 @@ class AutophonePulseMonitor(object):
         except ValueError, e:
             if self.verbose:
                 logger.debug('AutophonePulseMonitor handle_message shared_lock not set')
-        if '_meta' in data and 'payload' in data:
-            self.handle_build(data, message)
-        elif (self.treeherder_url and 'action' in data and
+        if (self.treeherder_url and 'action' in data and
               'project' in data and 'job_id' in data):
             self.handle_jobaction(data, message)
         elif 'status' in data:
@@ -283,81 +269,6 @@ class AutophonePulseMonitor(object):
             if self.verbose:
                 logger.debug('AutophonePulseMonitor handle_message shared_lock.acquire')
             self.shared_lock.acquire()
-
-    def handle_build(self, data, message):
-        logger = utils.getLogger()
-        if self.verbose:
-            logger.debug(
-                'handle_build:\n'
-                '\tdata   : %s\n'
-                '\tmessage: %s',
-                json.dumps(data, sort_keys=True, indent=4),
-                json.dumps(message.__dict__, sort_keys=True, indent=4))
-        try:
-            build = data['payload']['build']
-        except (KeyError, TypeError), e:
-            logger.debug('AutophonePulseMonitor.handle_build_event: %s pulse build data', e)
-            return
-
-        fields = (
-            'appName',       # Fennec
-            'branch',
-            'buildid',
-            'comments',
-            'packageUrl',
-            'platform',
-            'robocopApkUrl',
-            'symbolsUrl',
-        )
-
-        required_fields = (
-            'appName',       # Fennec
-            'branch',        # mozilla-central, ...
-            'comments',
-            'packageUrl',
-            'platform',      # android...
-        )
-
-        build_properties = {}
-        builder_name = build['builderName']
-        build_properties['builder_name'] = builder_name
-
-        for prop in build['properties']:
-            property_name = prop[0]
-            if property_name in fields and len(prop) > 1 and prop[1]:
-                build_properties[property_name] = type(prop[1])(prop[1])
-
-        if self.verbose:
-            logger.debug('AutophonePulseMonitor.handle_build: build_properties: %s',
-                         build_properties)
-
-        for required_field in required_fields:
-            if required_field not in build_properties or not build_properties[required_field]:
-                return
-
-        if build_properties['appName'].lower() != 'fennec':
-            return
-        if build_properties['branch'] == 'try' and 'autophone' not in build_properties['comments']:
-            return
-
-        build_url = build_properties['packageUrl']
-        build_data = utils.get_build_data(build_url, builder_type='buildbot')
-        if not build_data:
-            logger.debug('AutophonePulseMonitor.handle_build: '
-                         'ignoring missing build_data on url %s', build_url)
-            return
-        build_data['comments'] = build_properties['comments']
-        build_data['app_name'] = build_properties['appName'].lower()
-        build_data['builder_name'] = builder_name
-
-        if build_data['repo'] not in self.trees:
-            return
-        if build_data['platform'] not in self.platforms:
-            return
-        if build_data['build_type'] not in self.buildtypes:
-            return
-
-        self.build_callback(build_data)
 
     def handle_jobaction(self, data, message):
         logger = utils.getLogger()
