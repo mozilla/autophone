@@ -835,8 +835,22 @@ ok
             tests = []
             for member_name, member_value in inspect.getmembers(__import__(t['name']),
                                                                 inspect.isclass):
-                if member_name != 'PhoneTest' and member_name != 'PerfTest' and \
-                   issubclass(member_value, PhoneTest):
+                if issubclass(member_value, PhoneTest):
+                    # Filter the classes by whether their source file
+                    # is the one mentioned in the test manifest
+                    # file. Otherwise, if we have a deep class
+                    # hierarchy the parent classes of our test will
+                    # also be added which will result in duplicate
+                    # test instance keys and inappropriate tests.
+                    source = os.path.basename(inspect.getsourcefile(member_value))
+                    if source.endswith('.py'):
+                        source = source[:-3]
+                    if source != t['name']:
+                        # Ignore this class as it does not match the specified
+                        # test script.
+                        LOGGER.debug('read_tests: skip %s does not match %s',
+                                     source, t['name'])
+                        continue
                     config = t.get('config', '')
                     # config is a space separated list of config
                     # files.  The test will be instantiated for each
