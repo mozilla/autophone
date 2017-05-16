@@ -15,7 +15,7 @@ import tempfile
 
 from time import sleep
 
-from mozprofile import FirefoxProfile
+from mozprofile import Profile
 
 import utils
 from autophonecrash import AutophoneCrashProcessor
@@ -331,6 +331,7 @@ class PhoneTest(object):
         # https://dxr.mozilla.org/mozilla-central/source/browser/app/profile/firefox.js
         # https://dxr.mozilla.org/mozilla-central/source/addon-sdk/source/test/preferences/no-connections.json
         # https://dxr.mozilla.org/mozilla-central/source/testing/profiles/prefs_general.js
+        # https://dxr.mozilla.org/mozilla-central/source/testing/mozbase/mozprofile/mozprofile/profile.py
 
         if not self._preferences:
             self._preferences = {
@@ -381,10 +382,12 @@ class PhoneTest(object):
                 'browser.search.update': False,
                 'browser.selfsupport.url': 'https://localhost/selfsupport-dummy/',
                 'browser.sessionstore.resume_from_crash': False,
+                'browser.shell.checkDefaultBrowser': False,
                 'browser.snippets.enabled': False,
                 'browser.snippets.firstrunHomepage.enabled': False,
                 'browser.snippets.syncPromo.enabled': False,
                 'browser.snippets.updateUrl': '',
+                'browser.tabs.warnOnClose': False,
                 'browser.tiles.reportURL': 'http://localhost/tests/robocop/robocop_tiles.sjs',
                 'browser.trackingprotection.gethashURL': '',
                 'browser.trackingprotection.updateURL': '',
@@ -408,25 +411,30 @@ class PhoneTest(object):
                 'datareporting.policy.dataSubmissionPolicyBypassAcceptance': True,
                 'dom.ipc.plugins.flash.subprocess.crashreporter.enabled': False,
                 'experiments.manifest.uri': 'http://localhost/experiments-dummy/manifest',
-                'extensions.autoDisableScopes': 0,
+                'extensions.autoDisableScopes': 0, # By default don't disable add-ons from any scope
                 'extensions.blocklist.enabled': False,
                 'extensions.blocklist.interval': 172800,
                 'extensions.blocklist.url': 'http://localhost/extensions-dummy/blocklistURL',
-                'extensions.enabledScopes': 5,
+                'extensions.enabledScopes': 5,     # By default only load extensions all scopes except temporary.
                 'extensions.getAddons.cache.enabled': False,
                 'extensions.getAddons.get.url': 'http://localhost/extensions-dummy/repositoryGetURL',
                 'extensions.getAddons.getWithPerformance.url': 'http://localhost/extensions-dummy/repositoryGetWithPerformanceURL',
                 'extensions.getAddons.search.browseURL': 'http://localhost/extensions-dummy/repositoryBrowseURL',
                 'extensions.getAddons.search.url': 'http://localhost/extensions-dummy/repositorySearchURL',
                 'extensions.hotfix.url': 'http://localhost/extensions-dummy/hotfixURL',
+                'extensions.installDistroAddons': False,
+                'extensions.showMismatchUI': False,
+                'extensions.startupScanScopes': 5, # And scan for changes at startup
                 'extensions.systemAddon.update.url': 'data:application/xml,<updates></updates>',
                 'extensions.update.autoUpdateDefault': False,
                 'extensions.update.background.url': 'http://localhost/extensions-dummy/updateBackgroundURL',
                 'extensions.update.enabled': False,
                 'extensions.update.interval': 172800,
+                'extensions.update.notifyUser': False,
                 'extensions.update.url': 'http://localhost/extensions-dummy/updateURL',
                 'extensions.webservice.discoverURL': 'http://localhost/extensions-dummy/discoveryURL',
                 'general.useragent.updates.enabled': False,
+                'geo.provider.testing': True,
                 'geo.wifi.scan': False,
                 'geo.wifi.uri': 'http://localhost/tests/dom/tests/mochitest/geolocation/network_geolocation.sjs',
                 'identity.fxaccounts.auth.uri': 'https://localhost/fxa-dummy/',
@@ -448,8 +456,10 @@ class PhoneTest(object):
                 'plugin.state.flash': 2,
                 'plugins.update.url': 'http://localhost/plugins-dummy/updateCheckURL',
                 'privacy.trackingprotection.introURL': 'http://localhost/trackingprotection/tour',
+                'security.notification_enable_delay': 0,
                 'security.ssl.errorReporting.url': 'https://localhost/browser/browser/base/content/test/general/pinning_reports.sjs?succeed',
                 'shell.checkDefaultClient': False,
+                'toolkit.startup.max_resumed_crashes': -1,
                 'toolkit.telemetry.cachedClientID': 'dddddddd-dddd-dddd-dddd-dddddddddddd', # https://dxr.mozilla.org/mozilla-central/source/toolkit/modules/ClientID.jsm#40
                 'toolkit.telemetry.enabled': False,
                 'toolkit.telemetry.notifiedOptOut': 999,
@@ -686,7 +696,7 @@ class PhoneTest(object):
             prefs = dict(self.preferences.items() + custom_prefs.items())
         else:
             prefs = self.preferences
-        profile = FirefoxProfile(preferences=prefs, addons=addons)
+        profile = Profile(preferences=prefs, addons=addons)
         if not self.install_profile(profile):
             return False
 
@@ -721,10 +731,10 @@ class PhoneTest(object):
             if not self.dm.process_exist(self.build.app_name):
                 return True
             sleep(wait_time)
-        self.loggerdeco.debug('killing fennec')
         max_killattempts = 3
         for kill_attempt in range(1, max_killattempts+1):
             try:
+                self.loggerdeco.info('killing %s' % self.build.app_name)
                 self.dm.pkill(self.build.app_name, root=root)
                 break
             except ADBError:
@@ -924,7 +934,7 @@ class PhoneTest(object):
 
     def install_profile(self, profile=None, root=True):
         if not profile:
-            profile = FirefoxProfile()
+            profile = Profile()
 
         profile_path_parent = os.path.split(self.profile_path)[0]
         success = False
