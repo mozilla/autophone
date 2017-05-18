@@ -2,12 +2,26 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import ConfigParser
+
 from mozprofile import FirefoxProfile
 
 from s1s2test import S1S2Test
 
 
 class S1S2GeckoViewTest(S1S2Test):
+    def __init__(self, dm=None, phone=None, options=None,
+                 config_file=None, chunk=1, repos=[]):
+
+        S1S2Test.__init__(self, dm=dm, phone=phone, options=options,
+                          config_file=config_file, chunk=chunk, repos=repos)
+
+        # [builds]
+        try:
+            self.e10s = self.cfg.get('builds', 'e10s') == 'true'
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            self.e10s = False
+
     @property
     def name(self):
         return 'autophone-s1s2geckoview%s' % self.name_suffix
@@ -27,6 +41,9 @@ class S1S2GeckoViewTest(S1S2Test):
                 extras["env" + str(env_count)] = env_key + "=" + str(env_val)
 
         local_extra_args = ['-profile', self.profile_path]
+        if self.e10s:
+            e10s = 'true' if self.e10s else 'false'
+            local_extra_args.extend(['--ez', 'use_multiprocess %s' % e10s])
         local_extra_args.extend(extra_args)
         extras['args'] = " ".join(local_extra_args)
 

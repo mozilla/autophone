@@ -233,7 +233,10 @@ class AutophonePulseMonitor(object):
                     connection.release()
                 if self.verbose:
                     logger.debug('AutophonePulseMonitor exit shared_lock.release')
-                self.shared_lock.release()
+                try:
+                    self.shared_lock.release()
+                except ValueError, e:
+                    logger.warning('AutophonePulseMonitor: %s handling exception', e)
                 if not self._stopping.is_set():
                     restart = True
                     time.sleep(wait)
@@ -245,7 +248,10 @@ class AutophonePulseMonitor(object):
                     logger.debug('AutophonePulseMonitor exit shared_lock.release')
                 if connection and not restart:
                     connection.release()
-                self.shared_lock.release()
+                try:
+                    self.shared_lock.release()
+                except ValueError, e:
+                    logger.warning('AutophonePulseMonitor: %s leaving listen()', e)
 
     def handle_message(self, data, message):
         if self._stopping.is_set():

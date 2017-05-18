@@ -50,11 +50,11 @@ class PhoneTest(object):
         logger = utils.getLogger()
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
                      'config_file: %s, job_guid: %s, '
-                     'repo: %s, build_type: %s, '
+                     'repo: %s, platform: %s, build_type: %s, '
                      'abi: %s, build_sdk: %s',
                      tests, test_name, phoneid,
                      config_file, job_guid,
-                     repo, build_type, build_abi, build_sdk)
+                     repo, platform, build_type, build_abi, build_sdk)
         matches = []
         if not tests:
             tests = [PhoneTest.instances[key] for key in PhoneTest.instances.keys()]
