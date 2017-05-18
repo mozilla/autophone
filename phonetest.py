@@ -814,11 +814,14 @@ class PhoneTest(object):
         logger = utils.getLogger()
         self.loggerdeco = LogDecorator(logger,
                                        {
+                                           'repo': self.build.tree,
                                            'buildid': self.build.id,
                                            'buildtype': self.build.type,
-                                           'test': self.name
+                                           'sdk': self.phone.sdk,
+                                           'platform': self.build.platform,
+                                           'testname': self.name
                                        },
-                                       'PhoneTestJob %(buildid)s %(buildtype)s %(test)s '
+                                       'PhoneTestJob %(repo)s %(buildid)s %(buildtype)s %(sdk)s %(platform)s %(testname)s '
                                        '%(message)s')
         self.dm._logger = self.loggerdeco
         self.loggerdeco.info('PhoneTest starting job')

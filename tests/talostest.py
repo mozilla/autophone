@@ -119,11 +119,14 @@ class TalosTest(PerfTest):
         for testnum, (testname, test_args) in test_items:
             self.loggerdeco = self.loggerdeco.clone(
                 extradict={
+                    'repo': self.build.tree,
                     'buildid': self.build.id,
                     'buildtype': self.build.type,
+                    'sdk': self.phone.sdk,
+                    'platform': self.build.platform,
                     'testname': testname
                 },
-                extraformat='TalosTestJob %(buildid)s %(buildtype)s %(testname)s %(message)s')
+                extraformat='TalosTestJob %(repo)s %(buildid)s %(buildtype)s %(sdk)s %(platform)s %(testname)s %(message)s')
             self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d)',
                                  testnum, testcount)

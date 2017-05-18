@@ -86,11 +86,14 @@ class S1S2Test(PerfTest):
         for testnum, (testname, url) in enumerate(self._urls.iteritems(), 1):
             self.loggerdeco = self.loggerdeco.clone(
                 extradict={
+                    'repo': self.build.tree,
                     'buildid': self.build.id,
                     'buildtype': self.build.type,
+                    'sdk': self.phone.sdk,
+                    'platform': self.build.platform,
                     'testname': testname
                 },
-                extraformat='S1S2TestJob %(buildid)s %(buildtype)s %(testname)s %(message)s')
+                extraformat='S1S2TestJob %(repo)s %(buildid)s %(buildtype)s %(sdk)s %(platform)s %(testname)s %(message)s')
             self.dm._logger = self.loggerdeco
             self.loggerdeco.info('Running test (%d/%d) for %d iterations',
                                  testnum, testcount, self._iterations)

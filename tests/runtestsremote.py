@@ -385,11 +385,14 @@ class UnitTest(PhoneTest):
 
         self.loggerdeco = self.loggerdeco.clone(
             extradict={
+                'repo': self.build.tree,
                 'buildid': self.parms['buildid'],
                 'buildtype': self.parms['buildtype'],
+                'sdk': self.phone.sdk,
+                'platform': self.build.platform,
                 'testname': self.parms['test_name']
             },
-            extraformat='UnitTestJob %(buildid)s %(buildtype)s %(testname)s %(message)s')
+            extraformat='UnitTestJob %(repo)s %(buildid)s %(buildtype)s %(sdk)s %(platform)s %(testname)s %(message)s')
 
         self.loggerdeco.info('runtestsremote.py runtest start')
         for key in self.parms.keys():
