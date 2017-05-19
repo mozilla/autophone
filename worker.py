@@ -507,6 +507,7 @@ class PhoneWorkerSubProcess(object):
         self.log_step_formatstring = "\n%s %s %s (results: 0, elapsed: %d secs) (at %s) %s"
         self.log_step_stack = []
         self.log_step_eq = 9 * "="
+        self.disable_chatty()
 
     def log_step(self, step_name):
         line = ''
@@ -678,10 +679,18 @@ class PhoneWorkerSubProcess(object):
         except (ADBError, ADBTimeoutError):
             self.loggerdeco.exception('Ignoring Exception starting USBWatchdog')
 
+    def disable_chatty(self):
+        # Bug 1360920 - prevent chatty from dropping rapid messages
+        try:
+            self.dm.shell_bool('logcat -P ""')
+        except ADBError, e:
+            self.loggerdeco.debug('Unable to turn off chatty after reboot')
+
     def reboot(self):
         self.loggerdeco.info('reboot')
         self.update_status(phone_status=PhoneStatus.REBOOTING)
         self.dm.reboot()
+        self.disable_chatty()
         # Setting svc power stayon true after rebooting is necessary
         # since the setting does not survive reboots. This is also the
         # case for the optional usbwatchdog service.
