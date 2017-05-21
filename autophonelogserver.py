@@ -28,15 +28,6 @@ class LogRecordHandler(SocketServer.StreamRequestHandler):
                 record = logging.makeLogRecord(pickle.loads(data))
                 logger = utils.getLogger(record.name)
                 logger.handle(record)
-                if 'logcontrol:' in record.message:
-                    device = record.name
-                    workers = self.server.autophone.phone_workers
-                    if device in workers:
-                        worker = workers[device]
-                        if 'flush log' in record.message:
-                            worker.log_server_flushed_event.set()
-                        elif 'close log' in record.message:
-                            worker.log_server_closed_event.set()
         except:
             logger = utils.getLogger()
             logger.exception("Error receiving log record: data: %s", data)

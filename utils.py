@@ -51,17 +51,26 @@ def getLogger(name=None):
         the name of the current process as returned by multiprocessing.current_process().name.
 
     If utils.recordSensitiveData() has been called prior to getLogger,
-    then the returned logger will be guaranteed to have a SensitiveDataFilter
-    applied.
+    then the root logger will be guaranteed to have a SensitiveDataFilter
+    applied otherwise getLogger will assert.
     """
+    # Make sure the root logger has a sensitive data filter.
+    root_logger = logging.getLogger('')
+    if SENSITIVE_DATA_FILTER and not hasattr(root_logger, 'SENSITIVE_DATA_FILTER'):
+        root_logger.addFilter(SENSITIVE_DATA_FILTER)
+        setattr(root_logger, 'SENSITIVE_DATA_FILTER', SENSITIVE_DATA_FILTER)
+    assert(not SENSITIVE_DATA_FILTER or hasattr(root_logger, 'SENSITIVE_DATA_FILTER'))
+
     if name == None:
         name = multiprocessing.current_process().name
     logger = logging.getLogger(name)
+
+    # Make sure this logger has a sensitive data filter.
     if SENSITIVE_DATA_FILTER and not hasattr(logger, 'SENSITIVE_DATA_FILTER'):
         logger.addFilter(SENSITIVE_DATA_FILTER)
         setattr(logger, 'SENSITIVE_DATA_FILTER', SENSITIVE_DATA_FILTER)
-    if not hasattr(logger, 'SENSITIVE_DATA_FILTER'):
-        logger.warning("utils.getLogger(%s) does not have a sensitive data filter", name)
+    assert(not SENSITIVE_DATA_FILTER or hasattr(logger, 'SENSITIVE_DATA_FILTER'))
+
     return logger
 
 def get_remote_text(url):

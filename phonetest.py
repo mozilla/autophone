@@ -783,9 +783,12 @@ class PhoneTest(object):
                 sleep(self.options.phone_retry_wait)
 
     def setup_job(self):
-        # Log the current full contents of logcat, then clear the
-        # logcat buffers to help prevent the device's buffer from
-        # over flowing during the test.
+        # Truncate the current log to prevent log bleed over. See the
+        # main process log for all of the mising bits. Log the current
+        # full contents of logcat, then clear the logcat buffers to
+        # help prevent the device's buffer from over flowing during
+        # the test.
+        self.worker_subprocess.filehandler.stream.truncate(0)
         self.worker_subprocess.log_step('Setup Test')
         self.start_time = datetime.datetime.utcnow()
         self.stop_time = self.start_time

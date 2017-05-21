@@ -357,15 +357,31 @@ class AutophoneTreeherder(object):
 
             if self.s3_bucket:
                 # We must make certain that S3 keys for uploaded files
-                # are unique. We can create a unique log_identifier as
-                # using the test classname, chunk and machine id.
+                # are unique even in the event of retries. The
+                # Treeherder logviewer limits the length of the log
+                # url to 255 bytes. If the url length exceeds 255
+                # characters it is truncated in the Treeherder
+                # logviewer url field even though the file is
+                # successfully uploaded to s3 with the full url. The
+                # logviewer will fail to parse the log since it
+                # attempts to retrieve it from a truncated url.
 
-                log_identifier = "%s-%s-%s-%s" % (
-                    t.name, os.path.basename(t.config_file), t.chunk,
-                    machine)
-                # We must make certain the key is unique even in the
-                # event of retries.
-                log_identifier = '%s-%s' % (log_identifier, t.job_guid)
+                # We have been creating unique keys through the use of
+                # human readable "log_identifiers" combined with the
+                # test's job_guid and base filename to create unique
+                # keys for s3. Unfortunately, the choice of the aws
+                # host name, a path based on the path to the build,
+                # test names and config file names has resulted in
+                # overly long urls which exceed 255 bytes. Given that
+                # the s3 hostname and build url path currently consume
+                # 100 bytes and the test's job-guid and filename
+                # consume another 51, we only have a maximum of 104
+                # bytes for the log_identifier. The safest course of
+                # action is to eliminate the test name, test config
+                # filename, the chunk and device name and rely solely
+                # on the test's job_guid to provide uniqueness.
+
+                log_identifier = t.job_guid
 
                 key_prefix = os.path.dirname(
                     urlparse.urlparse(build_url).path)
@@ -404,11 +420,19 @@ class AutophoneTreeherder(object):
                 # message from the previous test if the previous log
                 # upload failed.
                 try:
+                    # Emit the final step marker, flush and close the
+                    # log prior to uploading.
+                    t.worker_subprocess.log_step('Submitting Log')
+                    t.worker_subprocess.close_log()
                     fname = '%s-autophone.log' % log_identifier
                     lname = 'Autophone Log'
                     key = "%s/%s" % (key_prefix, fname)
                     url = self.s3_bucket.upload(
-                        t.worker_subprocess.parent_worker.logfile, key)
+                        t.worker_subprocess.logfile, key)
+                    # Truncate the log once it has been submitted to S3
+                    # but do not close the filehandler as that messes with
+                    # the next test's log.
+                    t.worker_subprocess.filehandler.stream.truncate(0)
                     t.job_details.append({
                         'url': url,
                         'value': lname,

@@ -1168,6 +1168,20 @@ def autophone_runner(options):
 
     logging.captureWarnings(True)
 
+    # Remove any existing filehandlers from any loggers which may
+    # exist. Make sure these loggers propagate their messages back to
+    # the root logger. A copy of this logging environment will be
+    # passed down to the child worker processes when they are created.
+    root_logger = logging.getLogger()
+    for logger_name, logger in root_logger.manager.loggerDict.iteritems():
+        if hasattr(logger, 'handlers'):
+            logger.setLevel(loglevel)
+            logger.propagate = True
+            for handler in logger.handlers:
+                handler.flush()
+                handler.close()
+                logger.removeHandler(handler)
+
     LOGGER = utils.getLogger('')
     LOGGER.setLevel(loglevel)
 
@@ -1179,6 +1193,7 @@ def autophone_runner(options):
     filehandler.setFormatter(fileformatter)
     LOGGER.addHandler(filehandler)
 
+    # Now finish setting up the console logger.
     formatstring = '%(asctime)s %(name)s %(levelname)s %(message)s'
     CONSOLE_LOGGER = utils.getLogger('console')
     CONSOLE_LOGGER.setLevel(loglevel)
@@ -1186,19 +1201,6 @@ def autophone_runner(options):
     streamformatter = logging.Formatter(formatstring)
     streamhandler.setFormatter(streamformatter)
     CONSOLE_LOGGER.addHandler(streamhandler)
-
-    for other_logger_name, other_logger in LOGGER.manager.loggerDict.iteritems():
-        if (other_logger_name == 'root' or other_logger_name == 'console') or \
-           not hasattr(other_logger, 'handlers'):
-            continue
-        LOGGER.debug('Library logger %s', other_logger_name)
-        other_logger.setLevel(loglevel)
-        other_logger.addFilter(utils.getSensitiveDataFilter())
-        for other_handler in other_logger.handlers:
-            other_handler.flush()
-            other_handler.close()
-            other_logger.removeHandler(other_handler)
-        other_logger.addHandler(filehandler)
 
     CONSOLE_LOGGER.info('Starting server on port %d.', options.port)
     CONSOLE_LOGGER.info('Starting build-cache server on port %d.',
@@ -1209,7 +1211,6 @@ def autophone_runner(options):
     # restart without first killing adb.
     adbhost = ADBHost()
     adbhost.start_server()
-
 
     product = 'fennec'
     buildfile_ext = '.apk'
