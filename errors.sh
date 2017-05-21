@@ -5,21 +5,13 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 
-options="hdU"
+options="hdcU"
 function usage()
 {
     cat<<EOF
 usage: $(basename $0) [-h][-d][-U] logfiles
 
 Process logfiles and produce a report of the errors found.
-
-Error lines match the regular expression:
-PROCESS-CRASH|TEST-UNEXPECTED|ERROR runtests.py|[IE]/Gecko.*ABORT:|F/MOZ_CRASH|\
-   MOZ_Assert.*Assertion failure:
-
-By default, the output is sorted and duplicates eliminated.
-The output lines are organized as "records" with a field
-delimiter of ";" which facilitates reprocessing the output.
 
 optional arguments:
   -h  This help message.
@@ -28,6 +20,20 @@ optional arguments:
       Do not sort or eliminate duplicates in the output.
 
   -U  Do not sort and eliminate duplicate messages.
+
+  -c  Prefix the output with the number of occurences of each
+      output. If you wish to sort the output by decreasing frequency
+      of occurence, pipe the output into sort -nr.
+
+Error lines match the regular expression:
+PROCESS-CRASH|TEST-UNEXPECTED|ERROR runtests.py|[IE]/Gecko.*ABORT:|F/MOZ_CRASH|\
+   MOZ_Assert.*Assertion failure:
+
+By default, the output is sorted and duplicates eliminated.
+The output lines are organized as "records" with a field
+delimiter of ";" which facilitates reprocessing the output
+using a variety of tools such as awk.
+
 EOF
     exit 0
 }
@@ -42,6 +48,9 @@ while getopts $options optname; do
            DEBUG='-v DEBUG=True'
            let nshift=nshift+1
            ;;
+        c) filter='sort | uniq -c'
+           let nshift=nshift+1
+           ;;
         U) filter=cat
            let nshift=nshift+1
            ;;
@@ -51,4 +60,4 @@ shift $nshift
 
 here=$(dirname $0)
 
-grep -HE '(PROCESS-CRASH|TEST-UNEXPECTED|ERROR runtests.py|[IE]/Gecko.*ABORT:|F/MOZ_CRASH|MOZ_Assert.*Assertion failure:)' $@ | awk $DEBUG -f ${here}/errors.awk | $filter
+grep -HE '(PROCESS-CRASH|TEST-UNEXPECTED|ERROR runtests.py|[IE]/Gecko.*ABORT:|F/MOZ_CRASH|MOZ_Assert.*Assertion failure:)' $@ | awk $DEBUG -f ${here}/errors.awk | eval "$filter"
