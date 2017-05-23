@@ -1045,9 +1045,7 @@ ok
                     job_action['config_file'],
                     job_action['chunk'])
                 if not test:
-                    LOGGER.warning(
-                        'on_jobaction: No test found for %s',
-                        json.dumps(job_action, sort_keys=True, indent=4))
+                    LOGGER.warning('on_jobaction: No test found for %s', job_action)
                 else:
                     build_url = job_action['build_url']
                     build_data = utils.get_build_data(build_url,
