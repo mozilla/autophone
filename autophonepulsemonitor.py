@@ -79,8 +79,6 @@ class AutophonePulseMonitor(object):
         process. Possible values are 'opt', 'debug'
     :param timeout: Timeout in seconds for the kombu connection
         drain_events. Defaults to 5 seconds.
-    :param shared_lock: Required lock used to control concurrent
-        access. Used to prevent socket based deadlocks.
     :param verbose: If True, will log build and job action messages.
         Defaults to False.
     """
@@ -100,7 +98,6 @@ class AutophonePulseMonitor(object):
                  platforms=[],
                  buildtypes=[],
                  timeout=5,
-                 shared_lock=None,
                  verbose=False):
 
         assert userid, "userid is required."
@@ -109,7 +106,6 @@ class AutophonePulseMonitor(object):
         assert trees, "trees is required."
         assert platforms, "platforms is required."
         assert buildtypes, "buildtypes is required."
-        assert shared_lock, "shared_lock is required."
 
         taskcompleted_exchange_name = 'exchange/taskcluster-queue/v1/task-completed'
         taskcompleted_queue_name = 'task-completed'
@@ -128,7 +124,6 @@ class AutophonePulseMonitor(object):
         self.platforms.sort(cmp=lambda x, y: (len(y) - len(x)))
         self.buildtypes = list(buildtypes)
         self.timeout = timeout
-        self.shared_lock = shared_lock
         self.verbose = verbose
         self._stopping = threading.Event()
         self.listen_thread = None
@@ -185,9 +180,6 @@ class AutophonePulseMonitor(object):
         restart = True
         while restart:
             restart = False
-            if self.verbose:
-                logger.debug('AutophonePulseMonitor: start shared_lock.acquire')
-            self.shared_lock.acquire()
             try:
                 # connection does not connect to the server until
                 # either the connection.connect() method is called
@@ -213,70 +205,35 @@ class AutophonePulseMonitor(object):
                 with consumer:
                     while not self._stopping.is_set():
                         try:
-                            if self.verbose:
-                                logger.debug('AutophonePulseMonitor shared_lock.release')
-                            self.shared_lock.release()
                             connection.drain_events(timeout=self.timeout)
                         except socket.timeout:
                             pass
                         except socket.error, e:
                             if "timed out" not in str(e):
                                 raise
-                        finally:
-                            if self.verbose:
-                                logger.debug('AutophonePulseMonitor shared_lock.acquire')
-                            self.shared_lock.acquire()
                 logger.debug('AutophonePulseMonitor.listen: stopping')
             except:
                 logger.exception('AutophonePulseMonitor Exception')
                 if connection:
                     connection.release()
-                if self.verbose:
-                    logger.debug('AutophonePulseMonitor exit shared_lock.release')
-                try:
-                    self.shared_lock.release()
-                except ValueError, e:
-                    logger.warning('AutophonePulseMonitor: %s handling exception', e)
                 if not self._stopping.is_set():
                     restart = True
                     time.sleep(wait)
-                if self.verbose:
-                    logger.debug('AutophonePulseMonitor shared_lock.acquire')
-                self.shared_lock.acquire()
             finally:
-                if self.verbose:
-                    logger.debug('AutophonePulseMonitor exit shared_lock.release')
                 if connection and not restart:
                     connection.release()
-                try:
-                    self.shared_lock.release()
-                except ValueError, e:
-                    logger.warning('AutophonePulseMonitor: %s leaving listen()', e)
 
     def handle_message(self, data, message):
         if self._stopping.is_set():
             return
         message.ack()
         logger = utils.getLogger()
-        try:
-            relock = False
-            if self.verbose:
-                logger.debug('AutophonePulseMonitor handle_message shared_lock.release')
-            self.shared_lock.release()
-            relock = True
-        except ValueError, e:
-            if self.verbose:
-                logger.debug('AutophonePulseMonitor handle_message shared_lock not set %s', e)
         if (self.treeherder_url and 'action' in data and
               'project' in data and 'job_id' in data):
             self.handle_jobaction(data, message)
         elif 'status' in data:
             logger.debug('handle_message: data: %s, message: %s', data, message)
             self.handle_taskcompleted(data, message)
-        if relock:
-            if self.verbose:
-                logger.debug('AutophonePulseMonitor handle_message shared_lock.acquire')
-            self.shared_lock.acquire()
 
     def handle_jobaction(self, data, message):
         logger = utils.getLogger()
@@ -545,7 +502,6 @@ def main():
 
     (options, args) = parser.parse_args()
 
-    shared_lock = threading.Lock()
     monitor = AutophonePulseMonitor(
         userid=options.pulse_user,
         password=options.pulse_password,
@@ -554,8 +510,7 @@ def main():
         jobaction_callback=jobaction_callback,
         trees=['try', 'mozilla-inbound'],
         platforms=['android-api-9', 'android-api-11', 'android-api-15'],
-        buildtypes=['opt'],
-        shared_lock=shared_lock)
+        buildtypes=['opt'])
 
     monitor.start()
     time.sleep(3600)

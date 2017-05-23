@@ -49,9 +49,8 @@ class TestState(object):
 class AutophoneTreeherder(object):
 
     def __init__(self, worker_subprocess, options, jobs, s3_bucket=None,
-                 mailer=None, shared_lock=None):
+                 mailer=None):
         assert options, "options is required."
-        assert shared_lock, "shared_lock is required."
 
         logger = utils.getLogger()
 
@@ -59,7 +58,6 @@ class AutophoneTreeherder(object):
         self.jobs = jobs
         self.s3_bucket = s3_bucket
         self.mailer = mailer
-        self.shared_lock = shared_lock
         self.worker = worker_subprocess
         self.shutdown_requested = False
         logger.debug('AutophoneTreeherder')
@@ -124,13 +122,7 @@ class AutophoneTreeherder(object):
     def queue_request(self, machine, project, job_collection):
         logger = utils.getLogger()
         logger.debug('AutophoneTreeherder.queue_request: %s', job_collection.__dict__)
-        logger.debug('AutophoneTreeherder shared_lock.acquire')
-        self.shared_lock.acquire()
-        try:
-            self.jobs.new_treeherder_job(machine, project, job_collection)
-        finally:
-            logger.debug('AutophoneTreeherder shared_lock.release')
-            self.shared_lock.release()
+        self.jobs.new_treeherder_job(machine, project, job_collection)
 
     def _create_job(self, tjc, machine, build_url, project, revision, build_type, build_abi,
                     build_platform, build_sdk, builder_type, t):

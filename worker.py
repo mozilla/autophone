@@ -98,8 +98,7 @@ class PhoneWorker(object):
                  options,
                  autophone_queue,
                  loglevel,
-                 mailer,
-                 shared_lock):
+                 mailer):
 
         self.state = ProcessStates.STARTING
         self.tests = tests
@@ -128,7 +127,6 @@ class PhoneWorker(object):
         # process via this queue.
         self.queue = multiprocessing.Queue()
         self.lock = multiprocessing.Lock()
-        self.shared_lock = shared_lock
         self.subprocess = PhoneWorkerSubProcess(dm,
                                                 self,
                                                 tests,
@@ -137,8 +135,7 @@ class PhoneWorker(object):
                                                 autophone_queue,
                                                 self.queue,
                                                 loglevel,
-                                                mailer,
-                                                shared_lock)
+                                                mailer)
     def is_alive(self):
         return self.subprocess.is_alive()
 
@@ -403,7 +400,7 @@ class PhoneWorkerSubProcess(object):
     """
 
     def __init__(self, dm, parent_worker, tests, phone, options,
-                 autophone_queue, queue, loglevel, mailer, shared_lock):
+                 autophone_queue, queue, loglevel, mailer):
 
         self.state = ProcessStates.RUNNING
         self.parent_worker = parent_worker
@@ -431,7 +428,6 @@ class PhoneWorkerSubProcess(object):
         self.test_logfile = None
         self.loglevel = loglevel
         self.mailer = mailer
-        self.shared_lock = shared_lock
         self.p = None
         self.jobs = None
         self.build = None
@@ -1378,8 +1374,7 @@ class PhoneWorkerSubProcess(object):
                                               self.options,
                                               self.jobs,
                                               s3_bucket=self.s3_bucket,
-                                              mailer=self.mailer,
-                                              shared_lock=self.shared_lock)
+                                              mailer=self.mailer)
         self.update_status(phone_status=PhoneStatus.IDLE)
         self.dm.power_on()
         self.start_usbwatchdog()

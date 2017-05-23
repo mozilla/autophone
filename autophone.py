@@ -111,7 +111,6 @@ class AutoPhone(object):
                               allow_duplicates=options.allow_duplicate_jobs)
         self.phone_workers = {}  # indexed by phone id
         self.lock = threading.RLock()
-        self.shared_lock = multiprocessing.Lock()
         self._tests = []
         self._devices = {} # dict indexed by device names found in devices ini file
         self.server = None
@@ -121,8 +120,7 @@ class AutoPhone(object):
         self.treeherder = AutophoneTreeherder(None,
                                               self.options,
                                               self.jobs,
-                                              mailer=self.mailer,
-                                              shared_lock=self.shared_lock)
+                                              mailer=self.mailer)
         self.treeherder_thread = None
         self.logging_server = LogRecordServer(autophone=self)
         self.logging_server_thread = None
@@ -144,10 +142,6 @@ class AutoPhone(object):
         for worker in self.phone_workers.values():
             worker.start()
 
-        # We must wait to start the pulse monitor until after the
-        # workers have started in order to make certain that the
-        # shared_lock is passed to the worker subprocesses in an
-        # unlocked state.
         if options.enable_pulse:
             self.pulse_monitor = AutophonePulseMonitor(
                 userid=options.pulse_user,
@@ -160,7 +154,6 @@ class AutoPhone(object):
                 platforms=options.platforms,
                 buildtypes=options.buildtypes,
                 durable_queues=self.options.pulse_durable_queue,
-                shared_lock=self.shared_lock,
                 verbose=options.verbose)
             self.pulse_monitor.start()
 
@@ -696,8 +689,7 @@ ok
                              self.options,
                              self.queue,
                              self.loglevel,
-                             self.mailer,
-                             self.shared_lock)
+                             self.mailer)
         self.phone_workers[phone.id] = worker
         return worker
 
@@ -965,7 +957,6 @@ ok
         if self.pulse_monitor._stopping.is_set():
             LOGGER.debug('on_build: shutting down: ignoring build')
             return
-        self.lock_acquire()
         try:
             if self.state != ProcessStates.RUNNING:
                 return
@@ -1021,13 +1012,12 @@ ok
             }
             self.new_job(job_data)
         finally:
-            self.lock_release()
+            pass
 
     def on_jobaction(self, job_action):
         if self.pulse_monitor._stopping.is_set():
             LOGGER.debug('on_jobaction: shutting down: ignoring %s', job_action)
             return
-        self.lock_acquire()
         try:
             if self.state != ProcessStates.RUNNING or job_action['job_group_name'] != 'Autophone':
                 return
@@ -1077,7 +1067,7 @@ ok
                 LOGGER.warning('on_jobaction: unknown action %s',
                                job_action['action'])
         finally:
-            self.lock_release()
+            pass
 
     def stop(self):
         self.state = ProcessStates.STOPPING
