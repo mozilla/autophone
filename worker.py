@@ -476,18 +476,18 @@ class PhoneWorkerSubProcess(object):
     def stop(self):
         """Call from main process."""
         assert(multiprocessing.current_process().name == 'autophone')
-        self.loggerdeco.debug('stopping %s', self.phone.id)
+        self.loggerdeco.info('stopping %s', self.phone.id)
         if self.is_alive():
-            self.loggerdeco.debug('stop p.terminate() %s %s %s',
-                                  self.phone.id, self.p, self.p.pid)
+            self.loggerdeco.info('stop p.terminate() %s %s %s',
+                                 self.phone.id, self.p, self.p.pid)
             self.p.terminate()
-            self.loggerdeco.debug('stop p.join() %s %s %s',
-                                  self.phone.id, self.p, self.p.pid)
+            self.loggerdeco.info('stop p.join() %s %s %s',
+                                 self.phone.id, self.p, self.p.pid)
             self.p.join(self.options.phone_command_queue_timeout*2)
             if self.p.is_alive():
-                self.loggerdeco.debug('stop killing %s %s '
-                                      'stuck process %s',
-                                      self.phone.id, self.p, self.p.pid)
+                self.loggerdeco.info('stop killing %s %s '
+                                     'stuck process %s',
+                                     self.phone.id, self.p, self.p.pid)
                 os.kill(self.p.pid, 9)
 
     def is_ok(self):

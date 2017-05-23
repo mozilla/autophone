@@ -319,8 +319,15 @@ class AutoPhone(object):
             elapsed = datetime.datetime.now(tz=pytz.utc) - worker.last_status_msg.timestamp
             if worker.last_status_msg.phone_status != PhoneStatus.FETCHING and \
                elapsed > datetime.timedelta(seconds=self.options.maximum_heartbeat):
-                LOGGER.warning('check_for_unrecoverable_errors: '
-                               'Purging hung phone %s', worker.phone.id)
+                CONSOLE_LOGGER.warning('check_for_unrecoverable_errors: '
+                                       'Purging hung phone %s', worker.phone.id)
+                msg_subj = '%s Purging hung phone %s' % (utils.host(),
+                                                         worker.phone.id)
+                msg_body = ('Hello, this is Autophone. '
+                            'Just to let you know, '
+                            'phone %s '
+                            'is hung and I am purging it.\n' % worker.phone.id)
+                self.mailer.send(msg_subj, msg_body)
                 self.unrecoverable_error = True
                 worker.stop()
                 self.purge_worker(worker.phone.id)
@@ -695,6 +702,7 @@ ok
 
     def purge_worker(self, phoneid):
         """Remove worker and its tests from cached locations."""
+        LOGGER.info('Purging phone %s.', phoneid)
         if phoneid in self.phone_workers:
             del self.phone_workers[phoneid]
         if phoneid in self.restart_workers:
