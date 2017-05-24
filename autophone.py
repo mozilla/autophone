@@ -348,7 +348,7 @@ class AutoPhone(object):
                 # for a message from the workers.
                 self.lock_release()
                 try:
-                    msg = self.queue.get(timeout=5)
+                    msg = self.queue.get(timeout=30)
                 except Queue.Empty:
                     continue
                 except IOError, e:
