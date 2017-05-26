@@ -158,13 +158,17 @@ def get_build_data_from_taskcluster_task_definition(task_definition):
     formatstr, build_date = build_dates.parse_datetime(pushdate, tz=build_dates.UTC)
 
     match = re_platform.match(platform)
-    if match:
-        (api, extra) = match.groups()
-        if api == 'x86':
-            api = 'api-15'
-            abi = 'x86'
-        else:
-            abi = 'arm'
+    if not match:
+        logger.debug('get_build_data_from_taskcluster_task_definitions: '
+                     'failed to match platform %s', platform)
+        return None
+
+    (api, extra) = match.groups()
+    if api == 'x86':
+        api = 'api-15'
+        abi = 'x86'
+    else:
+        abi = 'arm'
 
     changeset = builds.REPO_URLS[repo] + 'rev/' + revision
 
