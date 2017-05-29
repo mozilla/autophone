@@ -80,19 +80,10 @@ class S1S2GeckoViewTest(S1S2Test):
         self.loggerdeco.debug('Attempt to Initialize profile')
         self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
 
-        self.wait_for_fennec()
+        self.wait_for_fennec(max_wait_time=10,
+                             wait_time=5,
+                             kill_wait_time=5)
 
         # minidumps not created?
         self.handle_crashes()
         return True
-
-    def wait_for_fennec(self, max_wait_time=10, wait_time=5,
-                        kill_wait_time=20, root=True):
-        # Override S1S2Test's version with shorter wait values
-        # since geckoview_example doesn't support extensions
-        # and by implication doesn't support quitter.
-        return S1S2Test.wait_for_fennec(self,
-                                        max_wait_time=max_wait_time,
-                                        wait_time=wait_time,
-                                        kill_wait_time=kill_wait_time,
-                                        root=root)

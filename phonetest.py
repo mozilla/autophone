@@ -680,6 +680,36 @@ class PhoneTest(object):
 
         return len(errors) > 0
 
+    def stop_application(self):
+        """Stop the application cleanly.
+
+        Make the home screen active placing the application into the
+        background, then attempt to use am force-stop, am kill, or
+        shell kill to stop the package in that order.
+
+        Only requires a rooted device if am force-stop and am kill
+        both fail.
+
+        Returns True if the process no longer exists.
+
+        Raises ADBError, ADBRootErrro, ADBTimeoutError
+        """
+        result = True
+        self.loggerdeco.debug('stop_application: display home screen')
+        self.dm.shell_output("am start "
+                             "-a android.intent.action.MAIN "
+                             "-c android.intent.category.HOME")
+        self.loggerdeco.debug('stop_application: am force-stop')
+        self.dm.shell_output("am force-stop %s" % self.build.app_name)
+        if self.dm.process_exist(self.build.app_name):
+            self.loggerdeco.debug('stop_application: am kill')
+            self.dm.shell_output("am kill %s" % self.build.app_name)
+            if self.dm.process_exist(self.build.app_name):
+                self.loggerdeco.debug('stop_application: kill')
+                self.dm.pkill(self.build.app_name, root=True)
+                result = not self.dm.process_exist(self.build.app_name)
+        return result
+
     def create_profile(self, custom_addons=[], custom_prefs=None, root=True):
         # Create, install and initialize the profile to be
         # used in the test.
@@ -735,7 +765,7 @@ class PhoneTest(object):
         for kill_attempt in range(1, max_killattempts+1):
             try:
                 self.loggerdeco.info('killing %s' % self.build.app_name)
-                self.dm.pkill(self.build.app_name, root=root)
+                self.stop_application()
                 break
             except ADBError:
                 self.loggerdeco.exception('Attempt %d to kill fennec failed' %
