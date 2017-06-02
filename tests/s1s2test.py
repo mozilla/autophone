@@ -145,7 +145,7 @@ class S1S2Test(PerfTest):
                             testname, url, attempt)
                         continue
 
-                    self.add_pass(url)
+                    self.add_pass(url, text='uncached')
                     dataset.append({'uncached': measurement})
 
                     measurement = self.runtest(url)
@@ -155,7 +155,7 @@ class S1S2Test(PerfTest):
                             testname, url, attempt)
                         continue
 
-                    self.add_pass(url)
+                    self.add_pass(url, text='cached')
                     dataset[-1]['cached'] = measurement
 
                     if self.is_stderr_below_threshold(

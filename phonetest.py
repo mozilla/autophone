@@ -160,7 +160,7 @@ class PhoneTest(object):
         logger = utils.getLogger(name=self.phone.id)
         self.loggerdeco = LogDecorator(logger,
                                        {},
-                                       '%(message)s')
+                                       'PhoneTest %(message)s')
         self.loggerdeco_original = None
         self.dm_logger_original = None
         # Test result
@@ -319,8 +319,8 @@ class PhoneTest(object):
                                        {},
                                        '%(message)s')
 
-        self.loggerdeco_original = None
-        self.dm_logger_original = None
+        self.loggerdeco_original = self.loggerdeco
+        self.dm_logger_original = self.loggerdeco
         self.worker_subprocess = worker_subprocess
         self.dm = worker_subprocess.dm
         self.update_status_cb = worker_subprocess.update_status
@@ -615,10 +615,10 @@ class PhoneTest(object):
     def handle_test_interrupt(self, reason, test_result):
         self.add_failure(self.name, TestStatus.TEST_UNEXPECTED_FAIL, reason, test_result)
 
-    def add_pass(self, testpath):
+    def add_pass(self, testpath, text="Ok"):
         testpath = _normalize_testpath(testpath)
         self.passed += 1
-        self.loggerdeco.info(' %s | %s | Ok.', TestStatus.TEST_PASS, testpath)
+        self.loggerdeco.info(' %s | %s | %s.', TestStatus.TEST_PASS, testpath, text)
 
     def add_failure(self, testpath, test_status, text, testresult_status):
         """Report a test failure.
@@ -630,7 +630,6 @@ class PhoneTest(object):
             One of PhoneTest.{BUSTED,EXCEPTION,TESTFAILED,UNKNOWN,USERCANCEL}.
         """
         self.message = text
-        self.update_status(message=text)
         testpath = _normalize_testpath(testpath)
         self.status = testresult_status
         self.failed += 1
@@ -658,7 +657,8 @@ class PhoneTest(object):
         for error in errors:
             if error['reason'] == 'java-exception':
                 self.add_failure(
-                    self.name, TestStatus.PROCESS_CRASH,
+                    self.name,
+                    TestStatus.PROCESS_CRASH,
                     error['signature'],
                     TreeherderStatus.TESTFAILED)
             elif error['reason'] == TestStatus.TEST_UNEXPECTED_FAIL:
@@ -673,11 +673,16 @@ class PhoneTest(object):
                     error['reason'],
                     'application crashed [%s]' % error['signature'],
                     TreeherderStatus.TESTFAILED)
-                self.loggerdeco.info(error['signature'])
-                self.loggerdeco.info(error['stackwalk_output'])
-                self.loggerdeco.info(error['stackwalk_errors'])
+                self.loggerdeco.info('signature       : %s' % error['signature'])
+                self.loggerdeco.info('stackwalk_output: %s' % error['stackwalk_output'])
+                self.loggerdeco.info('stackwalk_errors: %s' % error['stackwalk_errors'])
             else:
-                self.loggerdeco.warning('Unknown error reason: %s', error['reason'])
+                self.loggerdeco.warning('Unknown error reason: %s', error)
+                self.add_failure(
+                    self.name,
+                    TestStatus.TEST_UNEXPECTED_FAIL,
+                    error['signature'],
+                    TreeherderStatus.TESTFAILED)
 
         return len(errors) > 0
 
@@ -759,7 +764,6 @@ class PhoneTest(object):
         if not self.install_profile(profile):
             return False
 
-        self.loggerdeco.debug('Initializing profile')
         self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
         self.stop_application()
         self.handle_crashes()
@@ -842,12 +846,13 @@ class PhoneTest(object):
                 sleep(self.options.phone_retry_wait)
 
     def setup_job(self):
-        # Truncate the current log to prevent log bleed over. See the
-        # main process log for all of the mising bits. Log the current
-        # full contents of logcat, then clear the logcat buffers to
-        # help prevent the device's buffer from over flowing during
-        # the test.
-        self.worker_subprocess.filehandler.stream.truncate(0)
+        # If we are submitting to Treeherder, truncate the current log
+        # to prevent log bleed over. See the main process log for all
+        # of the mising bits. Log the current full contents of logcat,
+        # then clear the logcat buffers to help prevent the device's
+        # buffer from over flowing during the test.
+        if self.options.treeherder_url:
+            self.worker_subprocess.filehandler.stream.truncate(0)
         self.worker_subprocess.log_step('Setup Test')
         self.start_time = datetime.datetime.utcnow()
         self.stop_time = self.start_time
@@ -869,22 +874,16 @@ class PhoneTest(object):
             self.build.builder_type,
             tests=[self])
 
-        self.loggerdeco_original = self.loggerdeco
-        # self.dm._logger can raise ADBTimeoutError due to the
-        # property dm therefore place it after the initialization.
-        self.dm_logger_original = self.dm._logger
-        logger = utils.getLogger()
-        self.loggerdeco = LogDecorator(logger,
-                                       {
-                                           'repo': self.build.tree,
-                                           'buildid': self.build.id,
-                                           'buildtype': self.build.type,
-                                           'sdk': self.phone.sdk,
-                                           'platform': self.build.platform,
-                                           'testname': self.name
-                                       },
-                                       'PhoneTestJob %(repo)s %(buildid)s %(buildtype)s %(sdk)s %(platform)s %(testname)s '
-                                       '%(message)s')
+        self.loggerdeco = self.loggerdeco.clone(
+            extradict={
+                'repo': self.build.tree,
+                'buildid': self.build.id,
+                'buildtype': self.build.type,
+                'sdk': self.phone.sdk,
+                'platform': self.build.platform,
+                'testname': self.name
+            },
+            extraformat='PhoneTestJob %(repo)s %(buildid)s %(buildtype)s %(sdk)s %(platform)s %(testname)s %(message)s')
         self.dm._logger = self.loggerdeco
         self.loggerdeco.info('PhoneTest starting job')
         if self.unittest_logpath:
@@ -983,12 +982,6 @@ class PhoneTest(object):
         # Reset the logcat buffers to help prevent the device's buffer
         # from over flowing after the test.
         self.worker_subprocess.logcat.reset()
-        if self.loggerdeco_original:
-            self.loggerdeco = self.loggerdeco_original
-            self.loggerdeco_original = None
-        if self.dm_logger_original:
-            self.dm._logger = self.dm_logger_original
-            self.dm_logger_original = None
         self.reset_result()
 
     def update_status(self, phone_status=None, message=None):

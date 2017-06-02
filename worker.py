@@ -116,7 +116,7 @@ class PhoneWorker(object):
 
         self.loggerdeco  = LogDecorator(self.logger,
                                         {},
-                                       '%(message)s')
+                                       'PhoneWorker %(message)s')
         self.loggerdeco.debug('PhoneWorker:__init__')
         self.crashes = Crashes(crash_window=options.phone_crash_window,
                                crash_limit=options.phone_crash_limit)
@@ -417,7 +417,7 @@ class PhoneWorkerSubProcess(object):
         logger = utils.getLogger(name=phone.id)
         self.loggerdeco = LogDecorator(logger,
                                        {},
-                                       '%(message)s')
+                                       'PhoneWorkerSubProcess %(message)s')
         # PhoneWorkerSubProcess.autophone_queue is used to pass
         # messages back to the main Autophone process while
         # PhoneWorkerSubProcess.queue is used to get messages from the
