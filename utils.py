@@ -544,6 +544,18 @@ def urlretrieve(url, dest, max_attempts=3):
     """
     logger = getLogger()
 
+    parse_result = urlparse.urlparse(url)
+    if not parse_result.scheme or parse_result.scheme.startswith('file'):
+        local_file = open(parse_result.path)
+        with local_file:
+            with open(dest, 'wb') as dest_file:
+                while True:
+                    chunk = local_file.read(4096)
+                    if not chunk:
+                        break
+                    dest_file.write(chunk)
+            return
+
     for attempt in range(max_attempts):
         try:
             r = requests.get(url, stream=True)
