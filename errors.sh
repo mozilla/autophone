@@ -60,4 +60,4 @@ shift $nshift
 
 here=$(dirname $0)
 
-grep -HE '(PROCESS-CRASH|TEST-UNEXPECTED|ERROR runtests.py|[IE]/Gecko.*ABORT:|F/MOZ_CRASH|MOZ_Assert.*Assertion failure:)' $@ | awk $DEBUG -f ${here}/errors.awk | eval "$filter"
+xzgrep -HE '(PROCESS-CRASH|TEST-UNEXPECTED|ERROR runtests.py|[IE]/Gecko.*ABORT:|F/MOZ_CRASH|MOZ_Assert.*Assertion failure:)' $@ | awk $DEBUG -f ${here}/errors.awk | eval "$filter"
