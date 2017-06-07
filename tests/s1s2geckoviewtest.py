@@ -4,8 +4,6 @@
 
 import ConfigParser
 
-from mozprofile import FirefoxProfile
-
 from s1s2test import S1S2Test
 
 
@@ -60,30 +58,3 @@ class S1S2GeckoViewTest(S1S2Test):
         except:
             self.loggerdeco.exception('run_fennec_with_profile: Exception:')
             raise
-
-    def create_profile(self, custom_addons=[], custom_prefs=None, root=True):
-        # Create, install and initialize the profile to be
-        # used in the test.
-        #
-        # Extensions are not currently supported therefore we will
-        # need to kill the process and ignore that fact.
-
-        self.dm.pkill(self.build.app_name, root=root)
-        if isinstance(custom_prefs, dict):
-            prefs = dict(self.preferences.items() + custom_prefs.items())
-        else:
-            prefs = self.preferences
-        profile = FirefoxProfile(preferences=prefs, addons=custom_addons)
-        if not self.install_profile(profile):
-            return False
-
-        self.loggerdeco.debug('Attempt to Initialize profile')
-        self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
-
-        self.wait_for_fennec(max_wait_time=10,
-                             wait_time=5,
-                             kill_wait_time=5)
-
-        # minidumps not created?
-        self.handle_crashes()
-        return True
