@@ -297,9 +297,9 @@ class S1S2Test(PerfTest):
         # parse in logcat.
         starttime, throbberstart, throbberstop = self.analyze_logcat()
 
-        self.wait_for_fennec(max_wait_time=1,
-                             wait_time=1,
-                             kill_wait_time=1)
+        self.wait_for_fennec(max_wait_time=10,
+                             wait_time=5,
+                             kill_wait_time=5)
         self.handle_crashes()
 
         # Ensure we succeeded - no 0's reported
