@@ -16,7 +16,7 @@ if [[ -z "$1" ]]; then
 else
     for m in $@; do
         echo "========== $m =========="
-        ssh $m ". ~/.profile; ap-getstate"
+        ssh $m "if [[ -e ~/.profile ]]; then . ~/.profile; else . ~/.bash_profile; fi; ap-getstate"
     done
 fi
 

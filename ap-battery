@@ -3,12 +3,15 @@
 if [[ -z "$1" ]]; then
     ap-getstate | grep "=device" | sed -r "s|=device||" | while read n; do
         echo ============== $n ===========
-        adb -s $(ap-inventory --match=id=$n --output="%(serialno)s") shell "dumpsys battery"
+        # Work around failures sequentially invoking adb by placing
+        # job in background and waiting for the child process.
+        adb -s $(ap-inventory --match=id=$n --output="%(serialno)s") shell "dumpsys battery" &
+        wait
     done
 else
     for m in $@; do
         echo "========== $m =========="
-        ssh $m ". ~/.profile; ap-battery"
+        ssh $m "if [[ -e ~/.profile ]]; then . ~/.profile; else . ~/.bash_profile; fi; ap-battery"
     done
 fi
 

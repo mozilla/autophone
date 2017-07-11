@@ -8,12 +8,15 @@ if [[ -z "$1" ]]; then
         else
             interface=wlan0
         fi
-        adb -s $(ap-inventory --match=id=$n --output="%(serialno)s") wait-for-device shell "uptime; ifconfig $interface"
+        # Work around failures sequentially invoking adb by placing
+        # job in background and waiting for the child process.
+        adb -s $(ap-inventory --match=id=$n --output="%(serialno)s") shell "uptime; ifconfig $interface" &
+        wait
     done
 else
     for m in $@; do
         echo "========== $m =========="
-        ssh $m ". ~/.profile; ap-wifi"
+        ssh $m "if [[ -e ~/.profile ]]; then . ~/.profile; else . ~/.bash_profile; fi; ap-wifi"
     done
 fi
 
