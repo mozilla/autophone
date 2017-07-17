@@ -1133,7 +1133,6 @@ def load_autophone_options(cmd_options):
     options.sensitive_data.append(options.pulse_password)
     options.sensitive_data.append(options.aws_access_key_id)
     options.sensitive_data.append(options.aws_access_key)
-    options.sensitive_data.append(options.treeherder_client_id)
     options.sensitive_data.append(options.treeherder_secret)
     return options
 
