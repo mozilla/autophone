@@ -5,6 +5,7 @@
 import ConfigParser
 import datetime
 import glob
+import logging
 import os
 import posixpath
 import urlparse
@@ -335,6 +336,7 @@ class PhoneTest(object):
 
         if not self._preferences:
             self._preferences = {
+                'app.shutdownintent.enabled': True,
                 'app.support.baseURL': 'http://localhost/support-dummy/',
                 'app.update.auto': False,
                 'app.update.certs.1.commonName': '',
@@ -493,10 +495,13 @@ class PhoneTest(object):
                 'MOZ_CRASHREPORTER_NO_REPORT': '1',
                 'MOZ_CRASHREPORTER_SHUTDOWN': '1',
                 'MOZ_DISABLE_NONLOCAL_CONNECTIONS': '1',
-                'MOZ_IN_AUTOMATION': '1',
-                'NO_EM_RESTART': '1',
                 'MOZ_DISABLE_SWITCHBOARD': '1',
-                #'NSPR_LOG_MODULES': 'all:5',
+                'MOZ_IN_AUTOMATION': '1',
+                'MOZ_LOG': 'signaling:3,mtransport:4,DataChannel:4,jsep:4,MediaPipelineFactory:4',
+                'NO_EM_RESTART': '1',
+                'R_LOG_DESTINATION': 'stderr',
+                'R_LOG_LEVEL': '6',
+                'R_LOG_VERBOSE': '1',
             }
             if self.cfg.has_section('environment'):
                 overrides = self.cfg.options('environment')
@@ -653,6 +658,9 @@ class PhoneTest(object):
                                                  self.options.minidump_stackwalk,
                                                  clean=True)
 
+        if len(errors) == 0:
+            return False
+
         for error in errors:
             if error['reason'] == 'java-exception':
                 self.add_failure(
@@ -683,9 +691,15 @@ class PhoneTest(object):
                     error['signature'],
                     TreeherderStatus.TESTFAILED)
 
-        return len(errors) > 0
+        # Dump logcat here to catch any messages related to the error.
+        self.loggerdeco.info('handle_crashes: errors found.')
+        buf = self.worker_subprocess.logcat.get()
+        for line in buf:
+            self.loggerdeco.info('handle_crashes: logcat: %s', line)
 
-    def stop_application(self):
+        return True
+
+    def stop_application(self, max_wait_time=10):
         """Stop the application cleanly.
 
         Make the home screen active placing the application into the
@@ -699,34 +713,62 @@ class PhoneTest(object):
 
         Raises ADBError, ADBRootErrro, ADBTimeoutError
         """
+        if max_wait_time < 1:
+            max_wait_time = 1
         result = True
         self.loggerdeco.debug('stop_application: display home screen')
         self.dm.shell_output("am start "
                              "-a android.intent.action.MAIN "
                              "-c android.intent.category.HOME")
-        self.loggerdeco.debug('stop_application: am force-stop')
-        self.dm.shell_output("am force-stop %s" % self.build.app_name)
-        if self.dm.process_exist(self.build.app_name):
-            self.loggerdeco.debug('stop_application: am kill')
-            self.dm.shell_output("am kill %s" % self.build.app_name)
-            if self.dm.process_exist(self.build.app_name):
-                self.loggerdeco.debug('stop_application: kill')
-                self.dm.pkill(self.build.app_name, root=True)
+        self.loggerdeco.debug('stop_application: %s' % self.build.app_name)
+        if self.build.app_name == 'org.mozilla.geckoview_example':
+            self.dm.shell_output("am start "
+                                 "-a %s.SHUTDOWN "
+                                 "-n %s/.GeckoViewActivity" % (
+                                     self.build.app_name,
+                                     self.build.app_name))
+        else:
+            self.dm.shell_output("am start "
+                                 "-a org.mozilla.gecko.SHUTDOWN "
+                                 "-n %s/.App" % self.build.app_name)
+        # Give the app a chance to shutdown.
+        for attempt in range(1, max_wait_time+1):
+            self.loggerdeco.debug('stop_application: waiting attempt: %s', attempt)
+            sleep(1)
+            result = not self.dm.process_exist(self.build.app_name)
+            if result:
+                break
+        if not result:
+            self.loggerdeco.info('stop_application: am force-stop')
+            self.dm.shell_output("am force-stop %s" % self.build.app_name)
+            result = not self.dm.process_exist(self.build.app_name)
+            if not result:
+                self.loggerdeco.info('stop_application: am kill')
+                self.dm.shell_output("am kill %s" % self.build.app_name)
                 result = not self.dm.process_exist(self.build.app_name)
+                if not result:
+                    self.loggerdeco.info('stop_application: kill')
+                    self.dm.pkill(self.build.app_name, root=True)
+                    result = not self.dm.process_exist(self.build.app_name)
+        self.loggerdeco.debug('stop_application: final success: %s', result)
         return result
 
     def create_profile(self, custom_addons=[], custom_prefs=None, root=True):
         # Create, install and initialize the profile to be
         # used in the test.
 
-        temp_addons = ['quitter.xpi']
+        # XXX: Remove the quitter.xpi here and all references to
+        # quitter.js in the files/ when bug 1368701 lands on
+        # mozilla-beta and mozilla-release.
+        temp_addons = []
         temp_addons.extend(custom_addons)
         addons = ['%s/xpi/%s' % (os.getcwd(), addon) for addon in temp_addons]
 
         # make sure firefox isn't running when we try to
         # install the profile.
 
-        self.dm.pkill(self.build.app_name, root=root)
+        self.loggerdeco.info('creating_profile')
+        self.stop_application()
         if isinstance(custom_prefs, dict):
             prefs = dict(self.preferences.items() + custom_prefs.items())
         else:
@@ -735,41 +777,65 @@ class PhoneTest(object):
         if not self.install_profile(profile):
             return False
 
-        success = False
-        for attempt in range(1, self.options.phone_retry_limit+1):
-            self.loggerdeco.debug('Attempt %d Initializing profile', attempt)
-            self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
+        # Accumulate the logcat prior to the launch so that we don't
+        # have any bleed over from earlier messages.
+        buf = self.worker_subprocess.logcat.get()
+        if self.loggerdeco.getEffectiveLevel() == logging.DEBUG:
+            for line in buf:
+                self.loggerdeco.debug('create_profile: prior logcat: %s', line)
 
-            if self.wait_for_fennec():
-                success = True
+        self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
+        # Check for page load before attempting to stop the application
+        found_page_load = False
+        re_zerdatime = re.compile('GeckoTabs.*: zerdatime [0-9]+ - page load stop')
+        for attempt in range(1, 11):
+            self.loggerdeco.debug('create_profile: stop_application: waiting attempt: %s', attempt)
+            buf = self.worker_subprocess.logcat.get()
+            for line in buf:
+                self.loggerdeco.debug('create_profile: logcat: %s', line)
+                if re_zerdatime.search(line):
+                    self.loggerdeco.debug('create_profile: found page load stop')
+                    found_page_load = True
+                    break
+            if found_page_load:
                 break
-            sleep(self.options.phone_retry_wait)
-
-        if not success or self.handle_crashes():
-            self.add_failure(self.name, TestStatus.TEST_UNEXPECTED_FAIL,
-                             'Failure initializing profile',
-                             TreeherderStatus.TESTFAILED)
-
-        return success
+            sleep(1)
+        if not found_page_load:
+            self.loggerdeco.warning('creating_profile: %s application page load stop '
+                                    'not found.', self.build.app_name)
+        self.stop_application()
+        self.handle_crashes()
+        return True
 
     def wait_for_fennec(self, max_wait_time=60, wait_time=5,
                         kill_wait_time=20, root=True):
-        # Wait for up to a max_wait_time seconds for fennec to close
-        # itself in response to the quitter request. Check that fennec
-        # is still running every wait_time seconds. If fennec doesn't
-        # close on its own, attempt up to 3 times to kill fennec, waiting
-        # kill_wait_time seconds between attempts.
-        # Return True if fennec exits on its own, False if it needs to be killed.
-        # Re-raise the last exception if fennec can not be killed.
+        # Wait for up to a max_wait_time seconds for fennec to close.
+        # Check that fennec is still running every wait_time
+        # seconds. If fennec doesn't close on its own, attempt up to 3
+        # times to kill fennec, waiting kill_wait_time seconds between
+        # attempts.  Return True if fennec exits on its own, False if
+        # it needs to be killed.  Re-raise the last exception if
+        # fennec can not be killed.
         max_wait_attempts = max_wait_time / wait_time
+        self.loggerdeco.debug('wait_for_fennec: '
+                              'max_wait_time %s, '
+                              'wait_time %s, '
+                              'kill_wait_time %s, '
+                              'max_wait_attempts: %s' %
+                              (max_wait_time,
+                               wait_time,
+                               kill_wait_time,
+                               max_wait_attempts))
         for wait_attempt in range(1, max_wait_attempts+1):
+            self.loggerdeco.debug('wait_for_fennec: attempt %s waiting' % wait_attempt)
             if not self.dm.process_exist(self.build.app_name):
                 return True
             sleep(wait_time)
         max_killattempts = 3
         for kill_attempt in range(1, max_killattempts+1):
             try:
-                self.loggerdeco.info('killing %s' % self.build.app_name)
+                self.loggerdeco.info('wait_for_fennec: attempt %s stopping %s' %
+                                     (kill_attempt, self.build.app_name))
                 self.stop_application()
                 break
             except ADBError:
