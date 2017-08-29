@@ -798,8 +798,10 @@ ok
                         device['supported_sdks'] = 'api-9,api-10'
                     elif sdk < 15:
                         device['supported_sdks'] = 'api-11'
-                    else:
+                    elif sdk < 16:
                         device['supported_sdks'] = 'api-11,api-15'
+                    else:
+                        device['supported_sdks'] = 'api-16'
                 except ValueError:
                     device['supported_sdks'] = 'api-9'
                 self._devices[device_name] = device
@@ -910,7 +912,7 @@ ok
 
         # If we can not determine the sdk, default to all, abi to arm.
         if not sdk:
-            sdk = 'api-9,api-10,api-11,api-15'
+            sdk = 'api-9,api-10,api-11,api-15,api-16'
             LOGGER.warning('trigger_jobs: default sdks: %s', sdk)
         if not abi:
             abi = 'arm'

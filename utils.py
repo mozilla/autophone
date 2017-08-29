@@ -165,7 +165,7 @@ def get_build_data_from_taskcluster_task_definition(task_definition):
 
     (api, extra) = match.groups()
     if api == 'x86':
-        api = 'api-15'
+        api = 'api-16'
         abi = 'x86'
     else:
         abi = 'arm'
