@@ -74,7 +74,7 @@ class AutophonePulseMonitor(object):
     :param platforms: Required list of platforms to be
         matched. Currently, the possible values are 'android',
         'android-api-9', 'android-api-10', 'android-api-11',
-        'android-api-15' and 'android-x86'.
+        'android-api-15', 'android-api-16' and 'android-x86'.
     :param buildtypes: Required list of build types to
         process. Possible values are 'opt', 'debug'
     :param timeout: Timeout in seconds for the kombu connection
@@ -509,7 +509,8 @@ def main():
         build_callback=build_callback,
         jobaction_callback=jobaction_callback,
         trees=['try', 'mozilla-inbound'],
-        platforms=['android-api-9', 'android-api-11', 'android-api-15'],
+        platforms=['android-api-9', 'android-api-11', 'android-api-15',
+                   'android-api-16'],
         buildtypes=['opt'])
 
     monitor.start()

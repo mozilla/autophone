@@ -78,7 +78,9 @@ def trigger_runs(args, options):
     product = 'fennec'
     build_platforms = [
         'android-api-15',
-        'android-api-15-gradle'
+        'android-api-16',
+        'android-api-15-gradle',
+        'android-api-16-gradle'
     ]
     buildfile_ext = '.apk'
 
