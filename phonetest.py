@@ -425,6 +425,7 @@ class PhoneTest(object):
                 'extensions.getAddons.search.url': 'http://localhost/extensions-dummy/repositorySearchURL',
                 'extensions.hotfix.url': 'http://localhost/extensions-dummy/hotfixURL',
                 'extensions.installDistroAddons': False,
+                'extensions.legacy.enabled': True,
                 'extensions.showMismatchUI': False,
                 'extensions.startupScanScopes': 5, # And scan for changes at startup
                 'extensions.systemAddon.update.url': 'data:application/xml,<updates></updates>',
