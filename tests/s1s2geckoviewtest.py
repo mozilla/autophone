@@ -38,10 +38,9 @@ class S1S2GeckoViewTest(S1S2Test):
             for (env_count, (env_key, env_val)) in enumerate(self.environment.iteritems()):
                 extras["env" + str(env_count)] = env_key + "=" + str(env_val)
 
-        local_extra_args = ['-profile', self.profile_path]
-        if self.e10s:
-            e10s = 'true' if self.e10s else 'false'
-            local_extra_args.extend(['--ez', 'use_multiprocess %s' % e10s])
+        local_extra_args = ['-profile', self.profile_path,
+                            '--ez', 'use_multiprocess %s' % (
+                                'true' if self.e10s else 'false')]
         local_extra_args.extend(extra_args)
         extras['args'] = " ".join(local_extra_args)
 
