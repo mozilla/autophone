@@ -38,11 +38,10 @@ class S1S2GeckoViewTest(S1S2Test):
             for (env_count, (env_key, env_val)) in enumerate(self.environment.iteritems()):
                 extras["env" + str(env_count)] = env_key + "=" + str(env_val)
 
-        local_extra_args = ['-profile', self.profile_path,
-                            '--ez', 'use_multiprocess %s' % (
-                                'true' if self.e10s else 'false')]
+        local_extra_args = ['-profile', self.profile_path]
         local_extra_args.extend(extra_args)
         extras['args'] = " ".join(local_extra_args)
+        extras['use_multiprocess'] = self.e10s
 
         try:
             self.dm.pkill(appname, root=True)
