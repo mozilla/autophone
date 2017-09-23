@@ -412,7 +412,7 @@ class PhoneTest(object):
                 'datareporting.healthreport.uploadEnabled': False,
                 'datareporting.policy.dataSubmissionEnabled': False,
                 'datareporting.policy.dataSubmissionPolicyBypassAcceptance': True,
-                'datareporting.policy.dataSubmissionPolicyBypassNotification', True,
+                'datareporting.policy.dataSubmissionPolicyBypassNotification': True,
                 'datareporting.policy.firstRunURL': "",
                 'dom.ipc.plugins.flash.subprocess.crashreporter.enabled': False,
                 'experiments.manifest.uri': 'http://localhost/experiments-dummy/manifest',
