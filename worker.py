@@ -641,6 +641,9 @@ class PhoneWorkerSubProcess(object):
         the device is rebooted in an attempt to recover.
         """
         for attempt in range(1, self.options.phone_retry_limit+1):
+            if self.state == ProcessStates.SHUTTINGDOWN:
+                return 'Phone SHUTTINGDOWN'
+
             self.loggerdeco.debug('Pinging phone attempt %d', attempt)
             msg = 'Phone OK'
             phone_status = PhoneStatus.OK
