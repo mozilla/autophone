@@ -711,9 +711,13 @@ class PhoneWorkerSubProcess(object):
                     if not self.dm.process_exist(self.options.usbwatchdog_appname):
                         self.start_usbwatchdog()
                     break
-            except (ADBError, ADBTimeoutError):
+            except (ADBError, ADBTimeoutError), e:
                 msg = 'Exception pinging device: %s' % traceback.format_exc()
                 phone_status = PhoneStatus.ERROR
+                if isinstance(e, ADBTimeoutError):
+                    phone_status = PhoneStatus.DISCONNECTED
+                else:
+                    phone_status = PhoneStatus.ERROR
             self.loggerdeco.warning(msg)
             time.sleep(self.options.phone_retry_wait)
             if self.is_ok() and phone_status == PhoneStatus.ERROR:
@@ -721,8 +725,11 @@ class PhoneWorkerSubProcess(object):
                 self.loggerdeco.warning('Rebooting due to ping failure.')
                 try:
                     self.reboot()
-                except (ADBError, ADBTimeoutError):
-                    phone_status = PhoneStatus.DISCONNECTED
+                except (ADBError, ADBTimeoutError), e:
+                    if isinstance(e, ADBTimeoutError):
+                        phone_status = PhoneStatus.DISCONNECTED
+                    else:
+                        phone_status = PhoneStatus.ERROR
                     msg2 = 'Exception rebooting device: %s' % traceback.format_exc()
                     self.loggerdeco.warning(msg2)
                     msg += '\n\n' + msg2
