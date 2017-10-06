@@ -349,9 +349,14 @@ class AutoPhone(object):
                 self.lock_release()
                 try:
                     msg = self.queue.get(timeout=30)
+                    LOGGER.debug('worker_msg_loop: msg %s', msg)
                 except Queue.Empty:
+                    LOGGER.debug('worker_msg_loop: Queue.Empty')
+                    msg = None
                     continue
                 except IOError, e:
+                    LOGGER.debug('worker_msg_loop: IOError %s', e)
+                    msg = None
                     if e.errno == errno.EINTR:
                         continue
                 finally:

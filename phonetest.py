@@ -20,7 +20,7 @@ from mozprofile import Profile
 
 import utils
 from autophonecrash import AutophoneCrashProcessor
-from adb import ADBError
+from adb import ADBError, ADBTimeoutError
 from logdecorator import LogDecorator
 from phonestatus import PhoneStatus, TreeherderStatus, TestStatus
 
@@ -537,6 +537,9 @@ class PhoneTest(object):
             return self._base_device_path
         success = False
         for attempt in range(1, self.options.phone_retry_limit+1):
+            if self.worker_subprocess and \
+               self.worker_subprocess.phone_status == PhoneStatus.DISCONNECTED:
+                break
             try:
                 self._base_device_path = self.dm.test_root + '/autophone'
                 if not self.dm.is_dir(self._base_device_path, root=True):
@@ -551,6 +554,12 @@ class PhoneTest(object):
                                           'path %s',
                                           attempt, self._base_device_path)
                 sleep(self.options.phone_retry_wait)
+
+            except ADBTimeoutError:
+                self.loggerdeco.exception('Attempt %d creating base device '
+                                          'path %s',
+                                          attempt, self._base_device_path)
+                self.worker_subprocess.ping()
 
         if not success:
             raise Exception('Failed to determine base_device_path')
@@ -718,7 +727,7 @@ class PhoneTest(object):
 
         Returns True if the process no longer exists.
 
-        Raises ADBError, ADBRootErrro, ADBTimeoutError
+        Raises ADBError, ADBRootError, ADBTimeoutError
         """
         if max_wait_time < 1:
             max_wait_time = 1

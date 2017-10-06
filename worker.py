@@ -491,8 +491,11 @@ class PhoneWorkerSubProcess(object):
                 os.kill(self.p.pid, 9)
 
     def is_ok(self):
-        return (self.phone_status != PhoneStatus.DISCONNECTED and
-                self.phone_status != PhoneStatus.ERROR)
+        ok = (self.phone_status != PhoneStatus.DISCONNECTED and
+              self.phone_status != PhoneStatus.ERROR)
+        if not ok:
+            self.loggerdeco.debug('is_ok: %s, phone_status: %s', ok, self.phone_status)
+        return ok
 
     def is_disabled(self):
         return self.phone_status == PhoneStatus.DISABLED
@@ -562,23 +565,22 @@ class PhoneWorkerSubProcess(object):
         # just truncate it.
 
     def _check_path(self, path):
+        """_check_path(path) checks if path is writable
+        by creating a file in a subdirectory of the path.
+        If none of the adb calls to the device raise an
+        exception, the path is accessible.
+        """
         self.loggerdeco.debug('Checking path %s.', path)
-        success = True
-        try:
-            d = posixpath.join(path, 'autophone_check_path')
-            self.dm.rm(d, recursive=True, force=True, root=True)
-            self.dm.mkdir(d, parents=True, root=True)
-            self.dm.chmod(d, recursive=True, root=True)
-            with tempfile.NamedTemporaryFile() as tmp:
-                tmp.write('autophone test\n')
-                tmp.flush()
-                self.dm.push(tmp.name,
-                             posixpath.join(d, 'path_check'))
-            self.dm.rm(d, recursive=True, root=True)
-        except (ADBError, ADBTimeoutError):
-            self.loggerdeco.exception('Exception while checking path %s', path)
-            success = False
-        return success
+        d = posixpath.join(path, 'autophone_check_path')
+        self.dm.rm(d, recursive=True, force=True, root=True)
+        self.dm.mkdir(d, parents=True, root=True)
+        self.dm.chmod(d, recursive=True, root=True)
+        with tempfile.NamedTemporaryFile() as tmp:
+            tmp.write('autophone test\n')
+            tmp.flush()
+            self.dm.push(tmp.name,
+                         posixpath.join(d, 'path_check'))
+        self.dm.rm(d, recursive=True, root=True)
 
     def start_usbwatchdog(self):
         try:
@@ -593,7 +595,7 @@ class PhoneWorkerSubProcess(object):
                 (self.options.usbwatchdog_appname,
                  self.options.usbwatchdog_poll_interval,
                  debugarg))
-        except (ADBError, ADBTimeoutError):
+        except ADBError:
             self.loggerdeco.exception('Ignoring Exception starting USBWatchdog')
 
     def disable_chatty(self):
@@ -613,7 +615,6 @@ class PhoneWorkerSubProcess(object):
         # case for the optional usbwatchdog service.
         self.dm.power_on()
         self.start_usbwatchdog()
-        self.ping()
 
     def disable_phone(self, errmsg, send_email=True):
         """Completely disable phone. No further attempts to recover it will
@@ -641,36 +642,28 @@ class PhoneWorkerSubProcess(object):
         the device is rebooted in an attempt to recover.
         """
         for attempt in range(1, self.options.phone_retry_limit+1):
-            if self.state == ProcessStates.SHUTTINGDOWN:
-                return 'Phone SHUTTINGDOWN'
-
             self.loggerdeco.debug('Pinging phone attempt %d', attempt)
             msg = 'Phone OK'
             phone_status = PhoneStatus.OK
             try:
                 state = self.dm.get_state(timeout=60)
-            except (ADBError, ADBTimeoutError):
-                state = 'missing'
-            try:
                 if state != 'device':
                     msg = 'Attempt: %d, ping state: %s' % (attempt, state)
                     phone_status = PhoneStatus.DISCONNECTED
-                elif (self.dm.selinux and
-                      self.dm.shell_output('getenforce') != 'Permissive'):
-                    msg = 'Attempt: %d, SELinux is not permissive' % attempt
-                    phone_status = PhoneStatus.ERROR
-                    self.dm.shell_output("setenforce Permissive", root=True)
-                elif not self._check_path('/data/local/tmp'):
-                    msg = 'Attempt: %d, ping path: %s' % (attempt, '/data/local/tmp')
-                    phone_status = PhoneStatus.ERROR
-                elif not self._check_path(self.dm.test_root):
-                    msg = 'Attempt: %d, ping path: %s' % (attempt, self.dm.test_root)
-                    phone_status = PhoneStatus.ERROR
-                elif require_ip_address:
-                    try:
-                        ip_address = self.dm.get_ip_address()
-                    except (ADBError, ADBTimeoutError):
-                        ip_address = None
+                    break
+
+                if self.dm.selinux:
+                    if self.dm.shell_output('getenforce') != 'Permissive':
+                        self.dm.shell_output("setenforce Permissive", root=True)
+                        if self.dm.shell_output('getenforce') != 'Permissive':
+                            phone_status = PhoneStatus.ERROR
+                            msg = 'Attempt: %d, SELinux is not permissive' % attempt
+
+                self._check_path('/data/local/tmp')
+                self._check_path(self.dm.test_root)
+
+                if require_ip_address:
+                    ip_address = self.dm.get_ip_address()
                     if not ip_address:
                         msg = 'Device network offline'
                         phone_status = PhoneStatus.ERROR
@@ -713,7 +706,6 @@ class PhoneWorkerSubProcess(object):
                     break
             except (ADBError, ADBTimeoutError), e:
                 msg = 'Exception pinging device: %s' % traceback.format_exc()
-                phone_status = PhoneStatus.ERROR
                 if isinstance(e, ADBTimeoutError):
                     phone_status = PhoneStatus.DISCONNECTED
                 else:
@@ -733,6 +725,8 @@ class PhoneWorkerSubProcess(object):
                     msg2 = 'Exception rebooting device: %s' % traceback.format_exc()
                     self.loggerdeco.warning(msg2)
                     msg += '\n\n' + msg2
+            if phone_status == PhoneStatus.DISCONNECTED:
+                break
 
         if test:
             test_msg = 'during %s %s\n' % (test.name, os.path.basename(test.config_file))
@@ -831,6 +825,8 @@ class PhoneWorkerSubProcess(object):
         message = ''
         for attempt in range(1, self.options.phone_retry_limit+1):
             uninstalled = False
+            if self.phone_status == PhoneStatus.DISCONNECTED:
+                break
             try:
                 # Uninstall all org.mozilla.(fennec|firefox|geckoview) packages
                 # to make sure there are no previous installations of
@@ -859,7 +855,7 @@ class PhoneWorkerSubProcess(object):
                 else:
                     uninstalled = True
                     break
-            except ADBTimeoutError, e:
+            except ADBTimeoutError:
                 message = 'Timed out uninstalling fennec attempt %d!\n\n%s' % (
                     attempt, traceback.format_exc())
                 self.loggerdeco.exception('Timedout uninstalling fennec '
@@ -873,6 +869,8 @@ class PhoneWorkerSubProcess(object):
 
         message = ''
         for attempt in range(1, self.options.phone_retry_limit+1):
+            if self.phone_status == PhoneStatus.DISCONNECTED:
+                break
             try:
                 self.dm.install_app(self.build.apk)
                 stop_time = datetime.datetime.now(tz=pytz.utc)
@@ -1191,6 +1189,7 @@ class PhoneWorkerSubProcess(object):
                 command['test_result'] = TreeherderStatus.RETRY
             except (ADBError, ADBTimeoutError):
                 self.loggerdeco.error("Exception rebooting device")
+                self.ping()
         elif request[0] == 'disable':
             self.disable_phone("Disabled at user's request", False)
             command['interrupt'] = True
@@ -1266,7 +1265,11 @@ class PhoneWorkerSubProcess(object):
                 request = None
                 if not self.is_ok():
                     self.ping()
-                if self.is_ok():
+                if not self.is_ok():
+                    # Wait for a minute for the device error to clear
+                    # before attempting to get the next message.
+                    time.sleep(60)
+                else:
                     job = self.jobs.get_next_job(lifo=self.options.lifo, worker=self)
                     if job:
                         if not self.is_disabled():
