@@ -10,7 +10,7 @@
 
 BEGIN {
     line_no = 0
-    REMAINDER_LEN = 120
+    REMAINDER_LEN = 140
     TEST_LEN = 120
 }
 
@@ -44,7 +44,7 @@ function dump_variables() {
     # If the result doesn't consist of capital letters, dashes
     # and spaces, skip the output.
     if (result ~ /^[A-Z -]+$/)
-        printf "%-45s; %-120s; %-120s; %-20s; %-20s; %14s; %-5s; %-6s; %-22s; %-16s\n", testsuite, test, remainder, result, repo, buildid, buildtype, sdk, platform, device
+        printf "%-45s; %-120s; %-140s; %-20s; %-20s; %14s; %-5s; %-6s; %-22s; %-16s\n", testsuite, test, remainder, result, repo, buildid, buildtype, sdk, platform, device
     else
         if (DEBUG)
             printf "Skipped non-result %s\n", result
