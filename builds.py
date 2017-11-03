@@ -417,15 +417,23 @@ class TaskClusterBuilds(BuildLocation):
                     tier = get_treeherder_tier(repo, task_id, run_id)
                     artifacts = utils.taskcluster_artifacts(task_id, run_id)
                     try:
-                        build_date = build_url = None
-                        while not build_found: # artifacts
+                        build_data = build_date = build_url = None
+                        while True: # artifacts
+                            # Collect all matching builds for this run.
                             artifact = artifacts.next()
                             artifact_name = artifact['name']
                             search = re_fennec.search(artifact_name)
                             if search:
                                 build_url = url_format % (task_id, run_id, artifact_name)
-                                build_data = utils.get_build_data(build_url,
-                                                                  builder_type=builder_type)
+                                if build_data:
+                                    # We have already obtained build_data for this run.
+                                    # We only need to copy the dict and update the build_url
+                                    # for this new artifact.
+                                    build_data = dict(build_data)
+                                    build_data['url'] = build_url
+                                else:
+                                    build_data = utils.get_build_data(build_url,
+                                                                      builder_type=builder_type)
                                 if not build_data:
                                     # Failed to get the build data for this
                                     # build. Break out of the artifacts for this
@@ -450,7 +458,6 @@ class TaskClusterBuilds(BuildLocation):
                                                  '%s, build_data: %s, tier: %s',
                                                  worker_type, build_data, tier)
                                     builds.append(build_data)
-                                    break # artifacts
                     except StopIteration:
                         pass
             logger.debug('_find_builds_by_task_ids: %s', builds)
@@ -485,7 +492,7 @@ class TaskClusterBuilds(BuildLocation):
             logger.debug('_find_latest_task_ids: listTasks(%s, %s): response: %s',
                          namespace, payload, response)
             for task in response['tasks']:
-                # gecko.v2.mozilla-central.nightly.latest.mobile.android-api-15-opt
+                # gecko.v2.mozilla-central.nightly.latest.mobile.android-api-16-opt
                 logger.debug('_find_latest_task_ids: task: %s', task)
                 task_id = task['taskId']
                 task_definition = self.queue.task(task_id)
@@ -495,9 +502,6 @@ class TaskClusterBuilds(BuildLocation):
                 tier = get_treeherder_tier(repo, task_id, 0)
                 task_namespace = task['namespace']
                 (platform, build_type) = parse_taskcluster_namespace(task_namespace)
-                # We must relax the tier 1 requirement since we want geckoview_example
-                # builds but they are tier 2. We may need to check for the android-api-15-gradle
-                # platform to filter the original tier 1 fennec builds. TBD.
                 if platform in self.build_platforms and \
                    build_type in self.buildtypes:
                     logger.debug('_find_lastest_task_ids: adding worker_type: %s, '
@@ -633,7 +637,7 @@ class TaskClusterBuilds(BuildLocation):
                                          'using task_definition["metadata"]["name"]')
                             # task_definition['metadata']['name'] has the form:
                             # 'build-<platform>/<buildtype>'. For example:
-                            # 'build-android-api-15/debug'
+                            # 'build-android-api-16/debug'
                             (platform, build_type) = task_definition['metadata']['name'].split('/')
                             platform = platform.replace('build-', '')
                         if build_type is None and 'extra' in task_definition and \
@@ -1226,7 +1230,14 @@ class BuildCache(object):
         # If the build_url is for a local build, force the download since it may
         # have changed even though the build_url hasn't.
         force = force or not urlparse.urlparse(build_url).scheme.startswith('http')
-        build_dir = base64.b64encode(build_url)
+        # Create the cached build directory from the build_url by
+        # base64 encoding the url to the directory containing the
+        # build. This will ensure that if we have multiple apks for a
+        # given changeset, they will all share the same cached
+        # directory and downloaded auxiliary files such as the crash
+        # symbols, etc. Note that we will need to create a separate
+        # metadata json file for each apk type we are downloading.
+        build_dir = base64.b64encode(os.path.dirname(build_url))
         self.clean_cache([build_dir])
         cache_build_dir = os.path.join(self.cache_dir, build_dir)
         if is_geckoview_example:
@@ -1263,9 +1274,13 @@ class BuildCache(object):
             shutil.move(tmpf.name, build_path)
         file(os.path.join(cache_build_dir, 'lastused'), 'w')
 
-        # Kludge to handle automatically downloading the
-        # fennec.apk corresponding to the geckoview_example.apk.
         if is_geckoview_example:
+            # Kludge to handle automatically downloading the
+            # fennec.apk corresponding to the geckoview_example.apk.
+            # This is needed in build_metadata() order to get the
+            # procname and version. If the geckoview_example.apk
+            # contained the necessary data, we would not have to
+            # download fennec here.
             if force or not os.path.exists(fennec_build_path):
                 try:
                     utils.urlretrieve(fennec_build_url, fennec_build_path)
@@ -1444,13 +1459,6 @@ class BuildCache(object):
         # existing cached build.
         logger = utils.getLogger()
         remote = urlparse.urlparse(build_url).scheme.startswith('http')
-        build_metadata_path = os.path.join(build_dir, 'metadata.json')
-        if remote and os.path.exists(build_metadata_path):
-            try:
-                return BuildMetadata().from_json(
-                    json.loads(file(build_metadata_path).read()))
-            except (ValueError, IOError):
-                pass
         app_name = None
         if build_url.endswith('geckoview_example.apk'):
             # Taskcluster only, Gradle only for now.
@@ -1458,10 +1466,18 @@ class BuildCache(object):
             # its apk file that fennec does. Use the parallel
             # fennec.apk to get the appropriate information for
             # geckoview_example.
+            build_metadata_path = os.path.join(build_dir, 'geckoview_example_metadata.json')
             app_name = 'org.mozilla.geckoview_example'
             fennec_apk_url = build_url.replace('geckoview_example.apk', 'target.apk')
         else:
+            build_metadata_path = os.path.join(build_dir, 'fennec_metadata.json')
             fennec_apk_url = build_url
+        if remote and os.path.exists(build_metadata_path):
+            try:
+                return BuildMetadata().from_json(
+                    json.loads(file(build_metadata_path).read()))
+            except (ValueError, IOError):
+                pass
         build_data = utils.get_build_data(fennec_apk_url, builder_type=builder_type)
         if not build_data:
             raise BuildCacheException('Could not get build_data for %s', build_url)

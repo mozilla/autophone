@@ -44,18 +44,17 @@ class PhoneTest(object):
 
     @classmethod
     def match(cls, tests=None, test_name=None, phoneid=None,
-              config_file=None, job_guid=None,
-              repo=None, platform=None, build_type=None, build_abi=None, build_sdk=None,
+              config_file=None, job_guid=None, repo=None, platform=None,
+              app_name=None, build_type=None, build_abi=None, build_sdk=None,
               changeset_dirs=None):
 
         logger = utils.getLogger()
         logger.debug('PhoneTest.match(tests: %s, test_name: %s, phoneid: %s, '
                      'config_file: %s, job_guid: %s, '
-                     'repo: %s, platform: %s, build_type: %s, '
+                     'repo: %s, platform: %s, app_name: %s, build_type: %s, '
                      'abi: %s, build_sdk: %s',
-                     tests, test_name, phoneid,
-                     config_file, job_guid,
-                     repo, platform, build_type, build_abi, build_sdk)
+                     tests, test_name, phoneid, config_file, job_guid,
+                     repo, platform, app_name, build_type, build_abi, build_sdk)
         matches = []
         if not tests:
             tests = [PhoneTest.instances[key] for key in PhoneTest.instances.keys()]
@@ -77,34 +76,57 @@ class PhoneTest(object):
                             matched = True
                             break
                 if not matched:
+                    logger.debug('PhoneTest.match: did not match changeset_dirs %s %s %s',
+                                 test, test.run_if_changed, changeset_dirs)
                     continue
 
             if test_name and test_name != test.name and \
                "%s%s" % (test_name, test.name_suffix) != test.name:
+                logger.debug('PhoneTest.match: did not match test_name %s %s %s',
+                             test, test_name, test.app_names)
                 continue
 
             if phoneid and phoneid != test.phone.id:
+                logger.debug('PhoneTest.match: did not match phoneid %s %s %s',
+                             test, phoneid, test.phone.id)
                 continue
 
             if config_file and config_file != test.config_file:
+                logger.debug('PhoneTest.match: did not match config_file %s %s %s',
+                             test, config_file, test.config_file)
                 continue
 
             if job_guid and job_guid != test.job_guid:
+                logger.debug('PhoneTest.match: did not match job_guid %s %s %s',
+                             test, job_guid, test.job_guid)
                 continue
 
             if repo and test.repos and repo not in test.repos:
+                logger.debug('PhoneTest.match: did not match repo %s %s %s',
+                             test, repo, test.repos)
                 continue
 
             if build_type and build_type not in test.buildtypes:
+                logger.debug('PhoneTest.match: did not match build_type %s %s %s',
+                             test, build_type, test.buildtypes)
                 continue
 
             if platform and platform not in test.platforms:
+                logger.debug('PhoneTest.match: did not match platform %s %s %s',
+                             test, platform, test.platforms)
+                continue
+
+            if app_name and app_name not in test.app_names:
+                logger.debug('PhoneTest.match: did not match app_name %s %s %s',
+                             test, app_name, test.app_names)
                 continue
 
             if build_abi and build_abi not in test.phone.abi:
                 # phone.abi may be of the form armeabi-v7a, arm64-v8a
                 # or some form of x86. Test for inclusion rather than
                 # exact matches to cover the possibilities.
+                logger.debug('PhoneTest.match: did not match build_api %s %s %s',
+                             test, build_api, test.phone.abi)
                 continue
 
             if build_sdk and build_sdk not in test.phone.supported_sdks:
@@ -118,6 +140,8 @@ class PhoneTest(object):
                         sdk_found = True
                         break
                 if not sdk_found:
+                    logger.debug('PhoneTest.match: did not match build_sdk %s %s %s',
+                                 test, build_sdk, test.phone.supported_sdks)
                     continue
 
             matches.append(test)
@@ -276,6 +300,12 @@ class PhoneTest(object):
             self.buildtypes = self.cfg.get('builds', 'buildtypes').split(' ')
         except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
             self.buildtypes = list(self.options.buildtypes)
+
+        self.app_names = []
+        try:
+            self.app_names = self.cfg.get('builds', 'app_names').split(' ')
+        except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+            self.app_names = ['org.mozilla.fennec']
 
         self.platforms = []
         try:

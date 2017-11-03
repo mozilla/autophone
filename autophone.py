@@ -445,6 +445,7 @@ class AutoPhone(object):
     # Start the phones for testing
     def new_job(self, job_data):
         LOGGER.info('new_job: %s', job_data)
+        app_name = job_data['app_name']
         build_url = job_data['build']
         tests = job_data['tests']
 
@@ -454,7 +455,8 @@ class AutoPhone(object):
             LOGGER.info('new_job for worker phoneid %s', phoneid)
             # Determine if we will test this build, which tests to run and if we
             # need to enable unittests.
-            runnable_tests = PhoneTest.match(tests=tests,
+            runnable_tests = PhoneTest.match(app_name=app_name,
+                                             tests=tests,
                                              phoneid=phoneid,
                                              repo=job_data['repo'],
                                              platform=job_data['platform'],
@@ -914,10 +916,15 @@ ok
         abi = build_data['abi']
         sdk = build_data['sdk']
         test_names = trigger_data['test_names']
+        apk_file = os.path.basename(build_url)
+        app_name = utils.get_app_name_from_build_url(build_url)
+        if not app_name:
+            LOGGER.error('Unknown apk_file name %s', apk_file)
+            return
 
         # If we can not determine the sdk, default to all, abi to arm.
         if not sdk:
-            sdk = 'api-9,api-10,api-11,api-15,api-16'
+            sdk = 'api-16'
             LOGGER.warning('trigger_jobs: default sdks: %s', sdk)
         if not abi:
             abi = 'arm'
@@ -936,7 +943,8 @@ ok
             devices = [None]
         for test_name in test_names:
             for device in devices:
-                tests.extend(PhoneTest.match(test_name=test_name,
+                tests.extend(PhoneTest.match(app_name=app_name,
+                                             test_name=test_name,
                                              phoneid=device,
                                              repo=repo,
                                              platform=platform,
@@ -946,6 +954,7 @@ ok
                                              changeset_dirs=changeset_dirs))
         if tests:
             job_data = {
+                'app_name': app_name,
                 'build': build_url,
                 'build_id': build_data['id'],
                 'build_type': build_data['build_type'],
@@ -972,11 +981,16 @@ ok
         if self.pulse_monitor._stopping.is_set():
             LOGGER.debug('on_build: shutting down: ignoring build')
             return
+        if self.state != ProcessStates.RUNNING:
+            LOGGER.debug('on_build: not running: ignoring build')
+            return
+        LOGGER.debug('PULSE BUILD FOUND %s', build_data)
+        for app_name in build_data['app_data']:
+            self.on_app_build(app_name, build_data)
+
+    def on_app_build(self, app_name, build_data):
         try:
-            if self.state != ProcessStates.RUNNING:
-                return
-            LOGGER.debug('PULSE BUILD FOUND %s', build_data)
-            build_url = build_data['url']
+            build_url = build_data['app_data'][app_name]
             platform = build_data['platform']
             repo = build_data['repo']
             build_id = build_data['id']
@@ -989,12 +1003,16 @@ ok
             sdk = build_data['sdk']
             comments = build_data['comments']
             if repo != 'try':
-                tests = PhoneTest.match(repo=repo, platform=platform,
-                                        build_type=build_type, build_abi=abi,
-                                        build_sdk=sdk, changeset_dirs=changeset_dirs)
+                tests = PhoneTest.match(app_name=app_name,
+                                        repo=repo,
+                                        platform=platform,
+                                        build_type=build_type,
+                                        build_abi=abi,
+                                        build_sdk=sdk,
+                                        changeset_dirs=changeset_dirs)
             else:
                 # Autophone try builds will have a comment of the form:
-                # try: -b o -p android-api-9,android-api-15 -u autophone-smoke,autophone-s1s2 -t none
+                # try: -b o -p android-api-16 -u autophone-smoke,autophone-s1s2 -t none
                 # Do not allow global selection of tests
                 # since Autophone can not handle the load.
                 tests = []
@@ -1005,13 +1023,15 @@ ok
                                   if t.startswith('autophone-') and
                                   t != 'autophone-tests']
                     for test_name in test_names:
-                        tests.extend(PhoneTest.match(test_name=test_name,
+                        tests.extend(PhoneTest.match(app_name=app_name,
+                                                     test_name=test_name,
                                                      repo=repo,
                                                      platform=platform,
                                                      build_type=build_type,
                                                      build_abi=abi,
                                                      build_sdk=sdk))
             job_data = {
+                'app_name': app_name,
                 'build': build_url,
                 'build_id': build_id,
                 'build_type': build_type,
@@ -1062,6 +1082,7 @@ ok
                                      build_url)
                     else:
                         job_data = {
+                            'app_name': utils.get_app_name_from_build_url(build_url),
                             'build': build_data['url'],
                             'build_id': build_data['id'],
                             'build_type': build_data['build_type'],
@@ -1391,8 +1412,8 @@ def main():
                       action='append',
                       default=[],
                       help='The platforms to test. '
-                      'One or more platforms such as android-api-15, or '
-                      'android-api-15-gradle. To specify multiple build types, '
+                      'One or more platforms such as android-api-16. '
+                      'To specify multiple platforms, '
                       'specify them with additional --platform options. '
                       'Defaults to empty.')
     parser.add_option('--lifo',

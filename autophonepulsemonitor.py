@@ -12,6 +12,7 @@ from kombu import Connection, Exchange, Queue
 import taskcluster
 
 import utils
+from builds import get_treeherder_tier
 
 DEFAULT_SSL_PORT = 5671
 
@@ -72,9 +73,8 @@ class AutophonePulseMonitor(object):
         job action pulse messages are to be processed. Defaults to None.
     :param trees: Required list of repository names to be matched.
     :param platforms: Required list of platforms to be
-        matched. Currently, the possible values are 'android',
-        'android-api-9', 'android-api-10', 'android-api-11',
-        'android-api-15', 'android-api-16' and 'android-x86'.
+        matched. Currently, the possible values are 'android-api-16' and
+        'android-x86'.
     :param buildtypes: Required list of build types to
         process. Possible values are 'opt', 'debug'
     :param timeout: Timeout in seconds for the kombu connection
@@ -347,11 +347,13 @@ class AutophonePulseMonitor(object):
         build_data = None
         artifact_data = {}
         artifacts = utils.taskcluster_artifacts(task_id, run_id)
-        # Save temporary holders for the build_url and app_name in order
-        # that we may safely override the values returned from fennec in the
-        # case that we are actually returning the geckoview_example build.
-        build_url = None
-        app_name = None
+        # Process the artifacts for the task looking for app build artifacts
+        # with which to test. These currently are limited to target.apk
+        # for fennec and geckoview_example.apk. target.apk is used
+        # to obtain meta data for the build.
+        # app_data is used to map the app name to the url to the apk file.
+        # app_data[app_name] == build_url
+        app_data = {}
         while True:
             try:
                 artifact = artifacts.next()
@@ -360,12 +362,21 @@ class AutophonePulseMonitor(object):
             key = artifact['name'].replace('public/build/', '')
             artifact_data[key] = 'https://queue.taskcluster.net/v1/task/%s/runs/%s/artifacts/%s' % (
                 task_id, run_id, artifact['name'])
+            build_url = artifact_data[key]
             logger.debug('handle_taskcompleted: artifact: %s', artifact)
             if key == 'target.apk':
-                build_data = utils.get_build_data(artifact_data[key], builder_type=builder_type)
+                # The actual app name may be slightly different depending on the repository.
+                app_data['org.mozilla.fennec'] = build_url
+                build_data = utils.get_build_data(build_url, builder_type=builder_type)
                 if not build_data:
                     logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
-                                   'could not get build data for %s', task_id, run_id, artifact_data[key])
+                                   'could not get build data for %s', task_id, run_id, build_url)
+                    return
+
+                tier = get_treeherder_tier(build_data['repo'], task_id, run_id)
+                if builder_type != 'buildbot' and tier != 1:
+                    logger.debug('handle_taskcompleted: ignoring worker_type: %s, tier: %s',
+                                 worker_type, tier)
                     return
 
                 if build_data['repo'] not in self.trees:
@@ -389,9 +400,6 @@ class AutophonePulseMonitor(object):
                                    task_id, run_id, build_data)
                     return
 
-                build_url = build_data['url']
-                if not app_name:
-                    app_name = 'org.mozilla.fennec'
                 logger.debug('handle_taskcompleted: got target.apk')
             elif key == 'geckoview_example.apk':
                 # The geckoview_example app is built from the same source
@@ -399,25 +407,16 @@ class AutophonePulseMonitor(object):
                 # build_data look ups here but we will record the app_name
                 # and the build_url
                 logger.debug('handle_taskcompleted: got geckoview_example.apk')
-                app_name = 'org.mozilla.geckoview_example'
+                app_data['org.mozilla.geckoview_example'] = build_url
 
         if not build_data:
             logger.warning('handle_taskcompleted: task_id: %s, run_id: %s: '
                            'could not get build_data', task_id, run_id)
             return
 
-        # We are totally ignoring the gradle build of fennec in favor
-        # of the geckoview_example.apk. If in the future we need to test
-        # both, then we will have to change this to do the call back on
-        # the fennec build and to download the geckoview_example.apk when
-        # we download the fennec build.
-
-        if app_name == 'org.mozilla.geckoview_example':
-            build_url = build_url.replace('target.apk', 'geckoview_example.apk')
-
-        build_data['app_name'] = app_name
-        build_data['url'] = build_url
         build_data['builder_name'] = 'unknown'
+        # Save the app_data to the build_data object to be used in the build_callback.
+        build_data['app_data'] = app_data
 
         logger.debug('handle_taskcompleted: task_id: %s, run_id: %s: build_data: %s',
                      task_id, run_id, build_data)
@@ -509,8 +508,7 @@ def main():
         build_callback=build_callback,
         jobaction_callback=jobaction_callback,
         trees=['try', 'mozilla-inbound'],
-        platforms=['android-api-9', 'android-api-11', 'android-api-15',
-                   'android-api-16'],
+        platforms=['android-api-16'],
         buildtypes=['opt'])
 
     monitor.start()

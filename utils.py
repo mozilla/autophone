@@ -483,6 +483,34 @@ def get_changeset_dirs(changeset_url, max_changesets=32):
     return dirs
 
 
+def get_app_name_from_build_url(build_url):
+    """
+    Return the effective app name determined by inspecting
+    the file referenced in a build url.
+
+    build url ends with:      return
+        target.apk            'org.mozilla.fennec'
+        geckoview_example.apk 'org.mozilla.geckoview_example'
+        otherwise             None
+
+    This may return an incorrect result if taskcluster produces
+    artifacts named target.apk which are not fennec builds or if
+    the build url references an unexpected application.
+
+    org.mozilla.fennec is a generic app name but may not match the
+    actual app name used by the app. For example, if build url
+    references a nightly fennec build, we would return 'org.mozilla.fennec'
+    even though the actual app name would be 'org.mozilla.fennec_aurora'.
+    Nonetheless, this function allows us to quickly classify a build
+    without having to resort to more time consuming approaches.
+    """
+    if build_url.endswith('target.apk'):
+        return 'org.mozilla.fennec'
+    if build_url.endswith('geckoview_example.apk'):
+        return 'org.mozilla.geckoview_example'
+    return None
+
+
 def generate_guid():
     return str(uuid.uuid4())
 
