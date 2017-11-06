@@ -1016,7 +1016,7 @@ ok
                 # Do not allow global selection of tests
                 # since Autophone can not handle the load.
                 tests = []
-                reTests = re.compile('try:.* (?:-u|--unittests) (.*) -t.*')
+                reTests = re.compile('try:.*(?:-u|--unittests) +([^ ]*)')
                 match = reTests.match(comments)
                 if match:
                     test_names = [t for t in match.group(1).split(',')
