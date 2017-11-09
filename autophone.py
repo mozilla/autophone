@@ -890,7 +890,9 @@ ok
                                  devices)
                     test_devices_repos = {}
                     for device in devices:
-                        test_devices_repos[device] = t[device].split()
+                        # Truncate any option comment then split into repos
+                        test_devices_repos[device] = re.sub(' *;.*', '',
+                                                            t[device]).split()
                     configs = config.split()
                     for config_file in configs:
                         config_file = os.path.normpath(
