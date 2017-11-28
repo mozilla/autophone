@@ -378,6 +378,7 @@ class PhoneTest(object):
                 'beacon.enabled': False,
                 'browser.EULA.override': True,
                 'browser.aboutHomeSnippets.updateUrl': '',
+                'browser.cache.disk.parent_directory': '%s/cache' % self.profile_path,
                 'browser.contentHandlers.types.0.uri': 'http://localhost/rss?url=%%s',
                 'browser.contentHandlers.types.1.uri': 'http://localhost/rss?url=%%s',
                 'browser.contentHandlers.types.2.uri': 'http://localhost/rss?url=%%s',
