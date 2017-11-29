@@ -821,7 +821,7 @@ class PhoneTest(object):
         else:
             prefs = self.preferences
         profile = Profile(preferences=prefs, addons=addons)
-        if not self.install_profile(profile):
+        if not self.install_profile(profile=profile):
             return False
 
         # Accumulate the logcat prior to the launch so that we don't
@@ -1077,7 +1077,7 @@ class PhoneTest(object):
 
     def install_profile(self, profile=None, root=True):
         if not profile:
-            profile = Profile()
+            raise Exception('install_profile: profile not provided')
 
         profile_path_parent = os.path.split(self.profile_path)[0]
         success = False
