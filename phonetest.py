@@ -834,16 +834,28 @@ class PhoneTest(object):
         self.run_fennec_with_profile(self.build.app_name, self._initialize_url)
         # Check for page load before attempting to stop the application
         found_page_load = False
-        re_zerdatime = re.compile('GeckoTabs.*: zerdatime [0-9]+ - page load stop')
+        ignore_page = False
+        re_geckoview_starting = re.compile('GeckoViewActivity.*Starting to load page at (.*)')
+        re_zerdatime = re.compile('Gecko.*: zerdatime [0-9]+ - page load stop')
         for attempt in range(1, 11):
-            self.loggerdeco.debug('create_profile: stop_application: waiting attempt: %s', attempt)
+            self.loggerdeco.debug('create_profile: waiting for page stop: attempt: %s',
+                                  attempt)
             buf = self.worker_subprocess.logcat.get()
             for line in buf:
                 self.loggerdeco.debug('create_profile: logcat: %s', line)
-                if re_zerdatime.search(line):
-                    self.loggerdeco.debug('create_profile: found page load stop')
-                    found_page_load = True
-                    break
+                match = re_geckoview_starting.search(line)
+                if match:
+                    url = match.group(1)
+                    if url == 'about:blank' or url == 'https://mozilla.org/':
+                        self.loggerdeco.debug('create_profile: ignoring %s', line)
+                        ignore_page = True
+                elif re_zerdatime.search(line):
+                    if ignore_page:
+                        ignore_page = False
+                    else:
+                        self.loggerdeco.debug('create_profile: found page load stop')
+                        found_page_load = True
+                        break
             if found_page_load:
                 break
             sleep(1)
