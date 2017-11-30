@@ -325,10 +325,12 @@ class S1S2Test(PerfTest):
         # geckoview_example emits page start and stop messages for
         # about:blank prior to loading real pages. When is_about_blank
         # is True, we will ignore any page start and stop messages.
-        is_about_blank = False
+        # geckoview_example also will load https://mozilla.org/ if it is
+        # launched without an url.
+        ignore_page = False
         re_about_blank_start = re.compile('%s I/GeckoViewActivity.*Starting to load page at about:blank' %
                                           logcat_prefix)
-        re_about_blank_stop = re.compile('%s I/GeckoViewActivity.*Stopping page load' %
+        re_mozilla_org_start = re.compile('%s I/GeckoViewActivity.*Starting to load page at https://mozilla.org/' %
                                           logcat_prefix)
 
         start_time = 0
@@ -346,14 +348,24 @@ class S1S2Test(PerfTest):
             for line in buf:
                 self.loggerdeco.debug('analyze_logcat: %s', line)
 
-                if is_about_blank:
-                    match = re_about_blank_stop.match(line)
+                if ignore_page:
+                    self.loggerdeco.debug('analyze_logcat: ignoring %s', line)
+                    match = re_throbber_stop_time.match(line)
                     if match:
-                        is_about_blank = False
+                        ignore_page = False
                     continue
                 match = re_about_blank_start.match(line)
                 if match:
-                    is_about_blank = True
+                    self.loggerdeco.debug('analyze_logcat: ignoring %s', line)
+                    ignore_page = True
+                    continue
+                match = re_mozilla_org_start.match(line)
+                if match:
+                    self.loggerdeco.debug('analyze_logcat: ignoring %s', line)
+                    ignore_page = True
+                    self.loggerdeco.warning(
+                        'analyze_logcat: unexpected load of https://mozilla.org. '
+                        'geckoview_example launched without url?')
                     continue
 
                 if not start_time:
