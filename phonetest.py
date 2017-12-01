@@ -126,7 +126,7 @@ class PhoneTest(object):
                 # or some form of x86. Test for inclusion rather than
                 # exact matches to cover the possibilities.
                 logger.debug('PhoneTest.match: did not match build_api %s %s %s',
-                             test, build_api, test.phone.abi)
+                             test, build_abi, test.phone.abi)
                 continue
 
             if build_sdk and build_sdk not in test.phone.supported_sdks:
