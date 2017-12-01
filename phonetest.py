@@ -760,6 +760,15 @@ class PhoneTest(object):
 
         Raises ADBError, ADBRootError, ADBTimeoutError
         """
+        # If the app is not already running, issuing an intent will
+        # actually start the app and initialize the default
+        # profile. This is problematic for a number of reasons
+        # especially for geckoview_example which will load
+        # https://mozilla.org/ if started without a url. Therefore,
+        # check if the app is running and if not, just return True.
+        if not self.dm.process_exist(self.build.app_name):
+            return True
+
         if max_wait_time < 1:
             max_wait_time = 1
         result = True
