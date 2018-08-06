@@ -499,6 +499,7 @@ class PhoneTest(object):
                 'security.notification_enable_delay': 0,
                 'security.ssl.errorReporting.url': 'https://localhost/browser/browser/base/content/test/general/pinning_reports.sjs?succeed',
                 'shell.checkDefaultClient': False,
+                'services.settings.server': 'http://localhost/remote-settings-dummy/v1',
                 'toolkit.startup.max_resumed_crashes': -1,
                 'toolkit.telemetry.cachedClientID': 'dddddddd-dddd-dddd-dddd-dddddddddddd', # https://dxr.mozilla.org/mozilla-central/source/toolkit/modules/ClientID.jsm#40
                 'toolkit.telemetry.enabled': False,
