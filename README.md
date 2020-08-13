@@ -1,5 +1,7 @@
 # Autophone, a mobile-device manager for automated-test frameworks
 
+** This project is no longer active and has been archived. **
+
 Autophone controls one or more mobile devices via adb. Its primary
 goals are to:
 
